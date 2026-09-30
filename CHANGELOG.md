@@ -31,6 +31,15 @@
 
 ### Added
 
+- **断线重连（D4）：客户端退避重连 + 重连后验身**（`ctl/client.py`、`--retry <SECONDS>`）。
+  动机：IDE 重启（或被换掉）之后，长脚本应当能**自己续上**，但**绝不能**在不知情的情况下
+  对着"另一个人"继续跑。
+  · `--retry SECONDS`（默认 **0 = 立刻失败**，保持一次性命令的既有行为不变）启用后：
+    连接失败按**指数退避**（0.5 s 起、封顶 5 s）重试，直到预算用尽。
+  · 启用后**首次连上会先 `sys.env` 钉住 `(bundle, protocol)`**；**每次重连成功后必须再取一次
+    `sys.env` 比对**，不一致 ⇒ `ERR internal … reconnected to a DIFFERENT bridge … refusing to
+    continue`，**绝不带着它的状态往下跑**。
+  · `Client` 同时暴露 `retry=` 与 `reconnects` 计数（供脚本/证据用）。
 - **活体保留容量：满员后 `sys.ping` / `sys.env` / `sys.help` 仍然能答**（`protocol.md` §4.4）。
   动机是实测出来的：连接槽按 `accept()` 计入，**8 条只是连着、不发任何请求**的连接就能把全功能槽占满
   （每条占满 `SOCKET_READ_TIMEOUT_MS`=60 s），此后连 `sys.ping` 都只能拿到 `ERR busy` ——

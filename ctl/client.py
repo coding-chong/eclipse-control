@@ -37,6 +37,12 @@ HOST = "127.0.0.1"
 DEFAULT_PORT = 8777
 
 #: Client-side deadline (design: "客户端默认 25 s").
+
+#: 退避重连的基/上限（秒）。指数退避，封顶 RETRY_MAX。
+RETRY_BASE_S = 0.5
+RETRY_MAX_S = 5.0
+
+#: 退避/钉住用到的正则（sys.env 负载）。
 DEFAULT_TIMEOUT = 25.0
 #: Bridge-side UI cap; the client normally receives `ERR timeout` before it
 #: would time out itself (`design-project.md` §17.5).
@@ -211,6 +217,14 @@ def _default_run_root() -> str:
     return DEFAULT_RUN_ROOT
 
 
+def _parse_env(raw: str) -> dict:
+    """从 `sys.env` 的负载里取 (bundle 名, protocol) —— 用来钉住「我在跟谁说话」。"""
+    m = re.search(r"^bundle=(\S+)", raw, re.M)
+    p = re.search(r"^protocol=(\S+)", raw, re.M)
+    return {"bundle": m.group(1) if m else "<unknown>",
+            "protocol": p.group(1) if p else "<unknown>"}
+
+
 def talk(req: str, port: Optional[int] = None, timeout: float = DEFAULT_TIMEOUT,
          host: str = HOST, token: str = "", run_root: Optional[str] = None,
          run_id: Optional[str] = None) -> str:
@@ -297,29 +311,72 @@ class Client:
 
     def __init__(self, port: Optional[int] = None, host: str = HOST,
                  timeout: float = DEFAULT_TIMEOUT, token: str = "",
-                 run_root: Optional[str] = None, run_id: Optional[str] = None):
+                 run_root: Optional[str] = None, run_id: Optional[str] = None,
+                 retry: float = 0.0):
         self._port = port
         self.host = host
         self.timeout = timeout
         self.token = token
         self.run_root = run_root
         self.run_id = run_id
+        #: 连接失败时的退避重连预算（秒）。0 = 立刻失败（默认，保持一次性命令的行为）。
+        self.retry = float(retry or 0.0)
+        #: 首次连上时钉住的 (bundle, protocol)；重连后必须一致（D4）。
+        self._pinned: Optional[dict] = None
+        #: 最近一次请求是否经历过重连（供调用方/证据用）。
+        self.reconnects = 0
 
     @classmethod
     def from_run(cls, run_root: str, run_id: str, timeout: float = DEFAULT_TIMEOUT,
-                 token: str = "") -> "Client":
+                 token: str = "", retry: float = 0.0) -> "Client":
         endpoint = discover_endpoint(run_root, run_id)
         return cls(port=endpoint["port"], timeout=timeout,
                    token=token or endpoint.get("token") or "",
-                   run_root=run_root, run_id=run_id)
+                   run_root=run_root, run_id=run_id, retry=retry)
 
     def port(self) -> int:
         return resolve_port(self._port, self.run_root, self.run_id)
 
-    def talk(self, req: str, timeout: Optional[float] = None) -> str:
-        return talk(req, port=self._port, timeout=timeout or self.timeout,
+    def _raw(self, req: str, timeout: float) -> str:
+        return talk(req, port=self._port, timeout=timeout,
                     host=self.host, token=self.token,
                     run_root=self.run_root, run_id=self.run_id)
+
+    def _pin(self) -> dict:
+        """首次连上时记下 (bundle, protocol)，作为 D4 重连的比对基准。"""
+        env = _parse_env(self._raw("sys.env", self.timeout))
+        self._pinned = env
+        return env
+
+    def talk(self, req: str, timeout: Optional[float] = None) -> str:
+        t = timeout or self.timeout
+        if self.retry <= 0:
+            return self._raw(req, t)
+        if self._pinned is None:
+            self._pin()
+        deadline = time.time() + self.retry
+        delay = RETRY_BASE_S
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                raw = self._raw(req, t)
+                break
+            except CtlError:
+                if time.time() >= deadline:
+                    raise
+                time.sleep(min(delay, max(0.0, deadline - time.time())))
+                delay = min(delay * 2, RETRY_MAX_S)
+        if attempt > 1:
+            self.reconnects += 1
+            # **重连后必须重新验身**：换了个人就停下，别带着它的状态继续跑。
+            now = _parse_env(self._raw("sys.env", t))
+            if now != self._pinned:
+                raise CtlError(
+                    "internal",
+                    "reconnected to a DIFFERENT bridge: was %r, now %r; refusing to continue "
+                    "(the run may have been replaced mid-flight)" % (self._pinned, now))
+        return raw
 
     def resp(self, req: str, timeout: Optional[float] = None) -> Tuple[str, List[str], str]:
         return resp(req, port=self._port, timeout=timeout or self.timeout,

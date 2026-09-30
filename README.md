@@ -20,6 +20,7 @@
 | 按 UI 文字反查命令 id | `python -m ctl commands find --text "Reset Perspective"` |
 | 跑门禁用例 | `python -m ctl verify --group write --run-id <id>`（组：`read` / `write` / `errors`） |
 | 跑全部门禁 | `python -m ctl verify --all --run-id <id>` |
+| 长脚本扛 IDE 重启 | 加 `--retry 120`（退避重连；重连后验身，版本不符则报错退出） |
 | 卸桥并自检干净 | `python -m ctl uninstall --target gs32 --verify-clean` |
 | 编译打包桥 | `python -m ctl build --target gs32` |
 | 发布前总检 | `python -m ctl preflight --target gs32,ccs12` |

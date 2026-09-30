@@ -121,6 +121,12 @@ def _common() -> argparse.ArgumentParser:
                         help="target name; repeatable and comma separated (default: default_target)")
     parent.add_argument("--run-id", dest="run_id", metavar="ID",
                         help="run instance id (default: <target>-<yyyymmdd-HHMM>, or the newest run)")
+    parent.add_argument("--retry", type=float, default=0.0, metavar="SECONDS",
+                        help="retry with exponential backoff for up to SECONDS when the "
+                             "bridge cannot be reached; 0 = fail immediately (default). "
+                             "After a reconnect the bridge is re-checked with sys.env and a "
+                             "different bundle/protocol aborts the command (D4)")
+
     parent.add_argument("--port", type=int, help="override the bridge port")
     parent.add_argument("--ensure-clean", dest="ensure_clean", action="store_true",
                         help="clear a same-port listener and same-configuration processes first")
@@ -324,7 +330,8 @@ def _single_target(args, config: Config) -> Target:
 
 
 def _client_for(config: Config, target: Target, run_id: Optional[str],
-                port: Optional[int]) -> Tuple[Client, str]:
+                port: Optional[int],
+                retry: float = 0.0) -> Tuple[Client, str]:
     """Resolve the endpoint for a run; never guess a port."""
     if port is not None:
         return Client(port=int(port), token=config.token), (run_id or "")
@@ -335,13 +342,14 @@ def _client_for(config: Config, target: Target, run_id: Optional[str],
             % (target.name, config.run_root, target.name))
     endpoint = discover_endpoint(config.run_root, rid)
     return Client(port=endpoint["port"], token=config.token,
-                  run_root=config.run_root, run_id=rid), rid
+                  run_root=config.run_root, run_id=rid, retry=retry), rid
 
 
 def _connect(args, config: Config) -> Tuple[Client, Target, str]:
     target = _single_target(args, config)
     client, rid = _client_for(config, target, getattr(args, "run_id", None),
-                              getattr(args, "port", None))
+                              getattr(args, "port", None),
+                              retry=getattr(args, "retry", 0.0))
     return client, target, rid
 
 
