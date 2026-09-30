@@ -153,6 +153,50 @@ truncated=true|false
 
 ---
 
+## 4.3 ⚠️ `OK` 会撒谎：写命令的失败是**异步**的（必读）
+
+**实测（2026-10-01）**：`cmd.runp org.eclipse.ui.views.showView viewId=<不存在的视图>`
+
+```
+OK                                    <- 协议说成功
+…
+executeCommand returned: null          <- 平台也说成功
+OK executed org.eclipse.ui.views.showView
+dialog=appeared "Problem Occurred"     <- 但 Eclipse 弹了错误框
+dialog_note=the command may have FAILED, or the dialog may be the expected behaviour;
+            close it and read back (ui.parts) before treating this call as done
+END
+```
+
+`ui.parts` 的 `views` **纹丝不动** —— 也就是「**界面没变 + 回话说成功**」。
+
+### 为什么不能用监听器解决
+`org.eclipse.core.commands.IExecutionListener`（经 `ICommandService.addExecutionListener` 注册）
+**抓不到**：handler 是**正常返回**的，错误在 UI 线程空闲**之后**才异步弹框。
+监听器看到的是成功。**别再走这条路。**
+
+### 因此契约加一条负载行（不是错误码）
+**所有写方法**（`ui.open` / `ui.close` / `cmd.run` / `cmd.runp` / 未来 `act *`）在动作前后
+各取一次「**可见且有标题的**顶层窗口标题」快照；多出来的窗口回报：
+
+| 负载行 | 含义 |
+|---|---|
+| `dialog=appeared "<标题1>", "<标题2>"` | 动作期间新出现了这些可见窗口 |
+| `dialog_note=…` | 提示：**可能是失败，也可能是本该弹框**；先关掉并回读再当作完成 |
+| `dialog=unknown (shell snapshot timed out; the UI thread may be blocked)` | UI 线程被占住，这次**没看见** —— 不要当作「没有弹框」 |
+
+**为什么不做成错误码**：有些命令本来就该弹框（打开首选项之类）。
+桥不是成功的判官，它只把**它能看见的事实**交出来；判断留给调用方。
+
+### 客户端契约（**必须遵守**）
+1. 写操作后**必须回读**（`ui.parts` 一类）取前后差 —— 这是唯一的语义判据。
+2. 见 `dialog=appeared` ⇒ **不得**把该次调用当成功；先看清框上写了什么再决定。
+3. 见 `dialog=unknown` ⇒ 当作「**没检查过**」，有模态框处置手段时用上。
+4. **回读差「没变化」时，必须区分两种原因**：幂等（成功）vs 失败。**只看 diff 分不出来。**
+
+> 桥外的交叉验证：`tools/win-enum.ps1` 也可做同样前后比对（**已实测能抓到**同一弹框），
+> 作为**独立于桥**的观测手段保留。
+
 ## 5. 鉴权
 
 - 桥**只绑 `127.0.0.1`**，局域网不可达（`design-project.md` §15.4 安全基线 1）。

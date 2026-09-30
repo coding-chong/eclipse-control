@@ -26,6 +26,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.core.commands.Command;
+import org.eclipse.core.commands.ExecutionEvent;
+import org.eclipse.core.commands.ExecutionException;
+import org.eclipse.core.commands.IExecutionListener;
+import org.eclipse.core.commands.NotHandledException;
 import org.eclipse.core.commands.IParameter;
 import org.eclipse.core.commands.NotEnabledException;
 import org.eclipse.core.commands.NotHandledException;
@@ -103,6 +107,10 @@ public class LiveBridge implements BundleActivator {
     private static final int DEFAULT_PORT = 8777;
     /** Max simultaneously served connections (design.md §4). */
     private static final int MAX_CONNECTIONS = 8;
+    /** 写方法执行后等多久再看一眼窗口（弹框是**异步**出现的，实测 executeCommand 正常返回后才弹）。 */
+    private static final long DIALOG_SETTLE_MS = resolveLong("ctl.dialogSettleMs", 400L);
+    /** 取一次窗口快照的上限（UI 线程被模态框占住时必须能失败而不是永久卡住）。 */
+    private static final long SHELL_PROBE_MS = resolveLong("ctl.shellProbeMs", 800L);
     /** Bounded wait for a UI-dispatched task (design.md §3, §17.5). */
     private static final int DEFAULT_UI_TIMEOUT_MS = 15000;
     /** Budget of {@code sys.wait jobs-idle} when no explicit millisecond argument is given. */
@@ -257,7 +265,7 @@ public class LiveBridge implements BundleActivator {
         add("cmd.run", "<id>", true, "unknown", true,
                 "execute a command; ERR disabled/unhandled come from the command framework; idempotent pending P2.1",
                 (a, o) -> cmdRun(a, o));
-        add("cmd.runp", "<id> <paramId>=<value>", true, "unknown", true,
+        add("cmd.runp", "<id> <paramId|=paramName>=<value>", true, "unknown", true,
                 "execute a command with one parameter; per-command idempotence, pending P2.1",
                 (a, o) -> cmdRunp(a, o));
     }
@@ -376,6 +384,65 @@ public class LiveBridge implements BundleActivator {
 
     // -------------------------------------------------------------- routing
 
+    private static long resolveLong(String key, long dflt) {
+        try {
+            String v = System.getProperty(key);
+            if (v != null && v.trim().length() > 0) return Long.parseLong(v.trim());
+        } catch (Throwable ignore) { }
+        return dflt;
+    }
+
+    private static void settle(long ms) {
+        if (ms <= 0) return;
+        try { Thread.sleep(ms); }
+        catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+    }
+
+    /**
+     * 可见 shell 的标题快照（已排序）。**超时返回 null = 未知**，调用方据此放弃判断而不是瞎猜。
+     *
+     * 两个必须守住的点：
+     *  ① 读 SWT 只能在 UI 线程上做 ⇒ 走 `asyncExec`；
+     *  ② **必须有上限等待** —— UI 线程若被模态框占住，无上限的 `syncExec` 会永久卡死这条连接（F7 的形态）。
+     */
+    private List<String> visibleShellKeysBounded(long budgetMs) {
+        final Display d;
+        try { d = Display.getDefault(); } catch (Throwable t) { return null; }
+        if (d == null || d.isDisposed()) return null;
+        final List<String> out = new ArrayList<String>();
+        final Object lock = new Object();
+        final boolean[] done = { false };
+        try {
+            d.asyncExec(new Runnable() {
+                @Override public void run() {
+                    try {
+                        for (Shell s : d.getShells()) {
+                            if (s == null || s.isDisposed() || !s.isVisible()) continue;
+                            String tx = s.getText();
+                            // **空标题的可见顶层窗一律不计**：实测全屏切换会冒出无标题的临时窗口，
+                            // 把它当弹框会假阳性。真弹框必有标题（「Problem Occurred」这类）。
+                            if (tx == null || tx.trim().length() == 0) continue;
+                            out.add(tx.trim());
+                        }
+                    } finally {
+                        synchronized (lock) { done[0] = true; lock.notifyAll(); }
+                    }
+                }
+            });
+        } catch (Throwable t) { return null; }
+        long deadline = System.currentTimeMillis() + budgetMs;
+        synchronized (lock) {
+            while (!done[0]) {
+                long remain = deadline - System.currentTimeMillis();
+                if (remain <= 0) return null;
+                try { lock.wait(Math.min(remain, 100L)); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
+            }
+        }
+        Collections.sort(out);
+        return out;
+    }
+
     private void dispatch(String req, List<String> res) throws Exception {
         int sp = req.indexOf(' ');
         String method = (sp < 0 ? req : req.substring(0, sp)).trim();
@@ -386,8 +453,45 @@ public class LiveBridge implements BundleActivator {
                     "unknown method: " + (method.isEmpty() ? "<empty request>" : method)
                     + " (see sys.help)");
         }
-        if (m.onUi) onUi(m, arg, res);
-        else m.handler.run(arg, res);
+        if (!m.write) {
+            if (m.onUi) onUi(m, arg, res);
+            else m.handler.run(arg, res);
+            return;
+        }
+        // 写方法：前后各取一次「可见窗口」快照，把**新出现的窗口**回报成 `dialog=` 行。
+        //
+        // 为什么必须放在**这里**（而不是 handler 内部）：弹框是**异步**出现的 ——
+        // 实测 `cmd.runp … viewId=<不存在的视图>` 时 `executeCommand` 正常返回（回话里就是
+        // `executeCommand returned: null`），错误框在 UI 线程空闲之后才弹。
+        // 所以只能在**释放 UI 线程之后**、在连接线程上等一小会儿再看。
+        //
+        // 为什么是「回报」而不是「判失败」：有些命令本来就该弹框（例如打开首选项）。
+        // 桥不是成功的判官 —— 它只负责把**它能看见的事实**交出来；判断留给调用方/验证器。
+        List<String> before = visibleShellKeysBounded(SHELL_PROBE_MS);
+        try {
+            if (m.onUi) onUi(m, arg, res);
+            else m.handler.run(arg, res);
+        } finally {
+            settle(DIALOG_SETTLE_MS);
+            List<String> after = visibleShellKeysBounded(SHELL_PROBE_MS);
+            if (before != null && after != null) {
+                List<String> added = new ArrayList<String>(after);
+                added.removeAll(before);
+                if (!added.isEmpty()) {
+                    StringBuilder sb = new StringBuilder();
+                    for (String s : added) {
+                        if (sb.length() > 0) sb.append(", ");
+                        sb.append('"').append(s).append('"');
+                    }
+                    res.add("dialog=appeared " + sb);
+                    res.add("dialog_note=the command may have FAILED, or the dialog may be the"
+                            + " expected behaviour; close it and read back (ui.parts) before"
+                            + " treating this call as done");
+                }
+            } else if (before == null || after == null) {
+                res.add("dialog=unknown (shell snapshot timed out; the UI thread may be blocked)");
+            }
+        }
     }
 
     /**
@@ -955,6 +1059,68 @@ public class LiveBridge implements BundleActivator {
         }
     }
 
+    /**
+     * 执行一条命令，并把「handler 抛了 ExecutionException」也当成失败。
+     *
+     * 背景（**实测踩到**）：`cmd.runp ... viewId=<不存在的视图>` 时，handler 抛
+     * ExecutionException、Eclipse 弹出「Multiple problems have occurred」错误框，
+     * 而 `IHandlerService.executeCommand()` **正常返回** —— 桥于是回了 `OK`。
+     * 这是最恶劣的一类假成功：**界面没变 + 回话说成功**，只读协议回话的验证两头都看不见。
+     * 这里用 `IExecutionListener` 把失败捕获成错误码。
+     *
+     * ⚠️ **不能只靠这一条**：E4 代理的 handler 未必触发监听器（此时会打印
+     * `note: no execution callback observed`）。客户端仍必须做
+     * 「动作 → 回读差」并**自己截图**（R9 / 门 G10）—— 桥不是成功的判官。
+     */
+    private Object executeTrapped(ICommandService cs, IHandlerService hs, Object target,
+                                  List<String> out) throws Exception {
+        final ExecTrap trap = new ExecTrap();
+        Object r;
+        // 监听器注册在 **ICommandService** 上（`org.eclipse.ui.commands.ICommandService`），
+        // 不是 IHandlerService —— 后者没有 addExecutionListener（编译期实测）。
+        try { cs.addExecutionListener(trap); } catch (Throwable ignore) { }
+        try {
+            if (target instanceof ParameterizedCommand) {
+                r = hs.executeCommand((ParameterizedCommand) target, null);
+            } else {
+                r = hs.executeCommand(String.valueOf(target), null);
+            }
+        } finally {
+            try { cs.removeExecutionListener(trap); } catch (Throwable ignore) { }
+        }
+        out.add("executeCommand returned: " + describeResult(r));
+        if (trap.notHandled != null) {
+            throw new CtlException(E_UNHANDLED, "command reported not-handled: "
+                    + oneLine(String.valueOf(trap.notHandled)));
+        }
+        if (trap.failure != null) {
+            throw new CtlException(E_INTERNAL, "command reported failure (handler threw "
+                    + trap.failure.getClass().getName() + "): " + oneLine(trap.failure.getMessage())
+                    + "; the IDE may be showing an error dialog - close it, then read back "
+                    + "(ui.parts) before retrying");
+        }
+        if (!trap.sawAny) {
+            out.add("note: no execution callback observed (E4-proxied handler?); "
+                    + "read back (ui.parts) to confirm the effect");
+        }
+        return r;
+    }
+
+    /** 抓 handler 失败用。四个回调都实现，failing 的两个记账。 */
+    private static final class ExecTrap implements IExecutionListener {
+        volatile ExecutionException failure;
+        volatile NotHandledException notHandled;
+        volatile boolean sawAny;
+        @Override public void preExecute(String commandId, ExecutionEvent event) { sawAny = true; }
+        @Override public void postExecuteSuccess(String commandId, Object returnValue) { sawAny = true; }
+        @Override public void postExecuteFailure(String commandId, ExecutionException e) {
+            sawAny = true; failure = e;
+        }
+        @Override public void notHandled(String commandId, NotHandledException e) {
+            sawAny = true; notHandled = e;
+        }
+    }
+
     private void cmdRun(String id, List<String> out) throws Exception {
         if (id.length() == 0) throw new CtlException(E_BADREQUEST, "usage: cmd.run <id>");
         IWorkbench wb = workbench();
@@ -967,8 +1133,7 @@ public class LiveBridge implements BundleActivator {
         if (c == null) throw new CtlException(E_NOTFOUND, "no such command id: " + id);
         out.add("before: defined=" + c.isDefined() + " handled=" + c.isHandled());
         if (!c.isDefined() && !c.isHandled()) throw new CtlException(E_NOTFOUND, "no such command id: " + id);
-        Object r = hs.executeCommand(id, null);
-        out.add("executeCommand returned: " + describeResult(r));
+        executeTrapped(cs, hs, id, out);
         out.add("OK executed " + id);
     }
 
@@ -995,13 +1160,63 @@ public class LiveBridge implements BundleActivator {
         if (c == null) throw new CtlException(E_NOTFOUND, "no such command id: " + id);
         if (!c.isDefined() && !c.isHandled()) throw new CtlException(E_NOTFOUND, "no such command id: " + id);
         IParameter p = c.getParameter(pname);
-        if (p == null) throw new CtlException(E_NOTFOUND, "command " + id + " has no parameter " + pname);
+        if (p == null) {
+            // 退一步：按**短名**唯一匹配。
+            // 两个坑（都实测过）：
+            //  ① `ICommand.getParameter()` 只认**参数全 id**（`org.eclipse.ui.views.showView.viewId`），
+            //     而设计文档 / 配方 / 边界文档写的都是短名 `viewId=<id>` —— 直接调会被拒。
+            //  ② **`IParameter.getName()` 是本地化显示标签，不是 XML 属性名**：实测
+            //     `  param id=org.eclipse.ui.views.showView.viewId name="View"` ——
+            //     所以拿 `getName()` 去比 `viewId` 永远比不中。
+            // ⇒ 短名的正确来源是**参数 id 里命令 id 之后的那一段**（`viewId`）。
+            // 命中 0 或 >1 一律失败并把候选全列出来（与 §18.3 的寻址纪律同源：宁可失败也不猜）。
+            IParameter[] declared = null;
+            try { declared = c.getParameters(); } catch (Throwable ignore) { }
+            List<IParameter> hits = new ArrayList<IParameter>();
+            String prefix = id + ".";
+            if (declared != null) {
+                for (IParameter pp : declared) {
+                    String pid;
+                    try { pid = pp.getId(); } catch (Throwable t) { pid = null; }
+                    if (pid == null) continue;
+                    String local = pid.startsWith(prefix) ? pid.substring(prefix.length()) : pid;
+                    String label;
+                    try { label = pp.getName(); } catch (Throwable t) { label = null; }
+                    if (pname.equals(local) || (label != null && pname.equals(label))) hits.add(pp);
+                }
+            }
+            if (hits.size() == 1) {
+                p = hits.get(0);
+                out.add("parameter resolved by name: " + pname + " -> " + p.getId());
+            } else if (hits.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                if (declared != null) {
+                    for (IParameter pp : declared) {
+                        if (sb.length() > 0) sb.append(", ");
+                        String pid;
+                        try { pid = pp.getId(); } catch (Throwable t) { pid = "?"; }
+                        String local = pid.startsWith(prefix) ? pid.substring(prefix.length()) : pid;
+                        sb.append(local).append(" (").append(pid).append(")");
+                    }
+                }
+                throw new CtlException(E_NOTFOUND, "command " + id + " has no parameter " + pname
+                        + (sb.length() > 0 ? "; declared: " + sb
+                                           : "; command declares no parameters (see cmd.query)"));
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (IParameter pp : hits) {
+                    if (sb.length() > 0) sb.append(", ");
+                    try { sb.append(pp.getId()); } catch (Throwable t) { sb.append("?"); }
+                }
+                throw new CtlException(E_BADREQUEST, "parameter name " + pname + " is ambiguous for "
+                        + id + " (matches " + hits.size() + "): " + sb + "; use the full parameter id");
+            }
+        }
         ParameterizedCommand pc = new ParameterizedCommand(c,
                 new Parameterization[] { new Parameterization(p, pvalue) });
-        out.add("parameter " + pname + "=" + pvalue);
+        out.add("parameter " + p.getId() + "=" + pvalue);
         out.add("parameterizedCommand id=" + pc.getId());
-        Object r = hs.executeCommand(pc, null);
-        out.add("executeCommand returned: " + describeResult(r));
+        executeTrapped(cs, hs, pc, out);
         out.add("OK executed " + pc.getId());
     }
 
