@@ -174,10 +174,28 @@
   以及 `python -m ctl commands find --text "OptionBytes"` 必须能命中该 id。
 - **证据**：`prd.md` A8 的 ⚠️ 注；`research/facts-baseline.md` §3 陷阱段末句（「`getDefinedCommandIds()` 还漏掉「有 handler 无声明」的 id（典型：厂商 OptionBytes）」）；恢复实现见桥的 `cmd.list` 处理里的 `handlerOnly` 块。
 
-### U12 三个 `idempotent` 值未回填
-- **未验证**：`cmd.runp showView` / `ui.open` / `cmd.run` 的幂等标记在 `protocol.md` §7 表中是 `unknown`（默认**不允许自动重试**）；**必须由 P2.1 实测回填**，不得照抄惯例（D5）。
-- **验证入口**：对同一目标**连做两次**并各取回读差——`showView` 同一视图 → views `8→8` 还是 `8→9`？`ui.open` 同一文件 → editors `1→1` 还是 `1→2`？`cmd.run` 依命令而定（`act click-button` 两次已明确**非幂等且危险**）。
-- **证据**：`design-project.md` §18.7 D5；`design.md` §7 表 `idempotent` 列的三个「待回填（P2.1）」。
+### A12 三个 `idempotent` 值**已实测回填**（2026-10-01）
+- **能做**：`protocol.md` §7 表与 `sys.help` 的 `idempotent` 列现为实测值 ——
+  `ui.open` = **`true`**（同一文件连开两次，`editors` **1→1**，Eclipse 复用已开的编辑器）；
+  `cmd.run` / `cmd.runp` = **`per-command`**。
+- **`per-command` 的含义（重要）**：一个方法名承载**任意**命令，方法级无从保证 ⇒
+  与 `unknown` **同等保守**（**不允许自动重试 / rollback**）。
+  依据：`org.eclipse.ui.window.fullscreenmode` 是**开关型**命令，连点两次**回到原状** ——
+  幂等性取决于**被调命令**，不是方法。**别拿 `showView` 一个用例推广到整个 `cmd.runp`。**
+- **证据**：`protocol.md` §7 的取值表；实测四元组见任务侧
+  `research/facts-baseline.md` §7.3。
+
+### N15 `cmd.run` / `cmd.runp` 的失败可能**异步**表现出来，且**监听器抓不到**
+- **不能做**：**不能**靠协议回话判断写命令成功了。实测 `cmd.runp … viewId=<不存在的视图>`：
+  回话 `OK`、`executeCommand returned: null`，而 Eclipse 随后弹出 `Problem Occurred` 错误框，
+  且 `ui.parts` 的 `views` 纹丝不动 —— **界面没变 + 回话说成功**。
+  同样**不能**靠 `ICommandService.addExecutionListener`（`org.eclipse.core.commands.IExecutionListener`）
+  抓：handler 正常返回，错误在 UI 线程空闲**之后**才弹框，**监听器看到的是成功**。
+- **能做**：桥会回报 `dialog=appeared "<标题>"` 负载行（动作前后各取一次「可见且有标题的顶层窗口」快照）；
+  桥外 `tools/win-enum.ps1` 也可做同样前后比对。
+- **仍然不够**：**不弹框的失败**（只写日志）它看不见 ⇒ 必须配合「回读差」。
+  而「回读差没变化」本身**分不清「幂等」与「失败」** ⇒ **三层缺一不可**。
+- **证据**：`protocol.md` §4.3；任务侧 `research/facts-baseline.md` §7.2。
 
 ### U13 part-scoped 命令的驱动方法
 - **未验证**：已知 `executeCommand(id, null)` **不**路由到部件级 handler（见 N9）；但**如何设置 selection / 构造 Event** 才能驱动这类命令，未验。

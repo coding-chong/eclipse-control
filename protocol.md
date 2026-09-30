@@ -264,15 +264,23 @@ python -m ctl status --target gs32 --json
 | `cmd.list [prefix] [--limit <n>]` | 读 | 否 | `true` | — |
 | `cmd.query <id>` | 读 | 否 | `true` | — |
 | `ui.close <viewId>` | 写 | 是 | `true` | `ui.parts` 的 views 集合移除该 id，且 `stillOpen=False` |
-| `ui.open <abs path>` | 写 | 是 | `unknown` | `editors` 计数 +1，且 class = `org.eclipse.cdt.internal.ui.editor.CEditor` |
-| `cmd.run <id>` | 写 | 是 | `unknown` | **依命令而定**（多数需专门判据） |
-| `cmd.runp <id> <paramId>=<value>` | 写 | 是 | `unknown` | 依具体命令：`showView` → views 集合新增该 id；`showPerspective` → perspective id 变化 |
+| `ui.open <abs path>` | 写 | 是 | **`true`** | `editors` 计数 +1，且 class = `org.eclipse.cdt.internal.ui.editor.CEditor` |
+# `true` 的依据：同一文件连开两次，`editors` **1→1**（Eclipse 复用已开的编辑器，不会开第二个） |
+| `cmd.run <id>` | 写 | 是 | **`per-command`** | **依命令而定**（多数需专门判据） |
+| `cmd.runp <id> <paramId>=<value>` | 写 | 是 | **`per-command`** | 依具体命令：`showView` → views 集合新增该 id；`showPerspective` → perspective id 变化 |
 
-> **`unknown` 的语义**：**不允许自动重试**（保守默认，`design.md` §7）。
-> `ui.open` / `cmd.run` / `cmd.runp` 的 3 个 `unknown` 是 **P2.1 待实测回填**的占位，
-> 回填前不得假设其幂等性，也不得照抄惯例（D5）。
-> `cmd.runp` 是**一个**方法名承载多条命令，故其幂等性按命令而定（设计 §7 表里 `showPerspective` 标
-> `true`、`showView` 标「待回填」）——回填后以 `sys.help` 报出的值为准。
+> **`idempotent` 取值与语义**（**3 个待定值已于 2026-10-01 实测回填**，D5）：
+> - **`true`** = 方法级幂等，**允许自动重试 / rollback**（重发不改变末态）。
+> - **`false`** = 方法级不幂等，**不允许**自动重试。
+> - **`per-command`** = **一个方法名承载任意命令，方法级无从保证** ⇒ 与 `unknown` **同等保守**（不允许自动重试）。
+>   `cmd.run` / `cmd.runp` 属此类。依据（实测）：`org.eclipse.ui.window.fullscreenmode` 是**开关型**命令，
+>   连点两次**回到原状** —— 幂等性取决于**被调命令**，不是方法。
+> - **`unknown`** = 尚未确定，**不允许自动重试**（保守默认）。
+>
+> **实测回填依据**（同一实例内，见 `research/facts-baseline.md` §7.3）：
+> `ui.open` 同一文件 ×2 → `editors` **1→1** ⇒ `true`；
+> `cmd.runp showView` 同一视图 ×2 → `views` **9→9**（不会开第二个）⇒ 但 `cmd.runp` 仍标 `per-command`，
+> 因为它同样能跑开关型命令，不能从 `showView` 一个用例推广到整个方法。
 > `sys.wait` 的 `jobs-idle` 读的是桥侧 `JobManager`，**不是** UI 事件等待（`design.md` §6）。
 
 `sys.help` 返回**桥自身**的方法表（name / 参数 / 一句话 / 是否写操作 / 是否幂等），

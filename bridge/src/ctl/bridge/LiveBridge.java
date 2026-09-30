@@ -250,8 +250,8 @@ public class LiveBridge implements BundleActivator {
                 "text of the ACTIVE console (name + last n lines, default 50); ERR notfound when no console exists",
                 (a, o) -> uiConsole(a, o));
         // ui.* write
-        add("ui.open", "<abs path>", true, "unknown", true,
-                "open a file in an editor (CDT C editor, fallback to DefaultTextEditor); idempotent pending P2.1",
+        add("ui.open", "<abs path>", true, "true", true,
+                "open a file in an editor (CDT C editor, fallback to DefaultTextEditor); re-opening the same file does NOT add a second editor (measured)",
                 (a, o) -> openEditor(a, o));
         add("ui.close", "<viewId>", true, "true", true,
                 "close a view already open in the active page; ERR notfound if it is not open",
@@ -262,11 +262,11 @@ public class LiveBridge implements BundleActivator {
                 (a, o) -> cmdList(a, o));
         add("cmd.query", "<id>", false, "true", true,
                 "defined/handled/name/category/parameters of one command", (a, o) -> cmdQuery(a, o));
-        add("cmd.run", "<id>", true, "unknown", true,
-                "execute a command; ERR disabled/unhandled come from the command framework; idempotent pending P2.1",
+        add("cmd.run", "<id>", true, "per-command", true,
+                "execute a command; ERR disabled/unhandled come from the command framework; idempotence is PER-COMMAND (measured: a toggle command reverts on the 2nd call)",
                 (a, o) -> cmdRun(a, o));
-        add("cmd.runp", "<id> <paramId|=paramName>=<value>", true, "unknown", true,
-                "execute a command with one parameter; per-command idempotence, pending P2.1",
+        add("cmd.runp", "<id> <paramId|=paramName>=<value>", true, "per-command", true,
+                "execute a command with one parameter; idempotence is PER-COMMAND (measured: showView twice does not add a second copy)",
                 (a, o) -> cmdRunp(a, o));
     }
 

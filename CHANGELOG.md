@@ -8,7 +8,35 @@
 
 ## [Unreleased]
 
-暂无条目。本版（0.1.0）之后的所有变更在落地时记入本节。
+### Fixed
+
+- **写命令失败是异步的，回话会谎报 `OK`（用户在一张截图上发现的）**：
+  `cmd.runp org.eclipse.ui.views.showView viewId=<不存在的视图>` 回话 `OK`、
+  `executeCommand returned: null`，但 Eclipse 随后弹出 `Problem Occurred`（`ExecutionException`），
+  且 `ui.parts` 的 `views` 纹丝不动 —— **界面没变 + 回话说成功**，只读协议回话的验证两头都看不见。
+  - 新增**写方法窗口快照**：动作前后各取一次「可见且有标题的顶层 Shell 标题」快照，
+    多出来的回报成 `dialog=appeared "<标题>"` + `dialog_note=…`（负载行，**不是错误码** ——
+    有些命令本就该弹框，判断权留给调用方）。UI 被占住时回 `dialog=unknown (… timed out)`。
+  - 实现要点：检查必须在 `onUi` **返回之后**、在连接线程上做（弹框是 UI 线程空闲后才出现的）；
+    **排除空标题窗口**（全屏切换会冒无标题临时窗，会假阳性）；快照走 `asyncExec` + **有上限等待**。
+  - **试过但无效、已记录别再走**：`ICommandService.addExecutionListener`
+    （`org.eclipse.core.commands.IExecutionListener`）**抓不到** —— handler 正常返回，
+    监听器看到的是成功。
+  - 契约见 `protocol.md` §4.3（含客户端必须遵守的四条）。
+- **`cmd.runp` 不接受短参数名**：文档/配方写的都是 `viewId=<id>`，而 `ICommand.getParameter()`
+  只认参数**全 id**（`…showView.viewId`），实测被拒。现在先按全 id 查，再按「参数 id 去掉命令前缀
+  的那一段」**唯一**匹配；命中 0 或 >1 一律失败并列出候选。
+  ⚠️ 注意 `IParameter.getName()` 是**本地化显示标签**（实测 `name="View"`），不是 XML 属性名。
+  短名支持让 `cmd.runp` 第一次有了成功记录（`views 8→9`，目标视图真出现）。
+
+### Changed
+
+- **`idempotent` 列三个待定值实测回填**（`protocol.md` §7）：
+  `ui.open` → **`true`**（同一文件连开两次 `editors` **1→1**）；
+  `cmd.run` / `cmd.runp` → **`per-command`**（新增取值）。
+  **`per-command` 的含义**：一个方法名承载任意命令，方法级无从保证 ⇒ 与 `unknown` **同等保守**
+  （**不允许自动重试**）。依据：`org.eclipse.ui.window.fullscreenmode` 是开关型命令，
+  连点两次**回到原状** —— 幂等性取决于**被调命令**，不是方法。
 
 ## [0.1.0] - 2026-10-01
 
