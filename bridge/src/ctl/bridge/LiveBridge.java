@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.TreeMap;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -399,17 +400,25 @@ public class LiveBridge implements BundleActivator {
     }
 
     /**
-     * 可见 shell 的标题快照（已排序）。**超时返回 null = 未知**，调用方据此放弃判断而不是瞎猜。
+     * 可见 shell 的**身份**快照：`identityHashCode(shell) -> 标题`。**超时返回 null = 未知**，
+     * 调用方据此放弃判断而不是瞎猜。
+     *
+     * ⚠️ **为什么必须有身份而不只是标题**（2026-10-01 实测的假阳性）：
+     * 原先按**标题串**做差，于是 `ui.open` 把文件名写进**主窗标题**后，主窗的新标题不在
+     * `before` 里 ⇒ 一扇**没变过的窗**被报成 `dialog=appeared` —— 一次干净的写操作背上
+     * 「可能失败了」的警告。同一扇窗只是改了标题，**不是新窗**。
+     * 身份取 `System.identityHashCode`：它是 `Object` 级的，**不碰 SWT 控件**，可以跨线程带走；
+     * 窗口对象在一次请求的毫秒级窗口里不可能被回收后复用。
      *
      * 两个必须守住的点：
      *  ① 读 SWT 只能在 UI 线程上做 ⇒ 走 `asyncExec`；
      *  ② **必须有上限等待** —— UI 线程若被模态框占住，无上限的 `syncExec` 会永久卡死这条连接（F7 的形态）。
      */
-    private List<String> visibleShellKeysBounded(long budgetMs) {
+    private Map<Integer, String> visibleShellsBounded(long budgetMs) {
         final Display d;
         try { d = Display.getDefault(); } catch (Throwable t) { return null; }
         if (d == null || d.isDisposed()) return null;
-        final List<String> out = new ArrayList<String>();
+        final Map<Integer, String> out = new TreeMap<Integer, String>();
         final Object lock = new Object();
         final boolean[] done = { false };
         try {
@@ -422,7 +431,7 @@ public class LiveBridge implements BundleActivator {
                             // **空标题的可见顶层窗一律不计**：实测全屏切换会冒出无标题的临时窗口，
                             // 把它当弹框会假阳性。真弹框必有标题（「Problem Occurred」这类）。
                             if (tx == null || tx.trim().length() == 0) continue;
-                            out.add(tx.trim());
+                            out.put(System.identityHashCode(s), tx.trim());
                         }
                     } finally {
                         synchronized (lock) { done[0] = true; lock.notifyAll(); }
@@ -439,7 +448,6 @@ public class LiveBridge implements BundleActivator {
                 catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
             }
         }
-        Collections.sort(out);
         return out;
     }
 
@@ -467,28 +475,29 @@ public class LiveBridge implements BundleActivator {
         //
         // 为什么是「回报」而不是「判失败」：有些命令本来就该弹框（例如打开首选项）。
         // 桥不是成功的判官 —— 它只负责把**它能看见的事实**交出来；判断留给调用方/验证器。
-        List<String> before = visibleShellKeysBounded(SHELL_PROBE_MS);
+        Map<Integer, String> before = visibleShellsBounded(SHELL_PROBE_MS);
         try {
             if (m.onUi) onUi(m, arg, res);
             else m.handler.run(arg, res);
         } finally {
             settle(DIALOG_SETTLE_MS);
-            List<String> after = visibleShellKeysBounded(SHELL_PROBE_MS);
+            Map<Integer, String> after = visibleShellsBounded(SHELL_PROBE_MS);
             if (before != null && after != null) {
-                List<String> added = new ArrayList<String>(after);
-                added.removeAll(before);
-                if (!added.isEmpty()) {
-                    StringBuilder sb = new StringBuilder();
-                    for (String s : added) {
-                        if (sb.length() > 0) sb.append(", ");
-                        sb.append('"').append(s).append('"');
-                    }
+                StringBuilder sb = new StringBuilder();
+                for (Map.Entry<Integer, String> e : after.entrySet()) {
+                    // 按**窗口身份**判新窗：同一扇窗改了标题（ui.open 会把文件名写进主窗标题）
+                    // 一律不算 —— 否则一次干净的写会背上「可能失败了」的假警告。
+                    if (before.containsKey(e.getKey())) continue;
+                    if (sb.length() > 0) sb.append(", ");
+                    sb.append('"').append(e.getValue()).append('"');
+                }
+                if (sb.length() > 0) {
                     res.add("dialog=appeared " + sb);
                     res.add("dialog_note=the command may have FAILED, or the dialog may be the"
                             + " expected behaviour; close it and read back (ui.parts) before"
                             + " treating this call as done");
                 }
-            } else if (before == null || after == null) {
+            } else {
                 res.add("dialog=unknown (shell snapshot timed out; the UI thread may be blocked)");
             }
         }

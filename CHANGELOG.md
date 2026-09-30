@@ -29,6 +29,34 @@
   ⚠️ 注意 `IParameter.getName()` 是**本地化显示标签**（实测 `name="View"`），不是 XML 属性名。
   短名支持让 `cmd.runp` 第一次有了成功记录（`views 8→9`，目标视图真出现）。
 
+### Added
+
+- **屏幕守卫接进用例执行器**（门 G10）：`ctl/screen.py` + `ctl/verify/runner.py`。
+  写组用例**自动**在动作前后各枚举一次可见窗口，多出来的弹框即 **FAIL**（除非用例声明
+  `expects_dialog`），每条新窗自动 PrintWindow 截图归档到 `<run_root>/<run_id>/shots/`，
+  并与桥的 `dialog=` 行**交叉验证**（不一致会报出来）；收尾自动 `WM_CLOSE` 并复验、终扫不留残余。
+  为什么必须有它：写命令的失败是**异步**的，「`OK` + 回读差为 0」与「幂等成功」**长得一模一样**
+  （`chore` 见 §Fixed 与 `protocol.md` §4.3）。`--no-screen-guard` 只用于复现该漏洞，`preflight` 恒关。
+- **写用例 4 条**（`write.open-editor` / `write.close-view` / `write.runp-show-view` / `write.run-toggle`）：
+  每条给「协议回话 + 回读差 + 屏幕检查结论」三样，跑完回到 `pre` 状态。
+- **反例回归 1 条**（`errors.plugin-id-as-view`）：固化的**不是缺陷而是判定** —— 它**通过**的条件是
+  「被判定为 FAIL/SUSPECT」。
+- **错误契约用例 4 类**（未知方法 / 坏参数 / 目标不存在 / 命令不可用），每类贴协议原文。
+
+### Fixed
+
+- **桥把「同一扇窗改了标题」误报成新窗（假阳性）**：原先按**标题串**做差，而 `ui.open` 会把文件名
+  写进**主窗标题**，于是一次干净的写也回 `dialog=appeared "ws - … - GS32_Studio"`。
+  改为按**窗口身份**做差（`System.identityHashCode(shell)`；`Object` 级、不碰 SWT 控件、可跨线程带走）。
+  实测：`ui.open` ×2 的 dialog 行数 **1 → 0**；坏 `viewId` 仍如实报 `"Problem Occurred"`；全屏开关 0。
+- **用例对环境的依赖**：Eclipse 会把重复的同类错误合并成 `Multiple problems have occurred` 聚合框；
+  它若已在屏上，守卫的 `pre` 快照就含它，新失败**不算新窗** ⇒ `expects_dialog` 用例**假失败**。
+  新增 `Runner.clean_room`：连上实例后先关掉**本实例的** `#32770`。
+  **绝不按标题**（`ui.open` 改过主窗标题，按名关窗会关掉工作台）；**拿不到实例 pid 就不做**
+  （`None` 意为「所有进程」，会去关别的程序的对话框）—— 同一道闸也加到了 `rescue_dialogs` / `dismiss`。
+- **README 与实现文档里的照抄命令参数写错**：`verify`/`cmd`/`open`/`close` 收的是 `--run-id`，
+  不是 `--target`；写命令还漏了 `--yes`（**静默变成 dry-run，什么都不发生**）。
+
 ### Changed
 
 - **`idempotent` 列三个待定值实测回填**（`protocol.md` §7）：

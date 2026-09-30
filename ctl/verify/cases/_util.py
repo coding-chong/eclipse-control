@@ -13,7 +13,8 @@ from typing import Dict, List, Optional, Tuple
 from ..runner import Skip  # re-exported so cases only import from here
 
 __all__ = ["Skip", "search", "searchall", "kv", "verdict", "view_rows",
-           "simple_ids", "int_or_none"]
+           "simple_ids", "int_or_none", "parts_counts", "view_ids", "editor_rows",
+           "visible_shells", "main_shell", "dialog_lines", "parse_appeared"]
 
 
 def search(pattern: str, text: str, group: int = 1) -> Optional[str]:
@@ -70,3 +71,54 @@ def verdict(problems: List[str], detail: str) -> Tuple[bool, str]:
     if problems:
         return (False, detail + " | FAILED: " + "; ".join(problems))
     return (True, detail)
+
+
+# --------------------------------------------------------------------------- #
+# `ui.parts` / `ui.shells` payload helpers (write-surface cases)
+# --------------------------------------------------------------------------- #
+
+def parts_counts(text: str) -> Dict[str, Optional[int]]:
+    """``{"views": n, "editors": n}`` from an ``ui.parts`` payload (None = absent)."""
+    return {"views": int_or_none(search(r"^views=(\d+)", text)),
+            "editors": int_or_none(search(r"^editors=(\d+)", text))}
+
+
+def view_ids(text: str) -> List[str]:
+    """Every ``view id=…`` in an ``ui.parts`` payload, in page order."""
+    return searchall(r"^\s*view id=(\S+)", text)
+
+
+def editor_rows(text: str) -> List[Tuple[str, str]]:
+    """``[(id, name), ...]`` from an ``ui.parts`` payload."""
+    return re.findall(r'^\s*editor id=(\S+) name="([^"]*)"', text, re.M)
+
+
+def visible_shells(text: str) -> List[Tuple[str, int, int, int, int]]:
+    """``[(title, x, y, w, h), ...]`` for ``vis=true`` rows of ``ui.shells``."""
+    rows = []
+    for match in re.finditer(
+            r'shell text="([^"]*)" vis=true b=Rectangle \{(-?\d+), (-?\d+), (\d+), (\d+)\}',
+            text):
+        title = match.group(1)
+        x, y, w, h = (int(value) for value in match.groups()[1:])
+        rows.append((title, x, y, w, h))
+    return rows
+
+
+def main_shell(text: str) -> Optional[Tuple[str, int, int, int, int]]:
+    """The largest visible shell -- the workbench window (same rule as ``ui.tree``)."""
+    rows = visible_shells(text)
+    if not rows:
+        return None
+    return max(rows, key=lambda row: row[3] * row[4])
+
+
+def dialog_lines(text: str) -> List[str]:
+    """``dialog=…`` payload lines, verbatim."""
+    return [line.strip() for line in (text or "").splitlines()
+            if line.strip().startswith("dialog=")]
+
+
+def parse_appeared(line: str) -> List[str]:
+    """Titles of a bridge ``dialog=appeared "<a>", "<b>"`` line."""
+    return re.findall(r'"([^"]*)"', line or "")

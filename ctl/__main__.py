@@ -233,6 +233,9 @@ def build_parser() -> CtlParser:
     group.add_argument("--case", metavar="NAME")
     group.add_argument("--group", metavar="GROUP")
     group.add_argument("--all", dest="all_", action="store_true")
+    p_verify.add_argument("--no-screen-guard", dest="no_screen_guard", action="store_true",
+                          help="disable the before/after window snapshot around writes "
+                               "(diagnostic only: it is what lets 'OK lies' through)")
 
     # -- build --------------------------------------------------------------- #
     p_build = sub.choices["build"]
@@ -932,9 +935,16 @@ def _cmd_persp(args) -> int:
     return _send(client, "ui.persp", target, rid, args)
 
 
+def _dry_run(args, request: str) -> int:
+    """Print what would be sent and stop -- without reading endpoint.json or connecting."""
+    if args.json:
+        _emit_json({"dry_run": True, "request": request})
+    else:
+        print("DRY-RUN %s" % request)
+    return 0
+
+
 def _cmd_cmd(args) -> int:
-    config = _load_config(args)
-    client, target, rid = _connect(args, config)
     if args.params:
         pairs = []
         for item in args.params:
@@ -945,35 +955,25 @@ def _cmd_cmd(args) -> int:
     else:
         request = "cmd.run %s" % args.command_id
     if not args.yes:
-        if args.json:
-            _emit_json({"dry_run": True, "request": request})
-        else:
-            print("DRY-RUN %s" % request)
-        return 0
+        return _dry_run(args, request)
+    config = _load_config(args)
+    client, target, rid = _connect(args, config)
     return _send(client, request, target, rid, args)
 
 
 def _cmd_open(args) -> int:
-    client, target, rid = _connect(args, _load_config(args))
     request = "ui.open %s" % args.path
     if not args.yes:
-        if args.json:
-            _emit_json({"dry_run": True, "request": request})
-        else:
-            print("DRY-RUN %s" % request)
-        return 0
+        return _dry_run(args, request)
+    client, target, rid = _connect(args, _load_config(args))
     return _send(client, request, target, rid, args)
 
 
 def _cmd_close(args) -> int:
-    client, target, rid = _connect(args, _load_config(args))
     request = "ui.close %s" % args.view_id
     if not args.yes:
-        if args.json:
-            _emit_json({"dry_run": True, "request": request})
-        else:
-            print("DRY-RUN %s" % request)
-        return 0
+        return _dry_run(args, request)
+    client, target, rid = _connect(args, _load_config(args))
     return _send(client, request, target, rid, args)
 
 
@@ -1067,11 +1067,17 @@ def _cmd_verify(args) -> int:
             % (args.case, args.group, ",".join(GROUPS)),
             code="notfound")
 
+    screen_guard = not getattr(args, "no_screen_guard", False)
+    if not args.json:
+        print("screen guard: %s" % ("on" if screen_guard else
+                                    "OFF (writes are judged by the status line and the read-back only)"))
+
     report = []
     failed = env_not_ready = 0
     for name in names:
         runner = Runner(config, name, getattr(args, "run_id", None),
-                        getattr(args, "port", None), config.token)
+                        getattr(args, "port", None), config.token,
+                        screen_guard=screen_guard)
         try:
             results = runner.run(cases)
         except (PrereqNotReady, EndpointNotFound) as exc:
@@ -1192,6 +1198,12 @@ def _cmd_preflight(args) -> int:
     verify_args.case = None
     verify_args.group = None
     verify_args.all_ = True
+    # The screen guard is what turns "OK + nothing changed" from a PASS into a
+    # FAIL/SUSPECT (`errors.plugin-id-as-view`).  `--no-screen-guard` exists only
+    # as a diagnostic knob that reproduces the hole, so the acceptance gate must
+    # never inherit it -- pin it off here rather than relying on this parser
+    # happening not to define the flag (2026-10-01).
+    verify_args.no_screen_guard = False
     try:
         verify_code = _cmd_verify(verify_args)
     except PrereqNotReady as exc:

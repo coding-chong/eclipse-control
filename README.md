@@ -18,14 +18,19 @@
 | 敲任意桥方法 | `python -m ctl shell --run-id <id> -c "ui.parts"` |
 | 导出命令表（机读） | `python -m ctl commands --json > commands.json` |
 | 按 UI 文字反查命令 id | `python -m ctl commands find --text "Reset Perspective"` |
-| 跑门禁用例 | `python -m ctl verify --case read.ping --target gs32` |
-| 跑全部门禁 | `python -m ctl verify --all --target gs32` |
+| 跑门禁用例 | `python -m ctl verify --group write --run-id <id>`（组：`read` / `write` / `errors`） |
+| 跑全部门禁 | `python -m ctl verify --all --run-id <id>` |
 | 卸桥并自检干净 | `python -m ctl uninstall --target gs32 --verify-clean` |
 | 编译打包桥 | `python -m ctl build --target gs32` |
 | 发布前总检 | `python -m ctl preflight --target gs32,ccs12` |
 
 **退出码三态**：`0` 成功　`1` 失败（有明确 FAIL 结论，含用法错误）　`2` **前置未就绪**（环境没准备好，压根没开跑）。
 **写操作要加 `--yes`**（缺省只打印将要发送的请求，不建连接）。
+**写用例自带屏幕检查**：动作前后各枚举一次可见窗口，多出来的弹框即判 **FAIL**
+（除非用例声明 `expects_dialog`），并自动截图归档到 `<run_root>/<run_id>/shots/`。
+理由见 `protocol.md` §4.3：写命令的失败是**异步**的，回话里的 `OK` 会撒谎 ——
+`cmd.runp showView viewId=<不存在的视图>` 回 `OK`、回读差为 0，屏幕上却弹着 `Problem Occurred`。
+`--no-screen-guard` 只用于复现这个漏洞，`preflight` 里恒为关。
 
 ---
 
