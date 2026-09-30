@@ -578,11 +578,29 @@ def _cmd_upgrade(args) -> int:
     code = _build_bridge(target.name, getattr(args, "out", None), config, args)
     if code != 0:
         return code
+
+    # 端口是 run 身份的一部分：CLI 靠 endpoint.json 发现它，**不该在一次升级里漂掉**。
+    # 实测（2026-10-01，P3.6）：不带 --port 时新实例起在了默认 8777，而原 run 是 8939 ——
+    # 长脚本/外部工具手里握着旧端口，会突然连不上。
+    # 所以：用户显式给了 --port 就听用户的；否则沿用这个 run 已记录的端口。
+    carried_port = getattr(args, "port", None)
+    rid = getattr(args, "run_id", None)
+    if carried_port is None:
+        try:
+            rid = rid or latest_run_id(config.run_root, target.name)
+            if rid:
+                carried_port = int(discover_endpoint(config.run_root, rid)["port"])
+                if not getattr(args, "run_id", None):
+                    args.run_id = rid      # 没有 --run-id 时锁定到被升级的那个 run
+        except (NotFoundError, CtlError, KeyError, TypeError, ValueError):
+            carried_port = None            # 没有既有 run（或读不到）⇒ 交给 install 决定
+
     try:
         lifecycle_uninstall(config, target.name, getattr(args, "run_id", None),
-                            getattr(args, "port", None), False)
+                            carried_port, False)
     except (NotFoundError, CtlError):
         pass
+    args.port = carried_port
     # The bridge cannot be reached over the console from outside the process, so
     # "upgrade" is a rebuild plus a controlled restart rather than a hot update.
     print("restarting instance on the rebuilt jar (hot console update is not reachable externally)",

@@ -60,6 +60,10 @@
 
 ### Fixed
 
+- **`upgrade` 会把 run 的端口漂回默认**：`install --run-id u1 --port 8939` 之后跑不带 `--port` 的
+  `upgrade --run-id u1`，新实例起在了默认 **8777**，`endpoint.json` 也被改写 ——
+  而端口是 run 身份的一部分，外部工具/长脚本手里握着旧端口，下次连接就会"突然连不上"，
+  且与"桥挂了"难以区分。现在：用户给了 `--port` 就听用户的，否则**沿用该 run 已记录的端口**。
 - **拒绝路径会发 RST，客户端可能连 `ERR busy` 都收不到**：`rejectBusy` **不读**客户端发来的请求行
   就直接 `close()`，未读字节让 OS 发 RST —— 实测客户端 `recv` 抛 `ConnectionAbortedError [WinError 10053]`。
   改为 **flush → `shutdownOutput()`（送 FIN）→ 把未读字节排空（上限 500 ms）→ 再 close**。
