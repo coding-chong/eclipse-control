@@ -80,6 +80,13 @@ class Case:
     #: The dialog is the *expected* outcome here, so its appearance is a PASS
     #: (it is still screenshotted and dismissed).
     expects_dialog: bool = False
+    #: A modal this case is *allowed to answer with a button press*, e.g.
+    #: ``{"title": "Reset Perspective", "button": "&Reset Perspective"}``.
+    #: ``None`` (the default, and every case but the deliberate ones) means the
+    #: only disposal available is ``WM_CLOSE`` -- the window's X, i.e. cancel.
+    #: Pressing a button decides *for the user*, so it happens only when the case
+    #: has said out loud which dialog and which button (``Runner.answer_modal``).
+    expects_modal: Optional[Dict[str, str]] = None
 
 
 @dataclass
@@ -432,7 +439,8 @@ class Runner:
         return self.dismiss(ctx)
 
     def dismiss(self, ctx: Ctx) -> List[str]:
-        """``WM_CLOSE`` every dialog the guard saw, then prove it is gone."""
+        """Answer every dialog the guard saw -- ``WM_CLOSE`` unless the case declared a
+        button (see :meth:`answer_modal`) -- then prove each one is gone."""
         ctx.dismissed = True
         if not ctx.dialogs:
             return []
@@ -445,9 +453,7 @@ class Runner:
                     "WM_CLOSE could reach another application's window"]
         problems: List[str] = []
         for item in ctx.dialogs:
-            out = screen.close(str(item["title"]), str(item["class"]), pids=ctx.screen_pids)
-            ctx.note('screen: WM_CLOSE "%s" (%s) -> %s'
-                     % (item["title"], item["class"], _short(out, 160) or "<no output>"))
+            self.answer_modal(ctx, item)
         time.sleep(DISMISS_SETTLE)
         left = screen.visible_windows(ctx.screen_pids)
         for item in ctx.dialogs:
@@ -458,6 +464,54 @@ class Runner:
         ctx.note("screen: dismissal verified -- %d/%d dialog(s) gone"
                  % (len(ctx.dialogs) - len(problems), len(ctx.dialogs)))
         return problems
+
+    def close_modal(self, ctx: Ctx, item: Dict[str, object]) -> Dict[str, object]:
+        """``WM_CLOSE`` one dialog: the window's X, i.e. *cancel*, never a choice.
+
+        Split out of :meth:`answer_modal` so that a case can say "this run
+        cancels" even while it has declared a button elsewhere.  Refuses without a
+        pid scope, for the same reason :meth:`dismiss` does: an unscoped
+        ``WM_CLOSE`` can land on another application's window.
+        """
+        title = str(item.get("title") or "")
+        cls = str(item.get("class") or "")
+        if not ctx.screen_pids:
+            ctx.note('screen: refused WM_CLOSE "%s" -- the instance pid is unknown, so the '
+                     "close cannot be scoped to this instance" % title)
+            return {"action": "refused", "title": title, "class": cls,
+                    "output": "no pid scope"}
+        out = screen.close(title, cls, pids=ctx.screen_pids)
+        ctx.note('screen: WM_CLOSE "%s" (%s) -> %s' % (title, cls, _short(out, 160) or "<no output>"))
+        return {"action": "wm_close", "title": title, "class": cls, "output": out}
+
+    def answer_modal(self, ctx: Ctx, item: Dict[str, object],
+                     mode: str = "auto") -> Dict[str, object]:
+        """Answer one modal dialog.  The **only** place a button is ever pressed.
+
+        Default is ``WM_CLOSE`` -- exactly what clicking the title bar's X does:
+        the dialog goes away, the pending action is cancelled, nothing is decided.
+        A ``BM_CLICK`` on a named button happens *only* when the case declared it
+        as ``expects_modal={"title": …, "button": …}`` and this dialog's title
+        matches that declaration: pressing a button is an irreversible decision
+        taken on the user's behalf, so it may never happen silently.
+
+        ``mode="close"`` forces the cancel path for a case that deliberately
+        measures "cancelled means unchanged" while still declaring the button for
+        its sibling direction.
+        """
+        declared = ctx.case.expects_modal or {}
+        want = str(declared.get("button") or "")
+        want_title = str(declared.get("title") or "")
+        title = str(item.get("title") or "")
+        if mode != "close" and want and want_title and want_title.lower() in title.lower():
+            out = screen.click_button(title, want, pids=ctx.screen_pids)
+            # The tool prints the dialog and every child first and the click last;
+            # the *click* is the part that must survive into the evidence.
+            hits = [line.strip() for line in out.splitlines() if "BM_CLICK" in line]
+            ctx.note('screen: BM_CLICK "%s" on "%s" (declared by the case) -> %s'
+                     % (want, title, hits[0] if hits else _short(out, 200) or "<no output>"))
+            return {"action": "bm_click", "title": title, "button": want, "output": out}
+        return self.close_modal(ctx, item)
 
     def final_sweep(self, ctx: Ctx) -> List[str]:
         """Close anything that appeared after the guard's snapshot (rollback etc.)."""

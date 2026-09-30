@@ -2,7 +2,12 @@
 
 Groups follow `design-obs-ux.md` §14.3: the read surface is ``read``, the write
 surface (always screen-guarded) is ``write``, and the negative/error-contract
-probes are ``errors``.
+probes are ``errors``.  ``resilience`` holds the two cases that do not verify a
+happy path but a *failure mode*: what a modal dialog costs the connection that
+opened it (and what it does **not** cost the others), and what a write that
+answered ``ERR timeout`` is allowed to have done.  Both drive their own window
+snapshots instead of the runner's guard, because the modal has to be observed
+*while it is on screen*.
 """
 
 from __future__ import annotations
@@ -28,6 +33,8 @@ from .read_shells import CASE as READ_SHELLS
 from .read_tree import CASE as READ_TREE
 from .read_viewids import CASE as READ_VIEWIDS
 from .read_wait import CASE as READ_WAIT
+from .resilience_modal_reset import CASE as RESILIENCE_MODAL_RESET
+from .resilience_timeout_applied import CASE as RESILIENCE_TIMEOUT_APPLIED
 from .write_close_view import CASE as WRITE_CLOSE_VIEW
 from .write_open_editor import CASE as WRITE_OPEN_EDITOR
 from .write_run_toggle import CASE as WRITE_RUN_TOGGLE
@@ -58,6 +65,8 @@ ALL_CASES = [
     ERRORS_BAD_RUNP_PARAM,
     ERRORS_CONSOLE_ABSENT,
     ERRORS_PLUGIN_ID_AS_VIEW,
+    RESILIENCE_MODAL_RESET,
+    RESILIENCE_TIMEOUT_APPLIED,
 ]
 
 

@@ -31,6 +31,13 @@
 
 ### Added
 
+- **两份韧性用例**（新增 `resilience` 组）：`resilience.modal-reset`（模态框**六段证据**：
+  请求时刻 / **发起连接自己**的 `ERR timeout` / **自抓截图并把框上的标题与按钮文字读出来** /
+  子窗 `Button` 枚举 / 处置动作并复验已消失 / 恢复后探活）与 `resilience.timeout-applied`
+  （**超时 ≠ 未生效**：`wm_close` 取消 ⇒ `applied=no`；声明按钮并 `BM_CLICK` ⇒ `applied=yes`
+  且回读差是实的）。按按钮的地方**只有一处**（`Runner.answer_modal()`），默认只 `WM_CLOSE`
+  （等同点标题栏 X，什么都不决定），仅当用例显式声明 `expects_modal={"title":…,"button":…}`
+  且标题匹配才按键。
 - **断线重连（D4）：客户端退避重连 + 重连后验身**（`ctl/client.py`、`--retry <SECONDS>`）。
   动机：IDE 重启（或被换掉）之后，长脚本应当能**自己续上**，但**绝不能**在不知情的情况下
   对着"另一个人"继续跑。
@@ -60,6 +67,11 @@
 
 ### Fixed
 
+- **`win-click-button.ps1` 没有 pid 过滤**：实测到**两个实例同时**都显示标题为 `Reset Perspective` 的
+  `#32770`，于是无范围的 `BM_CLICK` **可能按到别的实例的按钮** —— 而按按钮是替用户做的不可逆决定。
+  已加 `-ProcId`（对齐 `win-close.ps1`）。
+- **`win-enum.ps1` 文档写着 `-Class "#32770"` 却没实现**：传了也**静默列出全部窗口** ——
+  过滤看起来发生了，其实没有。已补 `-Class`。
 - **`upgrade` 会把 run 的端口漂回默认**：`install --run-id u1 --port 8939` 之后跑不带 `--port` 的
   `upgrade --run-id u1`，新实例起在了默认 **8777**，`endpoint.json` 也被改写 ——
   而端口是 run 身份的一部分，外部工具/长脚本手里握着旧端口，下次连接就会"突然连不上"，

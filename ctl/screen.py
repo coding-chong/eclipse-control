@@ -42,6 +42,7 @@ TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
 ENUM_PS1 = os.path.join(TOOLS_DIR, "win-enum.ps1")
 SHOT_PS1 = os.path.join(TOOLS_DIR, "shot-window-pw.ps1")
 CLOSE_PS1 = os.path.join(TOOLS_DIR, "win-close.ps1")
+CLICK_PS1 = os.path.join(TOOLS_DIR, "win-click-button.ps1")
 
 #: Win32 class of a classic menu popup: visible while a menu is tracked, never a
 #: dialog.  (``#32770`` -- the dialog class -- is deliberately *not* ignored.)
@@ -82,9 +83,9 @@ class ScreenError(RuntimeError):
 # --------------------------------------------------------------------------- #
 
 def tools_available() -> bool:
-    """True when the three ``tools/*.ps1`` helpers can be reached at all."""
+    """True when the four ``tools/*.ps1`` helpers can be reached at all."""
     return (shutil.which("pwsh") is not None
-            and all(os.path.isfile(p) for p in (ENUM_PS1, SHOT_PS1, CLOSE_PS1)))
+            and all(os.path.isfile(p) for p in (ENUM_PS1, SHOT_PS1, CLOSE_PS1, CLICK_PS1)))
 
 
 def _pwsh(args: Sequence[str], timeout: float = 60.0) -> Tuple[int, str]:
@@ -182,23 +183,45 @@ def shot_path(shots_dir: str, tag: str, title: str, when: Optional[time.struct_t
     return os.path.join(shots_dir, "%s-%s-%s.png" % (base, stamp, slug))
 
 
-def shoot(title_like: str, out_path: str, timeout: float = 60.0) -> bool:
+def shoot(title_like: str, out_path: str, timeout: float = 60.0,
+          flags: Optional[int] = None) -> bool:
     """Screenshot the visible window whose title contains ``title_like``.
 
     Returns whether the PNG actually landed on disk (``shot-window-pw.ps1`` uses
     PrintWindow, so the shot is immune to occlusion and DPI virtualisation).
     """
-    ok, _note = shoot_verbose(title_like, out_path, timeout)
+    ok, _note = shoot_verbose(title_like, out_path, timeout, flags=flags)
     return ok
 
 
 def shoot_verbose(title_like: str, out_path: str,
-                  timeout: float = 60.0) -> Tuple[bool, str]:
-    """``shoot`` plus the tool's verbatim output (kept as evidence)."""
+                  timeout: float = 60.0, flags: Optional[int] = None
+                  ) -> Tuple[bool, str]:
+    """``shoot`` plus the tool's verbatim output (kept as evidence).
+
+    ``flags`` is ``PrintWindow``'s flag word.  Live modals are shot with
+    ``flags=0`` as a **conservative choice**: it renders the dialog legibly and is
+    the least intrusive render available.
+
+    ⚠️ **A stronger claim was made about ``flags=2`` and is NOT substantiated --
+    do not repeat it as fact.**  It was reported that the default ``2``
+    (``PW_RENDERFULLCONTENT``) makes a live SWT modal *disappear a few seconds
+    later*, flipping the pending request from ``ERR timeout`` to ``OK`` (i.e. the
+    observation destroying what it observes).  Two independent attempts to
+    reproduce it (2026-10-01, screenshots taken ~0.7 s and ~13 s after the dialog
+    appeared, with a no-screenshot control) showed the dialog staying on screen
+    for 49 s and the initiator answering ``ERR timeout`` in both arms --
+    identical to the control.  What *is* real: the two flag words produce
+    different bytes (15821 vs 14057 on the same dialog), so they are not
+    interchangeable renderings.
+    """
     parent = os.path.dirname(out_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    _code, note = _pwsh([SHOT_PS1, "-TitleLike", title_like, "-Out", out_path], timeout=timeout)
+    args = [SHOT_PS1, "-TitleLike", title_like, "-Out", out_path]
+    if flags is not None:
+        args += ["-Flags", str(int(flags))]
+    _code, note = _pwsh(args, timeout=timeout)
     return os.path.isfile(out_path), note.strip()[:400]
 
 
@@ -219,6 +242,51 @@ def close(title_like: str, cls: str = "", pids: Optional[Iterable[int]] = None,
             args += ["-ProcId", str(wanted[0])]
     _code, out = _pwsh(args, timeout=timeout)
     return out.strip()[:400]
+
+
+#: ``  hwnd=0x… class=Button vis=True text="…" rect=…`` from ``win-click-button.ps1``.
+_BUTTON = re.compile(r'^\s*hwnd=(0x[0-9A-Fa-f]+)\s+class=(\S+)\s+vis=(\w+)\s+text="(.*)"\s+rect=')
+
+
+def buttons(title_like: str, pids: Optional[Iterable[int]] = None,
+            timeout: float = 60.0) -> List[Tuple[str, str]]:
+    """``[(hwnd, text), …]`` for the visible ``Button`` children of a dialog.
+
+    The dialog is addressed **by title** (``win-click-button.ps1`` has no class
+    filter); callers that need the identity of the window must cross-check it
+    against :func:`visible_windows` first.
+    """
+    args = [CLICK_PS1, "-TitleLike", title_like, "-ListOnly"]
+    if pids is not None:
+        wanted = [int(p) for p in pids]
+        if len(wanted) == 1:
+            args += ["-ProcId", str(wanted[0])]
+    _code, out = _pwsh(args, timeout=timeout)
+    found: List[Tuple[str, str]] = []
+    for line in out.splitlines():
+        match = _BUTTON.match(line)
+        if match and match.group(3).lower() == "true" and match.group(2) == "Button":
+            found.append((match.group(1).upper(), match.group(4)))
+    return found
+
+
+def click_button(title_like: str, text: str, pids: Optional[Iterable[int]] = None,
+                 timeout: float = 60.0) -> str:
+    """Press the ``Button`` whose text contains ``text`` via ``BM_CLICK``.
+
+    A button press **answers a question on the user's behalf**; it is the caller's
+    job to have narrowed that to a declared, deliberate decision (see
+    ``Runner.answer_modal``).  Returns the tool's verbatim output, which names
+    the ``hwnd`` it actually clicked -- or says that nothing matched, which the
+    caller must treat as "not pressed".
+    """
+    args = [CLICK_PS1, "-TitleLike", title_like, "-Text", text]
+    if pids is not None:
+        wanted = [int(p) for p in pids]
+        if len(wanted) == 1:
+            args += ["-ProcId", str(wanted[0])]
+    _code, out = _pwsh(args, timeout=timeout)
+    return out.strip()[:1200]
 
 
 # --------------------------------------------------------------------------- #

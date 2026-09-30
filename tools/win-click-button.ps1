@@ -1,7 +1,11 @@
 param(
     [Parameter(Mandatory = $true)][string]$TitleLike,
     [string]$Text = '',
-    [switch]$ListOnly
+    [switch]$ListOnly,
+    # 0 = match any process.  Set it whenever more than one instance of the IDE can
+    # be on screen: two workbenches each showing "Reset Perspective" are otherwise
+    # indistinguishable here, and this tool *presses buttons*.
+    [int]$ProcId = 0
 )
 # Find a top-level window by title, enumerate its child windows (class + text +
 # rect), and optionally click the child button whose text matches $Text via
@@ -22,14 +26,17 @@ public class Btn {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern IntPtr SendMessageW(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   public static IntPtr Dialog = IntPtr.Zero;
+  public static uint Only = 0;
   public static IntPtr Find(string like) {
     Dialog = IntPtr.Zero;
     EnumWindows(delegate(IntPtr h, IntPtr p) {
       if (Dialog != IntPtr.Zero) return true;
       if (!IsWindowVisible(h)) return true;
+      if (Only != 0) { uint pid; GetWindowThreadProcessId(h, out pid); if (pid != Only) return true; }
       var t = new StringBuilder(512); GetWindowTextW(h, t, 512);
       if (t.ToString().IndexOf(like, StringComparison.OrdinalIgnoreCase) < 0) return true;
       Dialog = h; return true;
@@ -66,6 +73,7 @@ public class Btn {
 }
 "@
 [void][Btn]::SetProcessDPIAware()
+[Btn]::Only = [uint32]$ProcId
 $d = [Btn]::Find($TitleLike)
 if ($d -eq [IntPtr]::Zero) { Write-Output "no visible window matching '$TitleLike'"; exit 1 }
 Write-Output ("dialog hwnd=0x{0:X}" -f [int64]$d)

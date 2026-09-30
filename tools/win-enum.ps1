@@ -1,7 +1,10 @@
 param(
     # 0 = enumerate every process's top-level windows
     [int]$Target = 0,
-    [string]$TitleLike = ''
+    [string]$TitleLike = '',
+    # Exact Win32 class match.  `-Class "#32770"` is how the docs say "dialogs only";
+    # the class really is exact here (WindowClass names carry no wildcards).
+    [string]$Class = ''
 )
 # Enumerate top-level Win32 windows (optionally for one PID) and print
 # pid / hwnd / visible / enabled / class / title.  Used to capture a modal
@@ -36,4 +39,7 @@ public class WinEnum2 {
   }
 }
 "@
-[WinEnum2]::Dump([uint32]$Target) | Where-Object { $TitleLike -eq '' -or $_ -like "*$TitleLike*" } | ForEach-Object { Write-Output $_ }
+[WinEnum2]::Dump([uint32]$Target) | Where-Object {
+    ($TitleLike -eq '' -or $_ -like "*$TitleLike*") -and
+    ($Class -eq '' -or $_ -like "* class=$Class *")
+} | ForEach-Object { Write-Output $_ }
