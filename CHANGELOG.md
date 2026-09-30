@@ -31,6 +31,12 @@
 
 ### Added
 
+- **活体保留容量：满员后 `sys.ping` / `sys.env` / `sys.help` 仍然能答**（`protocol.md` §4.4）。
+  动机是实测出来的：连接槽按 `accept()` 计入，**8 条只是连着、不发任何请求**的连接就能把全功能槽占满
+  （每条占满 `SOCKET_READ_TIMEOUT_MS`=60 s），此后连 `sys.ping` 都只能拿到 `ERR busy` ——
+  **运维观测能力被平凡地打掉**，而且从外面分不清「忙」与「死」。
+  现在：`1..8` 全功能；`9..12` 只准那三个不碰 UI 也不阻塞的方法（`sys.wait` 会阻塞，不放行）；
+  `>=13` 才 `ERR busy`。保留槽越权与连接槽全满的 `ERR busy` 消息文本不同，**按错误码判断**。
 - **屏幕守卫接进用例执行器**（门 G10）：`ctl/screen.py` + `ctl/verify/runner.py`。
   写组用例**自动**在动作前后各枚举一次可见窗口，多出来的弹框即 **FAIL**（除非用例声明
   `expects_dialog`），每条新窗自动 PrintWindow 截图归档到 `<run_root>/<run_id>/shots/`，
@@ -45,6 +51,9 @@
 
 ### Fixed
 
+- **拒绝路径会发 RST，客户端可能连 `ERR busy` 都收不到**：`rejectBusy` **不读**客户端发来的请求行
+  就直接 `close()`，未读字节让 OS 发 RST —— 实测客户端 `recv` 抛 `ConnectionAbortedError [WinError 10053]`。
+  改为 **flush → `shutdownOutput()`（送 FIN）→ 把未读字节排空（上限 500 ms）→ 再 close**。
 - **桥把「同一扇窗改了标题」误报成新窗（假阳性）**：原先按**标题串**做差，而 `ui.open` 会把文件名
   写进**主窗标题**，于是一次干净的写也回 `dialog=appeared "ws - … - GS32_Studio"`。
   改为按**窗口身份**做差（`System.identityHashCode(shell)`；`Object` 级、不碰 SWT 控件、可跨线程带走）。
@@ -59,6 +68,11 @@
 
 ### Changed
 
+- **纠正「模态框会让后续 UI 调用 `ERR timeout`」这条旧表述**（`protocol.md` §4.2 第 5 条）。
+  实测推翻：`Reset Perspective` 在屏时，**另一条连接**的 `ui.parts` / `ui.tree` / `ui.persp` /
+  `sys.ping` **全部正常返回**（0.00–0.02 s），**只有发起那次请求自己**在 ~15.4 s 后 `ERR timeout`。
+  原因：SWT 模态框跑**嵌套事件循环**，`Display.asyncExec` 队列照常派发。
+  ⇒ 「超时」是**每条连接自己的**事，不是全局状态；**不能**用「`ui.*` 通不通」判断界面有没有被占住。
 - **`idempotent` 列三个待定值实测回填**（`protocol.md` §7）：
   `ui.open` → **`true`**（同一文件连开两次 `editors` **1→1**）；
   `cmd.run` / `cmd.runp` → **`per-command`**（新增取值）。

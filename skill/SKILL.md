@@ -106,15 +106,18 @@ dialog_note=… close it and read back (ui.parts) before treating this call as d
    ```bash
    pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Reset Perspective" -Text "&No"
    ```
-5. **探活 —— 但它证明不了「界面没卡」**：
+5. **探活 —— 但「ping 得通」证明不了「界面没卡」**：
 
    ```bash
    python -m ctl shell --run-id <RUN_ID> -c "sys.ping"
-   python -m ctl shell --run-id <RUN_ID> -c "ui.parts"   # 这一步才碰 UI 线程
+   pwsh -NoProfile -File tools/win-enum.ps1 -Class "#32770"   # ← 这才是判断依据
    ```
 
-   `sys.ping` **不碰 UI 线程**，所以模态框占着界面时它**照样会通**（实测）。要判断界面是否被占住，
-   看 `ui.parts` 之类的 `ui.*` 调用是否 `ERR timeout`，或直接枚举窗口（见第 2 步）。
+   实测（2026-10-01）：模态框在屏上时，**另一条连接**的 `ui.parts` / `ui.tree` / `sys.ping`
+   **全都正常返回** —— 因为 SWT 模态框跑的是**嵌套事件循环**，`asyncExec` 队列照常派发。
+   只有**发起那次请求自己**会 `ERR timeout`。
+   ⇒ **别拿「`ui.*` 通不通」判断界面卡没卡**，直接**枚举/截图看那个框在不在**（第 2 步）。
+   ⇒ 反过来也要记住：**你发的那次请求超时了，不代表别的连接也干不了活**。
 6. **再取一次回读差**，把差值归因到先前那次超时请求（这一步不能省）。
 
 **完整自救配方**：`python -m ctl recipes run diag-when-hung`。
@@ -132,10 +135,17 @@ CLI 的每条错误串都带 `; retry: <一条可复跑命令>`，把它贴进 `
 
 ## 6. 别做的事
 
+- **不要一次开一堆连接压桥**：全功能槽只有 **8** 个，而且**连着的空闲连接也算占槽**（每条要占满 60 s）。
+  满员后只有 `sys.ping` / `sys.env` / `sys.help` 还能答，别的回 `ERR busy`（**可重试**，别当成故障）。
+  **用完就关**，别把连接挂在那儿。
+- **不要拿「`ui.*` 通不通」判断界面卡没卡**：模态框在屏时**别的连接照样通**（见 §4.5），
+  要判断就**枚举/截图看那个框在不在**。
 - 不要用坐标点击（该路线**未证实**，且**决定不投入**）；要动手柄一律**元素寻址**（按控件路径/文本）。
 - 不要在 `--json` 场景里把 stderr 混进 stdout（诊断只走 stderr；stdout 只放结果）。
 - 不要反复重试同一个 `ERR disabled` / `ERR unhandled` 的命令（那是 enablement / handler 问题，重试无用）。
+  —— 但 `ERR busy` 不同：**它就该重试**（可能配合退避）。
 - 不要用 `taskkill //F`（会被 shell 吃掉参数）；用 `pwsh -Command "Stop-Process -Id <pid> -Force"`。
+  而且要**认准自己的 pid** —— 按映像名杀会连带杀掉别人的实例。
 
 ## 7. 收工
 

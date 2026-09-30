@@ -2,6 +2,7 @@ package ctl.bridge;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
@@ -15,6 +16,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -108,6 +110,30 @@ public class LiveBridge implements BundleActivator {
     private static final int DEFAULT_PORT = 8777;
     /** Max simultaneously served connections (design.md §4). */
     private static final int MAX_CONNECTIONS = 8;
+
+    /**
+     * 超出 {@link #MAX_CONNECTIONS} 之后**额外**受理的连接数 —— 这些连接只准做活体探测
+     * （见 {@link #LIVENESS_METHODS}），别的请求一律回 {@code ERR busy}。
+     *
+     * 为什么需要它（2026-10-01 实测）：连接槽是按 {@code accept()} 计入的，所以 8 条
+     * **只是连着、不发任何请求**的连接就能把槽占满（每条要占满 {@link #SOCKET_READ_TIMEOUT_MS}
+     * 那么久），此后连 {@code sys.ping} 都只能拿到 {@code ERR busy} ——
+     * **运维观测能力被平凡地打掉**，而且从外面分不清「忙」与「死」。
+     * 8 条各自卡在弹框命令里（各 15 s）的连接也会造成同样结果。
+     */
+    private static final int LIVENESS_RESERVE = 4;
+
+    /** 拒绝一条连接前排空其未读字节的上限；太小会留下 RST 风险，太大只是让拒绝慢一点。 */
+    private static final int REJECT_DRAIN_MS = 500;
+
+    /**
+     * 容量满时**仍然必须能答复**的方法。
+     *
+     * 判据：**不碰 UI 线程、也不阻塞**（`sys.wait` 虽然不碰 UI，但会阻塞，所以不在内）。
+     * 正因为它们都瞬时返回，越过容量上限也不会把线程数推高 —— 保留容量是安全的。
+     */
+    private static final List<String> LIVENESS_METHODS = Collections.unmodifiableList(
+            Arrays.asList("sys.ping", "sys.env", "sys.help"));
     /** 写方法执行后等多久再看一眼窗口（弹框是**异步**出现的，实测 executeCommand 正常返回后才弹）。 */
     private static final long DIALOG_SETTLE_MS = resolveLong("ctl.dialogSettleMs", 400L);
     /** 取一次窗口快照的上限（UI 线程被模态框占住时必须能失败而不是永久卡住）。 */
@@ -290,6 +316,7 @@ public class LiveBridge implements BundleActivator {
         t.setDaemon(true);
         t.start();
         log("LISTENING on 127.0.0.1:" + PORT + " maxConn=" + MAX_CONNECTIONS
+                + "(+" + LIVENESS_RESERVE + " liveness)"
                 + " uiTimeoutMs=" + resolveUiTimeoutMs() + " log=" + LOG_PATH);
     }
 
@@ -314,21 +341,42 @@ public class LiveBridge implements BundleActivator {
                 continue;
             }
             final int active = activeConnections.incrementAndGet();
-            if (active > MAX_CONNECTIONS) {
+            // 满员之后**不再一律拒绝**：先放进来，但只准做活体探测（见 LIVENESS_METHODS）。
+            // 否则 8 条占着槽的连接会让桥连 sys.ping 都不回 —— 从外面看不出「忙」还是「死」。
+            final boolean saturated = active > MAX_CONNECTIONS;
+            if (saturated && active > MAX_CONNECTIONS + LIVENESS_RESERVE) {
                 activeConnections.decrementAndGet();
-                log("BUSY reject (" + (active - 1) + " in flight, max " + MAX_CONNECTIONS + ")");
+                log("BUSY reject (" + (active - 1) + " in flight, max " + MAX_CONNECTIONS
+                        + " + " + LIVENESS_RESERVE + " liveness)");
                 rejectBusy(c);
                 continue;
             }
             final long seq = connectionSeq.incrementAndGet();
+            final boolean livenessOnly = saturated;
             Thread t = new Thread(new Runnable() {
                 @Override public void run() {
-                    try { handle(c); }
+                    try { handle(c, livenessOnly); }
                     finally { activeConnections.decrementAndGet(); }
                 }
             }, "gs32ctl-conn-" + seq);
             t.setDaemon(true);
             t.start();
+        }
+    }
+
+    /**
+     * 满员时的准入闸：只有 {@link #LIVENESS_METHODS} 放行，其余回 {@code ERR busy}。
+     *
+     * 故意**先于**方法解析：满员时调用方最需要知道的是「现在别指望它、稍后重试」，
+     * 而不是「你这个方法名打错了」—— 后者在容量恢复后自然会答。
+     */
+    private void requireLivenessMethod(String req) throws Exception {
+        int sp = req.indexOf(' ');
+        String method = (sp < 0 ? req : req.substring(0, sp)).trim();
+        if (!LIVENESS_METHODS.contains(method)) {
+            throw new CtlException(E_BUSY, "bridge is at capacity (" + MAX_CONNECTIONS
+                    + " connections in flight); while saturated only " + LIVENESS_METHODS
+                    + " are answered so that liveness stays observable; retry");
         }
     }
 
@@ -338,9 +386,21 @@ public class LiveBridge implements BundleActivator {
             PrintWriter out = new PrintWriter(
                     new OutputStreamWriter(c.getOutputStream(), StandardCharsets.UTF_8), true);
             out.println("ERR " + E_BUSY + " bridge is at capacity ("
-                    + MAX_CONNECTIONS + " concurrent connections); retry");
+                    + MAX_CONNECTIONS + " + " + LIVENESS_RESERVE + " connections in flight); retry");
             out.println("END");
             out.flush();
+            // 拒绝路径**没有读**客户端发来的请求行，直接 close 会让 OS 发 RST，
+            // 客户端可能连这行 ERR busy 都收不到（2026-10-01 实测 WinError 10053）。
+            // 所以：先 shutdownOutput 送 FIN，再把未读字节排空，最后才 close。
+            try { c.shutdownOutput(); } catch (Throwable ignore) { }
+            try {
+                c.setSoTimeout(REJECT_DRAIN_MS);
+                InputStream in = c.getInputStream();
+                byte[] sink = new byte[256];
+                while (in.read(sink) >= 0) { /* drain */ }
+            } catch (Throwable ignore) {
+                // bounded by REJECT_DRAIN_MS; the client may simply be waiting for our reply
+            }
         } catch (Throwable ignore) {
             // the client is gone; nothing to report
         } finally {
@@ -351,6 +411,16 @@ public class LiveBridge implements BundleActivator {
     // -------------------------------------------------------------- serving
 
     private void handle(Socket c) {
+        handle(c, false);
+    }
+
+    /**
+     * @param livenessOnly 连接建立时桥已满员 ⇒ **只准** {@link #LIVENESS_METHODS}，
+     *                     其余一律 {@code ERR busy}（可重试，且调用方立刻知道「现在别指望它」）。
+     *                     回 busy 而不是排队等空位：排队会把调用方一起拖住，
+     *                     而观测者要的正是**马上**的答复。
+     */
+    private void handle(Socket c, boolean livenessOnly) {
         long t0 = System.nanoTime();
         String req = "";
         List<String> res = new ArrayList<String>();
@@ -364,6 +434,7 @@ public class LiveBridge implements BundleActivator {
             try {
                 String line = in.readLine();
                 req = line == null ? "" : line.trim();
+                if (livenessOnly) requireLivenessMethod(req);
                 dispatch(req, res);
             } catch (Throwable t) {
                 CtlException e = classify(t);
@@ -573,7 +644,8 @@ public class LiveBridge implements BundleActivator {
         out.add("bundle=" + bsn() + " version=" + bundleVersion()
                 + " id=" + bundleId() + " state=" + bundleState());
         out.add("port=" + PORT + " uiTimeoutMs=" + resolveUiTimeoutMs()
-                + " maxConnections=" + MAX_CONNECTIONS + " log=" + LOG_PATH);
+                + " maxConnections=" + MAX_CONNECTIONS + " livenessReserve=" + LIVENESS_RESERVE
+                + " livenessMethods=" + LIVENESS_METHODS + " log=" + LOG_PATH);
         out.add("thread=" + Thread.currentThread().getName());
     }
 
@@ -591,6 +663,9 @@ public class LiveBridge implements BundleActivator {
                 + " means the wait ended, not that the action did not run (" + resolveUiTimeoutMs()
                 + " ms, -Dctl.uiTimeoutMs)");
         out.add("note=only idempotent=true may be retried automatically; unknown means do not retry (design.md section 7)");
+        out.add("note=" + MAX_CONNECTIONS + " connections are served concurrently; beyond that "
+                + LIVENESS_RESERVE + " more are accepted but only " + LIVENESS_METHODS
+                + " are answered (so liveness stays observable when the bridge is saturated)");
     }
 
     /**

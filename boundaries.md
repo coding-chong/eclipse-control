@@ -197,6 +197,27 @@
   而「回读差没变化」本身**分不清「幂等」与「失败」** ⇒ **三层缺一不可**。
 - **证据**：`protocol.md` §4.3；任务侧 `research/facts-baseline.md` §7.2。
 
+### A13 模态框**不传染**（2026-10-01 实测，推翻旧表述）
+- **能做**：模态框在屏时，**另一条连接**照常干活 —— 实测 `Reset Perspective` 在屏的那一刻，
+  另一条连接的 `ui.parts` / `ui.tree` / `ui.persp` / `sys.ping` **全部正常返回**（0.00–0.02 s）。
+- **不能做**：**不能**用「`ui.*` 是否 `ERR timeout`」判断界面有没有被模态框占住 —— 它不会超时。
+  判断依据是**窗口枚举 / 截图**（那个框在不在）+ **你发的那次请求**是否超时。
+- **会超时的只有发起那次自己**：实测 **15.4 s** 后回
+  `ERR timeout UI task did not finish within 15000 ms; …`。
+  原因：SWT 模态框跑**嵌套事件循环**，`Display.asyncExec` 队列照常派发。
+- **证据**：`protocol.md` §4.2 第 5 条；任务侧 `research/p3-gate.md`。
+
+### N16 连接槽是全桥的**单点容量**：满员后连 `sys.ping` 都会 `ERR busy`
+- **不能做**：**不能**假定「桥总能用 `sys.ping` 探活」。容量按 `accept()` 计，**8 条只是连着、
+  不发任何请求**的连接就能把全功能槽占满（每条占满 `SOCKET_READ_TIMEOUT_MS`=60 s），
+  此后连 `sys.ping` 都拿不到 —— **观测能力被平凡打掉**，且从外面**分不清「忙」与「死」**。
+- **能做**：`1..8` 全功能；`9..12` **只准** `sys.ping`/`sys.env`/`sys.help`（`sys.wait` 会阻塞，不放行）；
+  `>=13` 直接拒。两种拒绝的 `ERR busy` 消息文本不同，**按错误码判断、不要按字面匹配**。
+- **`ERR busy` 一律可重试**（它就在错误码闭集里，语义即「稍后重试」）。
+- **降级**：保留槽只有 4 个，所以「满员 + 4 条活体探测同时在飞」的下一瞬仍会 `ERR busy` ——
+  这是有界的退化，不是死锁：探测是瞬时的，退避重试即可。
+- **证据**：`protocol.md` §4.4；任务侧 `research/p3-gate.md`。
+
 ### U13 part-scoped 命令的驱动方法
 - **未验证**：已知 `executeCommand(id, null)` **不**路由到部件级 handler（见 N9）；但**如何设置 selection / 构造 Event** 才能驱动这类命令，未验。
 - **验证入口**：以 `org.eclipse.ui.edit.selectAll` 为靶——先 `python -m ctl cmd org.eclipse.ui.edit.selectAll --yes` 复现 `ERR unhandled`，再按 `implement.md` 增一条用例，判据为该命令回读差非空。

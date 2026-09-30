@@ -130,7 +130,8 @@ truncated=true|false
 > `research/audit-round3-2026-10-01.md` A6/A10）
 
 机制：桥把 UI 调用投成 **`asyncExec`**（`design.md` §4 目标表）。超时只终止**等待**——
-**已经排进 `Display` 队列的 Runnable 仍会执行**，副作用只是延后到模态框被解除之后。
+**已经排进 `Display` 队列的 Runnable 仍会被派发并执行**（模态框的嵌套事件循环照常运转），
+超时取消的只是**这次等待**，不是那个动作。
 
 因此：
 
@@ -142,9 +143,15 @@ truncated=true|false
    （不是为了给下一次动作当基线）。
 3. 回读判定为 `applied=yes` ⇒ **不要再重发**（否则会执行两次）。
 4. **只有幂等方法**（§7 表 `idempotent=true`）允许自动重试。
-5. 模态框挂着时，**UI 类方法（`ui.*` / `cmd.*`）一律 `ERR timeout`**，不会假成功；
-   **非 UI 类方法（`sys.ping` / `sys.env`）照常响应**——这就是「僵死 vs 可运维」的分界
-   （`design-project.md` §16.4，判据 G3）。
+5. **超时只属于发起它的那条连接，不会传染**（2026-10-01 实测，推翻本节旧表述）：
+   模态框（`Reset Perspective`）在屏时，**另一条连接**的 `ui.parts` / `ui.tree` / `ui.persp` / `sys.ping`
+   **全部正常返回**（实测 0.00–0.02 s）—— 因为 SWT 模态框跑的是**嵌套事件循环**，
+   `Display.asyncExec` 的队列**照常派发**；只有**发起那次请求自己**会在 ~15 s 后回 `ERR timeout`
+   （它的 handler 正在等对话框的回答）。
+   ⇒ **「`ui.*` 是否 `ERR timeout`」不能用来判断界面有没有被模态框占住**。
+   判断依据是：屏上有没有那个框（窗口枚举 / 截图）+ **你发的那次请求**是否超时。
+   「非 UI 类方法照常响应」这条仍然成立（`sys.ping` / `sys.env` 不碰 UI 线程）；
+   但它是**能力**而非**分界** —— 真正的分界是 §4.4 的**连接槽**：满员时连 `sys.ping` 都会 `ERR busy`。
 
 超时后的**标准自救顺序**（`design.md` §5、`design-obs-ux.md` §13.2）：
 ① 先截图看清框上写了什么 → ② 枚举子窗拿到按钮列表 → ③ 处置（默认 `WM_CLOSE` 关窗；
@@ -196,6 +203,45 @@ END
 
 > 桥外的交叉验证：`tools/win-enum.ps1` 也可做同样前后比对（**已实测能抓到**同一弹框），
 > 作为**独立于桥**的观测手段保留。
+
+### 4.4 连接槽与「活体保留容量」（⚠️ 2026-10-01 实测新增）
+
+**容量是按 `accept()` 计的，不是按「有多少请求在跑」计的**：
+
+| 连接序号 | 服务 |
+|---|---|
+| `1..8` | **全功能**（任何方法） |
+| `9..12` | **只准** `sys.ping` / `sys.env` / `sys.help`；别的回 `ERR busy` |
+| `>=13` | 直接拒：`ERR busy bridge is at capacity (8 + 4 connections in flight); retry` |
+
+**为什么要有那 4 个保留槽**（实测动机）：8 条**只是连着、不发任何请求**的连接就能把全功能槽占满
+（每条要占满 `SOCKET_READ_TIMEOUT_MS` = 60 s），此后连 `sys.ping` 都拿不到 ——
+**运维观测能力被平凡地打掉**，而且从外面**分不清「忙」与「死」**。
+8 条各自卡在弹框命令里的连接（各 ~15 s）会造成同样结果。
+保留槽只放行**不碰 UI 线程、也不阻塞**的方法（`sys.wait` 虽然不碰 UI 但会阻塞，**不放行**），
+所以越过上限也不会把线程数推高。
+
+实测（2026-10-01，13/13 全通）：
+
+```
+#9  (保留区) sys.ping   -> OK
+#9  (保留区) sys.env    -> OK
+#10 (保留区) ui.parts   -> ERR busy  …while saturated only [sys.ping, sys.env, sys.help] are answered…
+#11 (保留区) sys.wait   -> ERR busy  （同上：会阻塞，故不放行）
+#13 (超 8+4) sys.ping   -> ERR busy  …(8 + 4 connections in flight); retry
+#1  (未饱和) ui.parts   -> OK       （全功能）
+```
+
+**客户端该怎么做**
+
+- 遇到 `ERR busy` ⇒ **可重试**（`busy` 就在错误码闭集里，语义即「稍后重试」）。
+- 要判断「桥还活着吗」⇒ 用 `sys.ping`：满员时它**仍然通**（直到第 13 条）。
+- 两种拒绝的 `ERR busy` 消息**不同**，别按字面匹配：
+  · 保留槽里的越权请求 → `while saturated only [...] are answered`；
+  · 连接槽全满 → `(8 + 4 connections in flight)`。
+  两者**都可重试**，判断方式看错误码而不是看消息文本。
+
+---
 
 ## 5. 鉴权
 

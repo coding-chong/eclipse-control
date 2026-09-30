@@ -273,12 +273,18 @@ class Runner:
         try:
             if case.requires_bridge:
                 self.connect()
-                # A stale modal dialog owns the instance's UI thread, so every
-                # call that needs it -- most `ui.*`, and every write -- comes back
-                # `ERR timeout` (measured; `sys.ping` does not, because it never
-                # touches the UI, so the failure looks selective and confusing).
-                # Clear the room first; see clean_room for why it is scoped by
-                # class + pid and never by title.
+                # Environment hygiene for the guard's pre-snapshot: a dialog-class
+                # window left over from an earlier case sits *inside* the pre
+                # snapshot, so a new identical failure looks like "nothing
+                # happened" and `expects_dialog` cases fail spuriously (Eclipse
+                # also coalesces repeats into "Multiple problems have occurred").
+                #
+                # It is NOT about a wedged UI thread.  Measured 2026-10-01: while
+                # a modal is on screen, *other* connections' `ui.*` calls answer
+                # normally -- SWT modality runs a nested event loop, so the
+                # `asyncExec` queue keeps draining -- and only the request that
+                # raised the dialog waits (then gets `ERR timeout`).
+                # Scoped by class + pid, never by title; see clean_room.
                 ctx.screen_pids = self.screen_pids()
                 problems = self.clean_room(ctx)
             if case.pre is not None:
