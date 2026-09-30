@@ -5,13 +5,17 @@ description: 从外部读取或控制 Eclipse 系 IDE（GS32_Studio / CCS 等）
 
 # eclipse-ctl 用法（给 AI 会话）
 
-**一句话**：向 Eclipse 进程热装一个薄桥，从外部**读界面 / 发命令**；写操作靠**回读差**判定，卡住时**自己截图看**。
+**一句话**：向 Eclipse 进程热装一个薄桥，从外部**读界面 / 发命令**；写操作靠**回读差 + 弹框回报**判定，卡住时**自己截图看**。
 
-## 0. 三条铁律
+## 0. 四条铁律
 
 1. **`OK` ≠ 到位**。写方法一律「前快照 → 动作 → 后快照 → 取差」。
-2. **`ERR timeout` ≠ 未生效**。超时后**必须再取一次回读差**（见 §3）。
-3. **看不懂就自己截图**，不许把观察外包给用户。
+2. **`OK` 还会撒谎**：写方法的回话里若出现 `dialog=appeared "…"` 负载行，说明动作前后冒出了**新的可见窗口**
+   —— 那条命令**可能失败了，也可能它本来就该弹框**。看到这一行就**别当成功**：先截图、关掉、再回读一次。
+   （实测：`viewId` 写错时回话是 `OK executed`，屏幕上却是 `Problem Occurred`，而回读差 `views 8→8` 与
+   「幂等成功」**长得一模一样** —— 只看回读差必然把失败读成成功。）
+3. **`ERR timeout` ≠ 未生效**。超时后**必须再取一次回读差**（见 §3）。
+4. **看不懂就自己截图**，不许把观察外包给用户。
 
 ## 1. 先发现端口、再说话
 
@@ -44,7 +48,7 @@ python -m ctl shell  --run-id <RUN_ID> -c "ui.console --tail 50"  # 活动 Conso
 - `ui.tree` 里 `ToolItem` / `MenuItem` / `CTabItem` **不是 `Control`**，走 `getItems()`；按钮语义在 `getToolTipText()`。
 - `ui.console` **只读活动 Console**；要读另一个先激活它。
 
-## 3. 写操作：动作 + 回读差
+## 3. 写操作：动作 + 回读差 + **看有没有 `dialog=`**
 
 ```bash
 # 1) 前快照
@@ -55,11 +59,28 @@ python -m ctl cmd --run-id <RUN_ID> org.eclipse.ui.views.showView viewId=com.gs.
 python -m ctl parts --run-id <RUN_ID> --json > post.json
 ```
 
-反例（练习时记住）：`cmd.runp showView viewId=com.gs.liveview` 返回 `OK executed`，但回读 views `8→8` ——
-`com.gs.liveview` 是**插件 id**，不是视图 id。
+**回话里必须扫一眼有没有 `dialog=` 行**（见 §0 第 2 条）。有就说明**多出了一个可见窗口**：
 
-**幂等**：只有 `sys.help` 里标 `idempotent=true` 的方法才允许自动重试；标 `unknown` 的一律**不重试**
-（自动重试可能把「已生效」再执行一次）。
+```
+OK executed org.eclipse.ui.views.showView
+dialog=appeared "Problem Occurred"          <- 先别当成功
+dialog_note=… close it and read back (ui.parts) before treating this call as done
+```
+
+处置：截图 → `win-close.ps1` 关掉 → 再 `parts` 回读一次 → 才下结论。
+**关窗要用 `-Class "#32770"` 或 `-TitleLike` 精确匹配**：`ui.open` 会把文件名写进**主窗标题**，
+按模糊标题关窗可能把工作台关掉。
+
+**`views 8→8` 这种「没变」是歧义的**——它既可能是**幂等成功**，也可能是**失败**。分辨手段只有两个：
+回话里的 `dialog=` 行，以及「这条命令本来就该改什么」的先验。**别把「没变」直接读成成功。**
+
+反例（练习时记住）：`cmd.runp showView viewId=com.gs.liveview` 返回 `OK executed`，
+但**回读 views `8→8`** 且 **回话里有 `dialog=appeared "Problem Occurred"`**
+—— `com.gs.liveview` 是**插件 id**，不是视图 id，Eclipse 异步抛了异常。
+
+**幂等（决定能不能自动重试）**：看 `sys.help` 的 `idempotent` 列，三档：
+`true` = 可重试；`false` = 不可；**`per-command`** = 一个方法名承载任意命令、**方法级无从保证**
+（`cmd.run` / `cmd.runp` 就是这档，实测开关型命令连点两次会**回到原状**）⇒ 与 `unknown` **同等保守，一律不重试**。
 
 ## 4. 超时后怎么办（必读）
 
@@ -85,11 +106,15 @@ python -m ctl parts --run-id <RUN_ID> --json > post.json
    ```bash
    pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Reset Perspective" -Text "&No"
    ```
-5. **探活**（卡死期间 `sys.ping` 不通、能通即「可运维」）：
+5. **探活 —— 但它证明不了「界面没卡」**：
 
    ```bash
    python -m ctl shell --run-id <RUN_ID> -c "sys.ping"
+   python -m ctl shell --run-id <RUN_ID> -c "ui.parts"   # 这一步才碰 UI 线程
    ```
+
+   `sys.ping` **不碰 UI 线程**，所以模态框占着界面时它**照样会通**（实测）。要判断界面是否被占住，
+   看 `ui.parts` 之类的 `ui.*` 调用是否 `ERR timeout`，或直接枚举窗口（见第 2 步）。
 6. **再取一次回读差**，把差值归因到先前那次超时请求（这一步不能省）。
 
 **完整自救配方**：`python -m ctl recipes run diag-when-hung`。
