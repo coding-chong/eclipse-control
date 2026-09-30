@@ -1,0 +1,39 @@
+# 验证（本文件写作时未执行，任务约定不跑 git；命中时应逐个回显规则）：
+#   git check-ignore -v bridge/out/x.class bridge/dist/livebridge_3.0.0.jar \
+#                      run-root/a/b __pycache__/z.cpython-313.pyc foo.pyc shots/x.png
+#
+# ---- 运行目录（<run_root>；桥/工作区/配置区副本、endpoint.json、日志、截图都在这下面）----
+# 内置默认是 <user.home>/.eclipse-ctl/runs；若把 run_root 配到仓内，下面这些名字整体不入库。
+/run-root/
+/run_root/
+/runs/
+/.eclipse-ctl/
+/eclipse-ctl-runs/
+
+# ---- 构建产物（bridge/build.py 的 out/ 与打包目录；本机无 jar.exe，产物是 zip 手写）----
+/bridge/out/
+/bridge/dist/
+/dist/
+/build/
+*.jar
+*.class
+
+# ---- Python 字节码（CLI 只用标准库，跑一次就会产生）----
+**/__pycache__/
+*.pyc
+*.pyo
+
+# ---- 运行产物截图（<run_root>/<run_id>/shots/；随 run_id 分包）----
+**/shots/
+*.png
+
+# ---- 本地配置与凭据（token 绝不入库）----
+.eclipse-ctl/
+config.local.json
+*.token
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
