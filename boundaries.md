@@ -92,14 +92,56 @@
   （后两者按 `--class`（缺省 `Edit`）+ 可选 `--index` 寻址）。命令面定义见 `design-obs-ux.md` §14.3。
 
   **已知差距**（如实）：`act click-button` **只支持文本寻址**，`--index`/`--path` 显式拒绝（见 N11）；
-  **菜单 / 工具栏 / 树节点**走命令框架（`cmd.run`/`cmd.runp`）为主线，输入路径只作兜底，三类控件的
-  逐条结论**尚待补**。
+  **路径（下标路径）**这一档仍未实现。
 
-- **证据**：`research/p6-input-fixture-2026-10-01.md`（六条断言首次实测）；
-  **2026-10-02 独立复现**（同一夹具、全新实例 `pid=3688`/`7816`）：① `BM_CLICK` → `GO 1`；
-  ②a 坐标→Button 有效 / ②b 坐标→Shell 无效；③ `VK_RETURN` → `KEY 13`；④ `WM_SETTEXT` → `TEXT CLIPROVE`；
-  ⑤ `--class NoSuchClass` 与不存在的按钮均 **rc=1**；⑥ 空白坐标无变化。
-  夹具源码 `tools/fixture-swt/Fixture.java`；取证探针 `research/probes/p6-input-probe.ps1`（只作取证，不属产品）。
+### A6b 控件类别的元素寻址结论（P6.4）
+
+夹具 v2 加了 `Menu` / `ToolBar` / `Tree` 后重测。**做法**：先枚举子窗看**谁有自己的 HWND**，再对有的那几类试消息注入。
+
+| 控件 | 自己的 HWND？ | 元素寻址（消息注入） | 实测证据 |
+|---|---|---|---|
+| `Button` | ✅ `Button` | ✅ **可行** | `BM_CLICK` → 标题 `GO n`（用例 `input.fixture` ①） |
+| `Text` | ✅ `Edit` | ✅ **可行** | `WM_KEYDOWN` → `KEY 13`；`WM_SETTEXT` → `TEXT <载荷>`（③④） |
+| `Tree` | ✅ `SysTreeView32` | ✅ **可行**（**对树内坐标**发鼠标消息） | 树内 (30,12) 点一下 → 标题 `TREE 1` |
+| **`ToolItem`** | ❌ **无独立 HWND** | ⚠️ **只能对工具栏坐标点**（**未验**） | `ToolbarWindow32` 的子窗数 = **0** |
+| **`MenuItem`** | ❌ **根本不是窗口** | ❌ **不可行** ⇒ **必须走命令框架** | 子窗清单里**没有任何菜单窗口**（Win32 菜单是 `HMENU` 条目） |
+
+> **一条负结果（有价值）**：对 `SysTreeView32` 单独发 `TVM_SELECTITEM`(`0x110B`, `TVGN_CARET`)
+> **不产生** SWT 的选中事件（标题不变）；能产生的是**对树内坐标发鼠标消息**。
+> ⇒ 「有 HWND」**不等于**「有对应的语义消息」。
+
+**替代路径（本条的落点）**：**菜单项与工具项一律走命令框架**（`cmd.run` / `cmd.runp`）——
+它们在 Eclipse 里基本都有对应 command。这不是"退而求其次"，是**正解**：
+§18.3 早就写了「菜单 / 工具栏 / 树节点 —— **优先走命令框架**」，本次实测**正好证实该预案**。
+
+### A6c 输入与桥的相互影响（F11 / P6.6）
+
+**分两面写，别混。**
+
+| 面 | 状态 | 内容 |
+|---|---|---|
+| **机制**（推论，已标注） | `[INFERENCE]` | 合成输入与真实输入**走同一条投递路径**，都由 UI 线程处理。因此**只有当某个输入触发了"阻塞 UI 线程的行为"**（弹模态框、跑长任务）时才可能停摆 —— 与 F7 是**同一个失败面**，不是新的一类。空闲点击的 handler 微秒级返回，**观测不到**。 |
+| **实测** | ❌ **本轮未做** | **不得**用"命令弹模态框"的场景（§6 那次）冒充"输入场景"。见下方验证入口。 |
+
+**为什么本轮不做（不是遗漏，是刻意）**：把合成点击打进**真 IDE 的工作台**，等于**在不知会用户的情况下替它按下一个未知按钮**
+——坐标落点不可预判，可能触发 `Open Perspective` 之类会弹框的操作。
+仓库纪律是「点按钮 = 替用户做不可逆决定 → **只有用例显式声明时才点**」（`design-obs-ux.md` §13.2.2）。
+在**没有声明目标按钮**的前提下做这件事，与纪律直接冲突。**所以本轮如实标为"未验"，而不是偷偷做掉。**
+
+**验证入口（安全做法，供后续执行）**：
+1. `install --target gs32 --run-id gs32-p66` 起实例，`sys.ping` 确认桥活；
+2. **先在夹具上**（`verify --case input.fixture`）确认原语能用 —— 夹具已证明「SWT 认，且成败在寻址」；
+3. **再由用例显式声明**一个**已知无害**的目标（如状态栏 `Label` 区域、或某个可回读的只读视图标题），
+   发一次 `WM_LBUTTONDOWN/UP`，**同时**以 ≤50 ms 间隔轮询 `sys.ping`；
+4. 判据：`sys.ping` 全程 p95 **仍 ≤ 50 ms** ⇒ 输入不停摆桥；若出现停摆，**必须先截图**确认是不是弹了框（§13.2.1）；
+5. 把结果回填本节，并把 `[INFERENCE]` 换成实测。
+
+- **证据**：`research/p6-input-fixture-2026-10-01.md` §2（六条断言首次实测）与 §7（P6.4 五类控件）；
+  **用例化复现（2026-10-02，`target=gs32`）**：`python -m ctl verify --case input.fixture --target gs32` → **PASS**，
+  证据逐条给出 ① `ctl-fixture`→`GO 1`、②a `GO 1`→`GO 2`、②b 同坐标同消息发顶层 Shell **不变**、
+  ③ →`KEY 13`、④ →`TEXT P6CASE`、⑤ `ctl act click-button --text &NoSuchButton` **退出码 1**、⑥ (5,5) **不变**。
+  夹具源码 `tools/fixture-swt/Fixture.java`；探针 `tools/fixture-swt/probe.ps1`（随夹具走，取证装置，不属产品）；
+  用例 `ctl/verify/cases/input_fixture.py`（`requires_bridge=False`，自带夹具启停）。
 
 ### A7 观测装置 · 截图
 - **能力**：`tools/shot-window-pw.ps1`（`PrintWindow` + 先 `SetProcessDPIAware`）为**主通道**，不受遮挡、不受 DPI 虚拟化影响；OCU 的 `get_app_state(include_image=true)` 为**备用**（小窗可用）。
