@@ -100,6 +100,155 @@ python -m ctl uninstall --target gs32 --run-id demo --verify-clean
 
 ---
 
+## 配置文件
+
+**载体**：`~/.eclipse-ctl/config.json`（与运行目录同级）。**没有这个文件就等于全用内置默认** —— 不必须存在。
+
+**完整示例（照抄这个改）**：
+
+```json
+{
+  "default_target": "gs32",
+  "run_root": "D:/tmp/eclipse-ctl",
+  "keep_runs": 3,
+  "copy": false,
+  "token": "",
+  "allow_dangerous": false,
+  "targets": {
+    "gs32":  { "source_dir": "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2", "java_level": "17", "port": 8777 },
+    "ccs12": { "source_dir": "D:/ti/ccs1281/ccs/eclipse",                                  "java_level": "11", "port": 8778 }
+  }
+}
+```
+
+| 字段 | 作用 |
+|---|---|
+| `default_target` | 不给 `--target` 时用谁（内置默认 `gs32`） |
+| `run_root` | 运行实例的根目录；每个 `run_id` 一个子目录。内置默认 `~/.eclipse-ctl/runs` |
+| `keep_runs` | `ctl gc` 保留最近几次 run（内置默认 3） |
+| `copy` | `false`（默认）= **一份源安装树跑多实例**，只写运行配置区；`true` = 每实例复制整份安装树（`-configuration` 隔离实测不生效时的回退） |
+| `token` | 桥的鉴权串；非空时客户端每次请求都要带 |
+| `allow_dangerous` | 放行 `gc` 这类破坏性命令的默认 dry-run（等价于 `--allow-dangerous`） |
+| `targets.<名>` | 目标矩阵：`source_dir` 安装树 / `java_level` 编译级别 / `port` 默认端口 |
+
+> `source_dir` / `java_level` 是**别名**，内部字段名是 `install_dir` / `java_target`；两种写法都吃。
+
+**三层覆盖（优先级从低到高）**：
+
+```bash
+ECLIPSE_CTL_PORT=8899 python -m ctl status --target gs32   # ① 环境变量（Eclipse_CTL_ 前缀）
+python -m ctl status --target gs32 --port 8890             # ② 命令行 flag（最高）
+python -m ctl status --target gs32 --config ./my.json      # ③ 换整份配置
+```
+
+**新增一个目标**（比如同事的另一个 Eclipse 系 IDE）：
+
+```bash
+python -m ctl targets list
+python -m ctl targets add myide --source-dir "D:/path/to/ide" --java-level 17
+python -m ctl targets remove myide
+```
+
+---
+
+## 五分钟上手（每步给期望输出）
+
+> 下列输出是 **2026-10-01 在 GS32_Studio v1.2.5.2 绿色版上的原样实测记录**，不是排版的样例；
+> 其中 `doctor` 一段为 **2026-10-02 重测**（桥 jar 命名与 Java 级别校验收紧后）。
+> ⚠️ **写操作必须带 `--yes`** —— 不带只打印 `DRY-RUN` 不发送（dry-run 落在**客户端**，桥没有 dry-run 概念）。
+> 不带 `--yes` 的代价：下面 **3b** 那条「回话撒谎」的教训你**永远看不到**。
+
+```bash
+# 0) 自检 —— 不写任何东西，先看机器行不行
+$ python -m ctl doctor --target gs32
+target gs32
+  [PASS] source_dir exists        D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2
+  [PASS] platform / JRE           Eclipse 4.30.0 (expected 4.30.0); JRE 23.0.2 (expected 23.0.2, 30 modules)
+  [PASS] ECJ compiler             org.eclipse.jdt.core.compiler.batch_3.36.0.v20231114-0937.jar
+  [PASS] bridge buildable         bridge\dist\eclipse-ctl.bridge_3.1.0_gs32.jar (Bundle-Version 3.1.0); class-file 61 (Java 17) matches java_target 17
+  [PASS] port 8777                free
+  [PASS] no leftover instance     0 process under C:\Users\Alice\.eclipse-ctl\runs
+  [PASS] run_root writable        C:\Users\Alice\.eclipse-ctl\runs (163.3 GiB free)
+  [SKIP] installed version        no run installed for target gs32
+all checks passed
+
+# 若最后一行是 [FAIL] installed version … cannot reach bridge on 127.0.0.1:8777，
+# 而 "no leftover instance" 仍是 [PASS] —— 那是**残留的安装记录**（登记在、桥没起），
+# 不是环境问题：清掉那一次的 run（`ctl uninstall --target gs32 --run-id <那次> --verify-clean`）
+# 或让它被 `ctl gc` 回收即可。退出码此时是 2（前置未就绪），不是 1。
+
+# 1) 装 —— 一条命令（no-copy：只借 IDE 的 plugins，配置区隔离在 run 目录下）
+$ python -m ctl install --target gs32 --run-id w --port 8905
+run_id      w
+configuration C:\Users\Alice\.eclipse-ctl\runs\w\configuration
+workspace   C:\Users\Alice\.eclipse-ctl\runs\w\ws
+endpoint    C:\Users\Alice\.eclipse-ctl\runs\w\endpoint.json
+OK bridge live on 127.0.0.1:8905 (protocol 1, version 3.1.0)
+
+# 2) 看 —— 只读方法**默认真发**，不需要任何开关
+$ python -m ctl parts --run-id w
+OK
+workbenchWindows=1 activeWindow=org.eclipse.ui.internal.WorkbenchWindow@1ff463bb
+perspective id=org.eclipse.cdt.ui.CPerspective label="C/C++"
+views=8
+  view id=org.eclipse.ui.navigator.ProjectExplorer title="Project Explorer"
+  view id=org.eclipse.ui.views.ProblemView title="Problems (0 items)"
+  view id=org.eclipse.ui.views.TaskList title="-"
+  view id=org.eclipse.ui.console.ConsoleView title="-"
+  …
+# 完整命令表也是只读：`python -m ctl commands --run-id w` → total=666 returned=666 truncated=False
+
+# 3) 写 —— 不带 --yes 只打印
+$ python -m ctl cmd org.eclipse.ui.views.showView viewId=com.gs.memory.view --run-id w
+DRY-RUN cmd.runp org.eclipse.ui.views.showView viewId=com.gs.memory.view
+
+$ 同上 + --yes          # 真发
+OK
+ICommandService via IWorkbench.getService -> true
+IHandlerService -> true
+parameter resolved by name: viewId -> org.eclipse.ui.views.showView.viewId
+parameter org.eclipse.ui.views.showView.viewId=com.gs.memory.view
+parameterizedCommand id=org.eclipse.ui.views.showView
+executeCommand returned: null
+OK executed org.eclipse.ui.views.showView
+
+# 3b) ⚠️ 最要紧的一步：**回话撒谎**。同一个方法，换一个不存在的 viewId：
+$ python -m ctl shell --run-id w -c "cmd.runp org.eclipse.ui.views.showView viewId=com.gs.liveview"
+OK                                   ← 回话说成功了
+…（上面那些 OK 行照旧）
+parameter org.eclipse.ui.views.showView.viewId=com.gs.liveview
+executeCommand returned: null        ← 框架也说成功了
+OK executed org.eclipse.ui.views.showView
+dialog=appeared "Problem Occurred"   ← ★ 桥自己抬头看到了这个框
+dialog_note=the command may have FAILED, or the dialog may be the expected behaviour;
+            close it and read back (ui.parts) before treating this call as done
+END
+
+# 回读一次就知道真相：views **8 → 8**（没变）。而「没变」既可能是幂等，也可能是失败 ——
+# 光看回读差**分不出来**，必须叠加 dialog= 这层。这就是 protocol.md §4.3 的由来。
+
+# 4) 卸 —— 一条命令 + 卸干净验收
+$ python -m ctl uninstall --target gs32 --run-id w --verify-clean
+stopped: pid 13772
+residue removed: 1
+  [clean] bundle_absent
+  [clean] configuration_clean
+  [clean] port_released
+  [clean] no_process
+```
+
+**关键约定**：`0` = 成功；`1` = 失败（有明确结论）；**`2` = 前置未就绪（压根没跑）** —— CI 靠这个区分「机器没准备好」和「东西坏了」。
+
+**三样一起看，缺一层就有洞**（`protocol.md` §4.3）：
+
+| 层 | 看得见什么 | 看不见什么 |
+|---|---|---|
+| 协议错误码 | 参数写错、方法不存在、命令无 handler | 命令**执行中**抛的异常（异步，回话已经 OK 了） |
+| `dialog=` / 窗口快照 | 异步弹框（含标题，可截图取证） | **不弹框**的失败（只写日志） |
+| 回读差 | 静默失败 | **分不清「幂等」与「失败」**（`views 8→8` 两种都长这样） |
+
+---
+
 ## 目录
 
 ```
