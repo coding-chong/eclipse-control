@@ -226,6 +226,13 @@ _BUILTIN: Dict[str, Dict[str, Any]] = {
         "port": 8778,
         "launcher": "ccstudio.exe",
         "vendor_prefix": "com.ti",
+        # CCS ships **no JDT**, so `bridge/build.py` finds no ECJ batch compiler
+        # inside this tree (`doctor --target ccs12` reports that as FAIL). It is
+        # borrowed from the sibling gs32 install: ECJ 3.36 emits `-source/-target 11`,
+        # which is what this target needs. Override per-run with
+        # `python -m ctl build --target ccs12 --ecj <jar>`.
+        "ecj": "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2/plugins/"
+               "org.eclipse.jdt.core.compiler.batch_3.36.0.v20231114-0937.jar",
     },
 }
 

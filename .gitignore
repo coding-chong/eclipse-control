@@ -18,6 +18,9 @@
 *.jar
 *.class
 
+# ---- 夹具的产物目录（ECJ 的 .class + 从 SWT 片段 jar 里抽出的原生 DLL）----
+/tools/fixture-swt/out/
+
 # ---- Python 字节码（CLI 只用标准库，跑一次就会产生）----
 **/__pycache__/
 *.pyc

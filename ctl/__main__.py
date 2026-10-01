@@ -279,6 +279,13 @@ def build_parser() -> CtlParser:
     # -- build --------------------------------------------------------------- #
     p_build = sub.choices["build"]
     p_build.add_argument("--out", metavar="JAR")
+    p_build.add_argument("--src", metavar="TREE",
+                         help="IDE install tree to compile against "
+                              "(default: the target's install_dir)")
+    p_build.add_argument("--ecj", metavar="JAR",
+                         help="ECJ batch compiler jar (default: the target's, else one found in --src)")
+    p_build.add_argument("--jre", metavar="JAVA",
+                         help="java.exe that runs ECJ (default: the target's JRE)")
 
     # -- preflight ----------------------------------------------------------- #
     # (options come from `common`)
@@ -477,8 +484,9 @@ def _doctor_checks(config: Config, target: Target, args) -> List[Dict[str, str]]
         checks.append(_check("ECJ compiler", "FAIL",
                              "no org.eclipse.jdt.core.compiler.batch_*.jar under %s/plugins" % target.install_dir))
 
-    # 4. bridge jar present, or buildable from source
-    ok, detail = bridge_buildable()
+    # 4. bridge jar present, or buildable from source -- and it must be a jar
+    #    this target can actually load (java_target vs the jar's class-file level).
+    ok, detail = bridge_buildable(target)
     checks.append(_check("bridge buildable", "PASS" if ok else "FAIL", detail))
 
     # 5. is the target port usable by a *new* run?
@@ -1381,6 +1389,16 @@ def _build_bridge(target_name: str, out: Optional[str], config: Config, args) ->
     argv = [sys.executable, BRIDGE_BUILD, "--target", target_name]
     if out:
         argv += ["--out", out]
+    # Resolve the target's toolchain explicitly instead of letting build.py
+    # rediscover it: ccs12 ships no JDT, so its ECJ can only come from the
+    # target definition (or from an explicit --ecj). Explicit CLI flags win.
+    target = config.target(target_name)
+    src = getattr(args, "src", None) or target.install_dir
+    ecj = getattr(args, "ecj", None) or target.ecj_jar()
+    jre = getattr(args, "jre", None) or target.java_exe()
+    for flag, value in (("--src", src), ("--ecj", ecj), ("--jre", jre)):
+        if value:
+            argv += [flag, value]
     print("running %s" % " ".join(argv), file=sys.stderr)
     return subprocess.run(argv, cwd=REPO_ROOT).returncode
 

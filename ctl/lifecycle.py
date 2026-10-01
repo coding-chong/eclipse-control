@@ -21,6 +21,7 @@ import json
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -326,45 +327,106 @@ def _read_manifest_symbolic_name(jar: str) -> Tuple[str, str]:
     return (values.get("Bundle-SymbolicName", ""), values.get("Bundle-Version", ""))
 
 
-def find_bridge_jar() -> Tuple[str, str]:
+def jar_java_level(jar: str) -> Optional[int]:
+    """Class-file *major* version of the first class in ``jar`` (55 = Java 11, 61 = Java 17)."""
+    try:
+        with zipfile.ZipFile(jar) as z:
+            for entry in z.namelist():
+                if not entry.endswith(".class"):
+                    continue
+                head = z.read(entry)[:8]
+                if head[:4] == b"\xca\xfe\xba\xbe":
+                    return struct.unpack(">H", head[6:8])[0]
+    except (zipfile.BadZipFile, OSError):
+        return None
+    return None
+
+
+def _retry_build(target: Optional[str]) -> str:
+    return "retry: python -m ctl build --target %s" % (target or "gs32")
+
+
+def find_bridge_jar(target: Optional[str] = None) -> Tuple[str, str]:
     """Return ``(jar_path, version)`` for the *current* bridge bundle.
 
     A jar that does not declare ``eclipse-ctl.bridge`` is stale (the pre-rename
     ``livebridge`` artifact) and is deliberately rejected -- the frozen contract
     fixes the bridge identity (`design-project.md` §15.1).
+
+    ``target`` selects among **coexisting** artifacts. The same source compiles
+    to different bytecode levels per target (Java 17 for gs32, Java 11 for
+    ccs12 -- `bridge/build.py`'s ``java_level``), so the artifacts must not
+    shadow each other: building one target used to overwrite the other's jar
+    under an identical name.
     """
     candidates = sorted(glob.glob(os.path.join(BRIDGE_DIST, "*.jar")))
+
+    def identity(jar: str) -> Tuple[str, str]:
+        name, version = _read_manifest_symbolic_name(jar)
+        return (name, version or "0.0.0")
+
+    if target:
+        suffix = "_%s.jar" % target
+        for jar in candidates:
+            if os.path.basename(jar).startswith(BUNDLE_SYMBOLIC_NAME + "_") \
+                    and os.path.basename(jar).endswith(suffix):
+                name, version = identity(jar)
+                if name == BUNDLE_SYMBOLIC_NAME:
+                    return (jar, version)
+
     stale: List[str] = []
     for jar in candidates:
-        name, version = _read_manifest_symbolic_name(jar)
+        name, version = identity(jar)
         if name == BUNDLE_SYMBOLIC_NAME:
-            return (jar, version or "0.0.0")
+            return (jar, version)
         stale.append("%s (Bundle-SymbolicName=%s)" % (os.path.basename(jar), name or "<none>"))
     if stale:
         raise PrereqNotReady(
-            "bridge jar is stale, none declares %s: %s; retry: python -m ctl build --target gs32"
-            % (BUNDLE_SYMBOLIC_NAME, ", ".join(stale)))
+            "bridge jar is stale, none declares %s: %s; %s"
+            % (BUNDLE_SYMBOLIC_NAME, ", ".join(stale), _retry_build(target)))
     if os.path.isfile(BRIDGE_BUILD):
         raise PrereqNotReady(
-            "no bridge jar built yet (%s); retry: python -m ctl build --target gs32" % BRIDGE_DIST)
+            "no bridge jar built yet (%s); %s" % (BRIDGE_DIST, _retry_build(target)))
     if os.path.isfile(BRIDGE_SOURCE):
         raise PrereqNotReady(
-            "bridge is not buildable: %s is missing (source present); retry: python -m ctl build --target gs32"
-            % BRIDGE_BUILD)
+            "bridge is not buildable: %s is missing (source present); %s"
+            % (BRIDGE_BUILD, _retry_build(target)))
     raise PrereqNotReady(
         "bridge source missing (%s); retry: python -m ctl --help" % BRIDGE_SOURCE)
 
 
-def bridge_buildable() -> Tuple[bool, str]:
-    """``(ok, detail)`` for the `doctor` buildability check."""
+def bridge_buildable(target: Optional[Target] = None) -> Tuple[bool, str]:
+    """``(ok, detail)`` for the `doctor` buildability check.
+
+    **Target-aware** (fixed 2026-10-01). Before this, the check took no target
+    and only asked "is there a jar in ``bridge/dist/``", so ``doctor --target
+    ccs12`` reported ``PASS`` for a Java 17 jar that ccs12's JRE 11 cannot even
+    load -- a false PASS for exactly the mismatch ``java_target`` exists to
+    describe.
+    """
+    name = target.name if target else None
     try:
-        jar, version = find_bridge_jar()
+        jar, version = find_bridge_jar(name)
     except PrereqNotReady as exc:
         buildable = os.path.isfile(BRIDGE_SOURCE) and os.path.isfile(BRIDGE_BUILD)
         if buildable:
             return (True, "buildable from source + bridge/build.py (no jar yet)")
         return (False, exc.message)
-    return (True, "%s (Bundle-Version %s)" % (os.path.relpath(jar, REPO_ROOT), version))
+
+    rel = os.path.relpath(jar, REPO_ROOT)
+    detail = "%s (Bundle-Version %s)" % (rel, version)
+    if target and target.java_target:
+        major = jar_java_level(jar)
+        want = int(target.java_target) + 44
+        if major is not None:
+            if major != want:
+                return (False, "%s is class-file %d (Java %d) but target '%s' runs Java %s; %s"
+                        % (rel, major, major - 44, target.name, target.java_target,
+                           _retry_build(target.name)))
+            detail += "; class-file %d (Java %d) matches java_target %s" \
+                      % (major, major - 44, target.java_target)
+    return (True, detail)
+
 
 
 # --------------------------------------------------------------------------- #
@@ -574,7 +636,15 @@ def install(config: Config, target_name: Optional[str] = None, run_id: Optional[
     paths = run_paths(config.run_root, run_id)
     effective_port = int(port) if port is not None else target.port
 
-    jar, version = find_bridge_jar()  # <-- fails here (exit 2) until bridge is built
+    jar, version = find_bridge_jar(target.name)  # <-- fails here (exit 2) until bridge is built
+    expected_major = int(target.java_target) + 44 if target.java_target else None
+    actual_major = jar_java_level(jar)
+    if expected_major is not None and actual_major is not None and actual_major != expected_major:
+        raise PrereqNotReady(
+            "bridge jar %s is class-file %d (Java %d) but target '%s' runs Java %s; "
+            "retry: python -m ctl build --target %s"
+            % (os.path.basename(jar), actual_major, actual_major - 44,
+               target.name, target.java_target, target.name))
 
     if ensure_clean_requested:
         ensure_clean(port=effective_port, configuration=paths.configuration,

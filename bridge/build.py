@@ -106,7 +106,13 @@ TARGETS = {
     "ccs12": {
         "src": "D:/ti/ccs1281/ccs/eclipse",
         "java_level": "11",
-        "ecj_globs": ECJ_GLOBS,
+        # CCS ships no JDT, so the in-tree glob finds nothing; the second entry
+        # borrows the sibling gs32 tree's ECJ (3.36 emits `-source/-target 11`).
+        # Override with --ecj <jar>.
+        "ecj_globs": ECJ_GLOBS + [
+            "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2/plugins/"
+            "org.eclipse.jdt.core.compiler.batch_*.jar",
+        ],
         "jre_globs": [
             "jre/bin/java.exe",
             "plugins/org.eclipse.justj.openjdk.hotspot.jre*/jre/bin/java.exe",
@@ -126,6 +132,50 @@ def find_first(src: str, patterns) -> str:
         if hits:
             return hits[0]
     return None
+
+
+def class_file_level(jar: str) -> "int | None":
+    """Class-file *major* version of the first class in ``jar`` (55 = Java 11, 61 = Java 17)."""
+    try:
+        with zipfile.ZipFile(jar) as z:
+            for entry in z.namelist():
+                if not entry.endswith(".class"):
+                    continue
+                head = z.read(entry)[:8]
+                if head[:4] == b"\xca\xfe\xba\xbe":
+                    return int.from_bytes(head[6:8], "big")
+    except (zipfile.BadZipFile, OSError):
+        return None
+    return None
+
+
+def jre_feature_level(java_exe: str) -> "int | None":
+    """Java feature level of a JRE (8, 11, 17, 23...) from its ``release`` file."""
+    home = os.path.dirname(os.path.dirname(os.path.abspath(java_exe)))
+    try:
+        with open(os.path.join(home, "release"), encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("JAVA_VERSION="):
+                    raw = line.split("=", 1)[1].strip().strip('"')
+                    parts = raw.split(".")
+                    if parts[0] == "1" and len(parts) > 1:   # 1.8.0_202 -> 8
+                        return int(parts[1])
+                    return int(parts[0])                     # 11.0.13 -> 11
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def can_run(java_exe: str, jar: str) -> bool:
+    """True when ``java_exe`` is new enough to load ``jar``'s classes.
+
+    Unknown level on either side returns True: this only rules out a case we can
+    *prove* is impossible, it never second-guesses the caller.
+    """
+    need, have = class_file_level(jar), jre_feature_level(java_exe)
+    if need is None or have is None:
+        return True
+    return have + 44 >= need
 
 
 def classpath_jars(plugins_dir: str) -> list:
@@ -163,7 +213,7 @@ def main(argv=None) -> int:
                         help="target product whose toolchain is borrowed (default: gs32)")
     parser.add_argument("--src", help="IDE install tree (overrides the target default)")
     parser.add_argument("--out", help="output jar path (default: bridge/dist/"
-                                      "eclipse-ctl.bridge_<version>.jar)")
+                                      "eclipse-ctl.bridge_<version>_<target>.jar)")
     parser.add_argument("--java", dest="java_src", default=DEFAULT_JAVA_SRC,
                         help="bridge source file (default: bridge/src/ctl/bridge/LiveBridge.java)")
     parser.add_argument("--jre", help="java.exe that runs ECJ (default: discovered in --src)")
@@ -186,20 +236,42 @@ def main(argv=None) -> int:
     if not os.path.isfile(java_src):
         die("source file not found: %s" % java_src)
 
+    # The file name carries the target: the same source compiles to Java 17 for
+    # gs32 and Java 11 for ccs12, and those two artifacts must **coexist** in
+    # bridge/dist/ (a shared name meant building one target silently replaced
+    # the other's jar, and `find_bridge_jar()` then picked an unloadable one).
     jar_out = os.path.abspath(args.out) if args.out else os.path.join(
-        BRIDGE_DIR, "dist", "%s_%s.jar" % (BUNDLE_SYMBOLIC_NAME, args.version))
+        BRIDGE_DIR, "dist", "%s_%s_%s.jar" % (BUNDLE_SYMBOLIC_NAME, args.version, args.target))
     out_dir = os.path.join(BRIDGE_DIR, "build", args.target, "out")
-
-    jre = os.path.abspath(args.jre) if args.jre else find_first(src, target["jre_globs"])
-    if not jre or not os.path.isfile(jre):
-        die("no java.exe found for target '%s' under %s (tried: %s); pass --jre <java.exe>"
-            % (args.target, src, ", ".join(target["jre_globs"])))
 
     ecj = os.path.abspath(args.ecj) if args.ecj else find_first(src, target["ecj_globs"])
     if not ecj or not os.path.isfile(ecj):
         die("no ECJ batch compiler found for target '%s' under %s (tried: %s); this install "
             "tree ships no JDT -- pass --src <tree that has one> or --ecj <ecj.jar>"
             % (args.target, src, ", ".join(target["ecj_globs"])))
+
+    # The JVM that *runs ECJ* and the bytecode level we *emit* are two separate
+    # requirements.  A borrowed ECJ may itself need a newer JRE than this target
+    # ships: gs32's ECJ 3.36 is class-file 61 (Java 17) while ccs12's JRE is 11,
+    # which cannot even load it (`UnsupportedClassVersionError`, hit 2026-10-01).
+    jre = os.path.abspath(args.jre) if args.jre else find_first(src, target["jre_globs"])
+    if jre and not os.path.isfile(jre):
+        jre = None
+    if not jre:
+        die("no java.exe found for target '%s' under %s (tried: %s); pass --jre <java.exe>"
+            % (args.target, src, ", ".join(target["jre_globs"])))
+    if not can_run(jre, ecj):
+        able = []
+        for other in TARGETS.values():
+            cand = find_first(other["src"], other["jre_globs"])
+            if cand and os.path.isfile(cand) and can_run(cand, ecj):
+                able.append((jre_feature_level(cand) or 0, cand))
+        if not able:
+            die("the JRE at %s (Java %s) cannot load the ECJ compiler %s (class-file %s); "
+                "pass --jre <java.exe> and/or --ecj <ecj.jar>"
+                % (jre, jre_feature_level(jre), os.path.basename(ecj), class_file_level(ecj)))
+        jre = max(able)[1]
+        print("  jre         : %s (the target's own JRE cannot run this ECJ)" % jre)
 
     cp = classpath_jars(os.path.join(src, "plugins"))
 
