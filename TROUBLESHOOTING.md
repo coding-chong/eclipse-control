@@ -103,25 +103,92 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 
 ## 7. CLI 错误串 ↔ 本文件命中行（A12 判据）
 
-规则见 `protocol.md` §11：CLI 的 stderr 一行形如 `ERR <code> <message>; retry: <命令>`，
-且该串必须能在本文件 grep 命中**同一行**。下表左列即 **CLI 原样输出**，右列给出本文件里含该串的那一行。
+规则见 `protocol.md` §11：CLI 把失败写到 stderr，形如 `ERR <code> <message>; retry: <命令>`。
 
-| CLI 错误串（原样 grep 目标） | 本文件命中位置 |
-|---|---|
-| `ERR badrequest <detail>; retry: python -m ctl --help` | §7 本行（写法非法 / 未知 method 的参数形态见 `protocol.md` §2） |
-| `ERR notfound no such case: <name>; retry: python -m ctl verify --case read.ping` | §2「`ERR notfound no such case` 形态的用例名写错」行 |
-| `ERR notfound no such subcommand: <name>; retry: python -m ctl --help` | §7 本行（子命令拼写错；退出码 1，`design-obs-ux.md` §14.3 退出码语义） |
-| `ERR notfound no such target: <name>; retry: python -m ctl targets list` | §7 本行（target 名不在册：`python -m ctl targets list` 列出全部） |
-| `ERR notfound no endpoint for run '<run_id>' (<path>); retry: python -m ctl install --target <target> --run-id <run_id>` | §2「端口被别的实例占用 / 连到旧桥」行（无 `endpoint.json` = 该 run 没装过或已被清理） |
-| `ERR timeout no response within 25000 ms; retry: python -m ctl shell --run-id <run_id> -c "sys.ping"` | §1 recv 超时行 |
-| `ERR badrequest <detail>; retry: python -m ctl doctor --target <target>` | §7 本行（写方法未带 `--yes`；dry-run 规则见 `design-project.md` §16.2） |
-| `ERR internal <detail>; retry: python -m ctl doctor --target <target>` | §3 `internal` 行 |
-| `ERR disabled <bridge message>; retry: python -m ctl doctor --target <target>` | §1 `NotEnabledException` 行 |
-| `ERR unhandled <bridge message>; retry: python -m ctl commands find --text "Select All"` | §1 `NotHandledException` 行 |
-| `ERR noWorkbench <bridge message>; retry: python -m ctl status --target <target>` | §1 `Workbench has not been created yet` 行 |
-| `ERR busy <bridge message>; retry: python -m ctl status --target <target>` | §3 `busy` 行 |
+**判据怎么才算成立**：真实输出里的 id / 路径 / 耗时 / 窗口号都是**可变**的，整行 grep 不可能命中。
+所以 A12 的判据落在**消息里那段稳定的字面量**上 —— 下表左列即那个字面量，
+它必须能在**本文件**里**原样 grep 命中**（命中处即本行）。占位符只出现在中列与右列的说明里。
 
-> 桥侧码（`disabled` / `unhandled` / `noWorkbench` / `busy`）的 `<bridge message>` 由桥原样给出，
-> 只有 `; retry: <命令>` 是 CLI 追加的（`protocol.md` §11）。
-> **退出码**：`0` 成功 / `1` 失败（含用法与查找错误）/ `2` 前置未就绪（`doctor` 有 FAIL 即 2）
-> —— `design-obs-ux.md` §14.3。
+**三种形态**（中列标注；不要把后两种当 `ERR` 行）：
+
+| 形态 | 出处 | 退出码 |
+|---|---|---|
+| `ERR <code> <message>; retry: …` | `CtlError.line()`（`ctl/errors.py`）—— 绝大多数 | `1`；`PrereqNotReady` 是 `2` |
+| doctor 报告行（`[FAIL] <detail>; retry: …`） | `doctor` 的检查明细（`_check()`），不是 stderr 那一行 | 有任一 FAIL ⇒ `2` |
+| `warning: …; retry: …` | 直接 `print(…, file=sys.stderr)` | **不变**（`0`） |
+
+> ⚠️ `PrereqNotReady`（前置未就绪）的**码是 `internal` 但退出码是 `2`** —— 与「真正的内部异常」同码不同退。
+> 判「能不能继续」要看**退出码**，不要只看码（`design-obs-ux.md` §14.3 的退出码语义）。
+
+| CLI stderr / 报告里的可 grep 字面量 | 形态 · 码 · 退出码 | 处置与出处 |
+|---|---|---|
+| `bridge did not answer on port` | `ERR` + 具体码 / **1** | 桥起了但不在超时内回话：**先按 §1 recv 超时行**处置（多半是模态框）。<br>`ctl/lifecycle.py:602` |
+| `cannot reach bridge on` | `ERR` + 具体码 / **1** | 连不上端口：实例没起、端口变了、或被杀。`status --json` 看 endpoint；见 §2「端口被别的实例占用」。<br>`ctl/client.py:244` |
+| `config file unreadable` | `ERR` + 具体码 / **1** | `~/.eclipse-ctl/config.json` 读不了（坏 JSON/权限）。修好或删掉重建。<br>`ctl/targets.py:338` |
+| `console not started` | `ERR` + 具体码 / **1** | 控制台没起：装桥时没带 `-console`，或实例已死。重装。<br>`ctl/console.py:161` |
+| `dangerous command refused` | `ERR` + 具体码 / **1** | Gogo 危险命令（`init/close/shutdown/exit/gc`）被拒。确需执行再加 `--allow-dangerous`。<br>`ctl/__main__.py:1113` |
+| `failed (rc=` | `ERR` + 具体码 / **1** | 配方某个块执行失败。按 rc 与上一条输出定位那一步。<br>`ctl/__main__.py:968` |
+| `not present after install` | `ERR` + 具体码 / **1** | 装完没看到 bundle。看控制台 `ss` 与 `console.log`。<br>`ctl/lifecycle.py:415` |
+| `protocol mismatch: bridge reports` | `ERR` + 具体码 / **1** | 桥自报版本与客户端期望不符。重装/重编桥（`protocol.md` §9 会拒绝不匹配）。<br>`ctl/lifecycle.py:620` |
+| `recipe unreadable` | `ERR` + 具体码 / **1** | 配方文件读不了。`ctl recipes list` 核对路径。<br>`ctl/__main__.py:927` |
+| `workbench did not become ready within %.0f s (last` | `ERR` + 具体码 / **1** | 工作台在超时内没就绪（工作区被占）。见 §1「`Workspace Cannot Be Locked`」行。<br>`ctl/lifecycle.py:608` |
+| `-- replace it before running` | `ERR badrequest` | 配方块里还有未替换的 `<...>` 占位符：CLI **拒绝执行**（不把字面量喂给 shell）。先替换再跑。<br>`ctl/__main__.py:960` |
+| `--index/--path are not supported by tools/win-click-button.ps1 (text addressing only` | `ERR badrequest` | `act click-button` 只实现 `--text` 文本寻址（`boundaries.md` N11）；`--index`/`--path` 显式拒绝。<br>`ctl/__main__.py:1506` |
+| `--json requires -c` | `ERR badrequest` | `ctl shell --json` 必须配 `-c` 单发；交互模式不能出 JSON。<br>`ctl/__main__.py:1139` |
+| `--open needs a frame: use --seq N --open, or --open N` | `ERR badrequest` | `--open` 没给帧号。用 `--seq N --open` 或 `--open N`。<br>`ctl/__main__.py:1297` |
+| `--promote and --prune are different actions` | `ERR badrequest` | `--promote` 与 `--prune` 是两种动作，不能同时给。<br>`ctl/__main__.py:1245` |
+| `--seq and --promote are different actions` | `ERR badrequest` | `--seq` 与 `--promote` 是两种动作，不能同时给。<br>`ctl/__main__.py:1243` |
+| `bridge build entry missing` | `ERR internal` / **2** | `bridge/build.py` 里缺构建入口，源码不完整。<br>`ctl/__main__.py:1380` |
+| `bridge jar is stale, none declares` | `ERR internal` / **2** | `dist/` 里的 jar 不是本版编的。`ctl build --target <t>` 重编。<br>`ctl/lifecycle.py:345` |
+| `bridge not answering for run` | `ERR internal` / **2** | 该 run 没有可用的桥（没装过/已停）。`install` 或换 `--run-id`。<br>`ctl/verify/runner.py:181` |
+| `bridge source missing` | `ERR internal` / **2** | 桥源码树缺失。确认 `bridge/src` 在仓里。<br>`ctl/lifecycle.py:355` |
+| `click-button needs --text <button label>` | `ERR badrequest` | `act click-button` 必须给 `--text <按钮标签>`。<br>`ctl/__main__.py:1509` |
+| `dangerous console command refused` | `ERR disabled` / **1** | 同上行（控制台路径）。<br>`ctl/console.py:61` |
+| `endpoint.json for run '` | `ERR notfound` / **1** | `endpoint.json` 里没有 `port` 字段（文件损坏）。重装该 run。<br>`ctl/client.py:88` |
+| `endpoint.json unreadable for run '` | `ERR notfound` / **1** | `endpoint.json` 读不了。删掉该 run 重装。<br>`ctl/client.py:84` |
+| `ERR notfound no shadow record with seq=` | `ERR notfound` / **1** | 该 run 的影子里没有这个 `seq`。先 `ctl shadow --run-id <id>` 看清单。<br>`ctl/__main__.py:1250` |
+| `ERR notfound no such subcommand` | `ERR notfound` / **1** | 子命令拼写错。`design-obs-ux.md` §14.3 是命令面的准绳。<br>`ctl/__main__.py:1589` |
+| `has no frame on disk (pruned or never kept` | `ERR notfound` / **1** | 清单里有这条 `seq` 但帧文件已被裁掉（promoted 不会被裁，所以多半是普通帧）。<br>`ctl/__main__.py:1290` |
+| `IDE process is not accepting console input (rc=` | `ERR internal` / **1** | IDE 不接收控制台输入（进程已死/未起 `-console`）。看 `console.log`，必要时重装。<br>`ctl/console.py:192` |
+| `is missing (source present` | `ERR internal` / **2** | 桥不可构建（源码在但构件缺）。看 `doctor` 的 ECJ 一行。<br>`ctl/lifecycle.py:352` |
+| `is not a bridge method (Gogo console forwarding is not wired in this round` | `ERR badrequest` / **1** | `ctl shell` 只转桥方法；Gogo 控制台转发本轮未接。<br>`ctl/__main__.py:1117` |
+| `launcher not found for target` | `ERR internal` / **2** | 找不到该 target 的启动器（`GS32.exe`/`ccstudio.exe`）。核对 `source_dir`。<br>`ctl/lifecycle.py:523` |
+| `missing tool` | `ERR internal` / **2** | `tools/` 下的窗口脚本缺失 —— 仓库不完整。<br>`ctl/__main__.py:1512` |
+| `name different frames` | `ERR badrequest` | `--open` 与 `--seq` 指的不是同一帧。<br>`ctl/__main__.py:1274` |
+| `no bash found to run recipe` | `ERR internal` / **2** | 跑配方需要 bash，本机没找到。<br>`ctl/__main__.py:955` |
+| `no bridge jar built yet` | `ERR internal` / **2** | 还没编过桥。`ctl build --target <t>`。<br>`ctl/lifecycle.py:349` |
+| `no Button containing` | `ERR notfound` / **1** | 该窗口里没有含这段文字的 Button。先 `win-click-button.ps1 -ListOnly` 看真实标签。<br>`ctl/__main__.py:1528` |
+| `no cases matched (case=` | `ERR internal` / **2** | 选择器没命中任何用例（防「空组全绿」）。`verify --group read` 看组内有哪些。<br>`ctl/__main__.py:1329` |
+| `no command whose name contains` | `ERR notfound` / **1** | 命令表里没有名字含该文字的命令。`ctl commands --json` 看全量。<br>`ctl/__main__.py:873` |
+| `no endpoint for run '` | `ERR notfound` / **1** | 该 run 没有 `endpoint.json` = 没装过或已被清。见 §2「端口被别的实例占用」行。<br>`ctl/client.py:77` |
+| `no free port in [` | `ERR internal` / **2** | 端口段内没有空闲端口。收窄占用或换 `port` 配置。<br>`ctl/lifecycle.py:180` |
+| `no run` | `ERR notfound` / **1** | 显式 `--run-id` 指到不存在的 run（**拼写错**）。`ctl shadow --run-id <id>` 与 `install` 都受此检查。<br>`ctl/__main__.py:1201` |
+| `no run for target` | `ERR notfound` / **1** | 该 target 下没有 run。**新会话撞的第一条**：先 `ctl install --target <t>`。<br>`ctl/__main__.py:396` |
+| `no run-id given, cannot locate endpoint.json` | `ERR notfound` / **1** | 既没给 `--run-id` 也没有可用 endpoint。先 `install`。<br>`ctl/client.py:73` |
+| `no such case` | `ERR notfound` / **1** | 用例名写错。见 §2「`ERR notfound no such case` 形态的用例名写错」行。<br>`ctl/verify/runner.py:264` |
+| `no such recipe` | `ERR notfound` / **1** | 没有这个配方。`ctl recipes list` 看五个内置配方。<br>`ctl/__main__.py:951` |
+| `no such target` | `ERR notfound` / **1** | target 名不在册。`ctl targets list` 列出 `gs32` / `ccs12`。<br>`ctl/targets.py:472` |
+| `no visible window matching` | `ERR notfound` / **1** | 没有匹配该标题的可见窗口。标题可能含零宽字符，改用更短片段。<br>`ctl/__main__.py:1521` |
+| `parameter must be key=value, got` | `ERR badrequest` | `ctl cmd` 的参数必须 `key=value`。<br>`ctl/__main__.py:1070` |
+| `pwsh not found` | `ERR internal` / **2** | 本机没有 pwsh。`act` 与截图都依赖它。<br>`ctl/__main__.py:1515` |
+| `text addressing must be unique` | `ERR badrequest` / **1** | 文本寻址命中了多个 Button（必须唯一）。改用更精确的文字。<br>`ctl/__main__.py:1531` |
+| `unknown act action` | `ERR badrequest` / **1** | `act` 只有 `click-button` 一个动作。<br>`ctl/__main__.py:1503` |
+| `unknown commands action` | `ERR badrequest` / **1** | `commands` 的子动作拼错。<br>`ctl/__main__.py:881` |
+| `unknown recipes action` | `ERR badrequest` / **1** | `recipes` 的子动作拼错。<br>`ctl/__main__.py:971` |
+| `unknown targets action` | `ERR badrequest` / **1** | `targets` 的子动作拼错。<br>`ctl/__main__.py:782` |
+| `verify needs --case, --group or --all` | `ERR badrequest` / **1** | `verify` 必须给 `--case` / `--group` / `--all` 之一。<br>`ctl/__main__.py:1322` |
+| `cannot write under` | doctor 报告行 | `run_root` 不可写：换 `--config` 指到可写目录。doctor 会因此判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:556` |
+| `in use by foreign pid(s` | doctor 报告行 | 端口被**外来进程**占用：`doctor --ensure-clean` 清场，或换端口。doctor 判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:508` |
+| `protocol` | doctor 报告行 | 桥协议版本与客户端不符：按 §2「`sys.env` 缺 `protocol=`」处置。doctor 判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:576` |
+| `warning: bridge reported total=` | **警告**（rc 不变） | 命令表被截断（`total > returned`）。见 §2「命令表导出条数异常」行；不要拿半份导出当权威。<br>`ctl/__main__.py:847` |
+| *(无字面量，见右列)* | `badrequest` / `notfound` / **1** | **兜底模板**：argparse 用法错误统一走这里（`invalid choice` ⇒ `notfound`，其余 ⇒ `badrequest`）。<br>`ctl/__main__.py:116` |
+
+> **兜底说明**：`ctl/__main__.py` 里的 argparse `error()` 覆写是所有用法错误的统一出口，
+> 它按 `invalid choice` 分派码（子命令拼错 ⇒ `notfound`，其余 ⇒ `badrequest`）。
+>
+> 上表覆盖**全部 60 条**含 `retry:` 的消息模板；核对脚本（可复跑、含证伪自测）见
+> `10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`。
+
+**退出码**：`0` 成功 / `1` 失败（含用法与查找错误）/ `2` 前置未就绪
+—— `design-obs-ux.md` §14.3。注意 **`rc=0` 不代表没有弹框**：写命令的弹框只在回话的 `dialog=` 负载行里，
+桥只交事实、判断留给调用方（`protocol.md` §4.3）。
