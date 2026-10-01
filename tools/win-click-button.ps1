@@ -56,19 +56,30 @@ public class Btn {
     }, IntPtr.Zero);
     return outv;
   }
-  public static string ClickByText(string want) {
-    string hit = null;
+  // Collect *every* visible Button whose text contains `want`.  Nothing is clicked
+  // here: the old version sent BM_CLICK to the first match and stopped enumerating,
+  // so a second identically-labelled Button was invisible to it and a zero-match
+  // call was indistinguishable from a hit one (design-project.md section 18.3:
+  // text addressing must resolve to exactly one control).
+  public static List<IntPtr> MatchButtons(string want) {
+    var hits = new List<IntPtr>();
     EnumChildWindows(Dialog, delegate(IntPtr h, IntPtr p) {
-      if (hit != null || !IsWindowVisible(h)) return true;
+      if (!IsWindowVisible(h)) return true;
       var c = new StringBuilder(256); GetClassNameW(h, c, 256);
       if (c.ToString() != "Button") return true;
       var t = new StringBuilder(512); GetWindowTextW(h, t, 512);
       if (t.ToString().IndexOf(want, StringComparison.OrdinalIgnoreCase) < 0) return true;
-      SendMessageW(h, 0x00F5 /*BM_CLICK*/, IntPtr.Zero, IntPtr.Zero);
-      hit = string.Format("BM_CLICK sent to hwnd=0x{0:X} text=\"{1}\"", (long)h, t);
+      hits.Add(h);
       return true;
     }, IntPtr.Zero);
-    return hit;
+    return hits;
+  }
+  public static string TextOf(IntPtr h) {
+    var t = new StringBuilder(512); GetWindowTextW(h, t, 512);
+    return t.ToString();
+  }
+  public static void Click(IntPtr h) {
+    SendMessageW(h, 0x00F5 /*BM_CLICK*/, IntPtr.Zero, IntPtr.Zero);
   }
 }
 "@
@@ -81,6 +92,21 @@ Write-Output "-- child windows --"
 [Btn]::Children() | ForEach-Object { Write-Output ("  " + $_) }
 if (-not $ListOnly -and $Text -ne '') {
     Write-Output "-- click --"
-    $r = [Btn]::ClickByText($Text)
-    if ($r) { Write-Output ("  " + $r) } else { Write-Output ("  no visible Button matching '$Text'") }
+    # design-project.md section 18.3: text addressing must resolve to exactly one
+    # control.  Zero matches used to print a note and still `exit 0` (a silent
+    # success, which is what A14 forbids); several matches used to click the first
+    # one (a silent pick, which is how two same-labelled Buttons get confused).
+    $hits = [Btn]::MatchButtons($Text)
+    if ($hits.Count -eq 0) {
+        Write-Output "ERR no visible Button matching '$Text'"
+        exit 1
+    }
+    if ($hits.Count -gt 1) {
+        Write-Output ("ERR ambiguous: {0} visible Buttons match '{1}' (text addressing must be unique)" -f $hits.Count, $Text)
+        $hits | ForEach-Object { Write-Output ("  candidate hwnd=0x{0:X} class=Button text=""{1}""" -f ([int64]$_), [Btn]::TextOf($_)) }
+        exit 1
+    }
+    [Btn]::Click($hits[0])
+    Write-Output ("  BM_CLICK sent to hwnd=0x{0:X} text=""{1}""" -f ([int64]$hits[0]), [Btn]::TextOf($hits[0]))
 }
+exit 0

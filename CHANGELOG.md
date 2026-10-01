@@ -32,6 +32,14 @@
   会静默吃掉 1 张普通帧的额度。
 - **显式 `--port` 时不绑 `run_root`/`run_id`**：即使给了 `--run-id`，影子层也静默不写清单。
 - **截图 tmp 文件残留**：`os.replace` 失败时只告警不删，`shadow/` 会积 `.pending-*.png`。
+- **`tools/win-click-button.ps1` 的按钮路径不是 fail-closed**（`boundaries.md` §A6 / `implement.md` P6.3 遗留）：
+  「命中 0」只打印 `no visible Button matching` 却 **`exit 0`**（**静默成功 —— A14 明禁**），
+  「命中 >1」**静默点第一个**（与 §18.3「文本必须唯一，命中 0 或 >1 一律失败」冲突；
+  直接调该工具的调用方，如 `ctl/screen.py` 的模态框处置路径，会拿不到失败信号）。
+  改为：**0 命中 → `exit 1`**；**>1 命中 → `exit 1` 并列出候选**（`ERR ambiguous: N visible Buttons match …`）。
+  实测三态（同机）：唯一命中 `rc=0` 且标题 `ctl-fixture`→`GO 1`；
+  `-Text '&NoSuchButton'` → `rc=1`；`-Text '('`（消息框 3 个 Button 全含）→ `rc=1` + 三条候选。
+  CLI 层本来就是这个契约，本次是**下层工具对齐上层**，不改 CLI 行为。
 
 ### Changed
 

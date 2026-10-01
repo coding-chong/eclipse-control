@@ -74,8 +74,8 @@ _PROBES: Tuple[Tuple[str, str, int, Optional[str], Optional[str], str], ...] = (
     ("coord-blank", "coord-blank", 1, _UNCHANGED, None, "⑥ 坐标点空白"),
 )
 
-#: ⑤ 走**产品面**（CLI），不走探针 —— 契约在 CLI 层成立（研究档 §5：
-#: 底层 `win-click-button.ps1` 在找不到控件时**仍退 0**，只有 CLI 是 fail-closed）。
+#: ⑤ 走**产品面**（CLI），不走探针 —— 契约先在 CLI 层成立（研究档 §5）；
+#: 下层 `tools/win-click-button.ps1` 已于 2026-10-02 对齐（**0 命中**与**>1 命中**都 `exit 1`）。
 _NONEXISTENT_TEXT = "&NoSuchButton"
 
 
