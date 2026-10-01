@@ -49,6 +49,14 @@
 - **帧不是判据**：它**不参与任何 PASS/FAIL**。`PrintWindow` 存在"返回 TRUE 却画全黑"的失败模式，
   会撒谎的通道不能当断言。清理用 `--no-shadow`；`ctl shadow --prune` 按环形上限（默认 20 帧 / 32 MB）裁剪，
   失败/超时/弹框触发的帧会被 **promote** 且永不裁。
+- **什么时候不留帧（看到空目录别以为坏了）**：
+  ① **只读请求不留**。判据是桥 `sys.help` 的**写列**（`cmd.run` / `cmd.runp` / `ui.open` / `ui.close`），
+     不另立名单。⇒ **`install` 装完看不到 `shadow/` 是正常的**：它只做打包/拷贝/探活，
+     一次**桥写方法都没调**（全程 `sys.ping` / `sys.help` / `sys.env`）。
+  ② **`sys.help` 拿不到**（桥不可达 / IDE 卡死）⇒ 判定依据没了，**整个影子层对本次调用保持关闭**，
+     只在 stderr 打一条 `sys.help unavailable …; the whole layer stays off`。这是 fail closed：**不猜**。
+     代价要知道：**桥完全不可达时影子也无能为力**（只有 `ERR timeout` 那一类"桥还活着、UI 卡住"它才拍得到）。
+  ③ `--no-shadow`（或配置关掉）。　④ 没有合法候选窗 ⇒ `rc=1` 且**不写盘**（见上一条 fail closed）。
 
 ---
 

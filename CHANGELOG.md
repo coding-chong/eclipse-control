@@ -57,6 +57,15 @@
   的那一段」**唯一**匹配；命中 0 或 >1 一律失败并列出候选。
   ⚠️ 注意 `IParameter.getName()` 是**本地化显示标签**（实测 `name="View"`），不是 XML 属性名。
   短名支持让 `cmd.runp` 第一次有了成功记录（`views 8→9`，目标视图真出现）。
+- **文档补"什么时候不留帧"**（交回门任务时的兼容性审计）：README 与 `skill/SKILL.md` 都补上
+  ① 只读请求不留 ⇒ **`install` 之后看不到 `shadow/` 是正常的**（它全程只调
+  `sys.ping`/`sys.help`/`sys.env`，一次写方法都没调）；② `sys.help` 拿不到 ⇒ 整个影子层
+  对本次调用关闭（fail closed，不猜）；③ `--no-shadow`；④ 无合法候选窗 ⇒ `rc=1` 不写盘。
+  实测依据：2026-10-01 真机 `install` 后确无 `shadow/`，跑一次写动作后才有。
+- **`skill/SKILL.md` §4.2 补"最大不是身份"的告警**：`shot-window-pw.ps1` 的
+  `picked largest` 只是启发式（控制台拉大/工作台缩小会**静默选错**），选窗的正确判据是
+  R11 的四条件；该脚本**尚未**改用该规则 ⇒ **看到 `picked largest` 必须人工核对**。
+  （此前 SKILL 只说"工具会自动选最大的"，与门任务坑表「不要再依赖 `picked largest`」矛盾。）
 
 ### Added
 

@@ -105,6 +105,10 @@ python -m ctl shadow --run-id <RUN_ID> --seq 7    # 第 7 个动作之后那一�
 - 清单每行带 `target.class/hwnd/title/bounds` —— **先看 `target.class`**：它应该是
   `SWT_Window0`（工作台）或 `#32770`（原生对话框）。出现别的类名本身就是一条缺陷记录。
 - 环形上限默认 20 帧 / 32 MB，`ctl shadow --prune` 手动裁。
+- **没有帧的时候别以为坏了**：① **只读请求不留**（判据是桥 `sys.help` 的写列，不另立名单）
+  ⇒ **`install` 之后看不到 `shadow/` 是正常的**，它全程只调 `sys.ping`/`sys.help`/`sys.env`；
+  ② `sys.help` 拿不到（桥不可达）⇒ 整个影子层对本次调用**关闭**（fail closed，不猜）；
+  ③ `--no-shadow`；④ 没有合法候选窗 ⇒ `rc=1` 且不写盘。
 
 留档会拖慢每个写动作约 0.3–0.4 s（拍一张 ~0.9 s，其中大部分是 pwsh 启动）。
 不需要时用 `--no-shadow` 关掉；只在变化/异常时留用 `--shadow-only-changes`。
@@ -133,6 +137,9 @@ python -m ctl shadow --run-id <RUN_ID> --seq 7    # 第 7 个动作之后那一�
    > —— `-ProcId` 分不开它。实测旧版会静默拍到那扇 800×500 的黑控制台并报 `ok=True`。
    > 现在工具**自动选面积最大的那扇**，并在输出里列出全部候选
    > （`picked largest of N matching: ConsoleWindowClass:…, SWT_Window0:…`）。
+   > ⚠️ **"最大"是启发式，不是身份**（实测：控制台被拉大或工作台被缩小时会**静默选错**）。
+   > 选窗的**正确判据**是 R11 的四条件：`pid` ∧ `class ∈ {SWT_Window0, #32770}` ∧ `vis=True` ∧ 标题非辅助窗，
+   > 且**无合法候选时不产出**。`shot-window-pw.ps1` 尚未改用该规则 —— 所以**看到 `picked largest` 必须人工核对**。
    > **看到这行就要核对**：工作台是 `SWT_Window0` 且 ~2048×1536（约 2 MB），控制台只有 ~30 KB。
    > 多个 `SWT_Window0` = 多个实例，用 `-ProcId <你的 pid>`（从 `endpoint.json` 取）指定。
    > 该脚本**判空**：`PrintWindow` 返回 TRUE 但画出来是全黑时，它会换一个 flags 重试一次，
