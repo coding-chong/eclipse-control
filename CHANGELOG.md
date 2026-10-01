@@ -67,6 +67,48 @@
 
 ### Fixed
 
+- **`doctor` 会让一个健康会话"自毁"**（两层）：
+  ① 端口被占时一律记 `FAIL` 并把 retry 指向 `doctor --ensure-clean` —— 而当占用者
+  **就是本 run 自己的实例**时，照提示执行会**把正在用的实例杀掉**（实测：实例健康、
+  `endpoint.json` 里就是那个 pid，doctor 仍报 2 条 FAIL 并 `exit 2`）。
+  ② 「无残留实例」扫的是**整个 run_root**，任何**兄弟 run_id** 的存活实例都算 FAIL ——
+  而兄弟实例各有自己的 run_id / 配置区 / 端口，**根本不撞车**；该 FAIL 也无法被它给的 retry 消除
+  （实测照做后同一行原样存在，而 `install` 反而成功）。
+  现在：占用者若属于本 run_root ⇒ **`INFO`**（提示用 `status` 对话或换 `--port`）；
+  只有**外来**占用者才 `FAIL`。兄弟实例记 `INFO` 并说明不阻塞新 run。`INFO` 不参与退出码，
+  实测健康实例下 `doctor` 由 `exit 2` 变为 **`rc=0`**。
+- **`win-close.ps1` 在「一个都没匹配到」时返回 `rc=0`** —— 脚本写
+  `win-close; if rc==0 then 认为已关` 会把**没关掉**当成**关掉了**（同族的 `win-click-button.ps1`
+  同样情形返回 `1`）。现在未匹配即 `exit 1`。
+- **`win-enum.ps1` 的 pid 参数叫 `-Target`**，而同族的 `win-close` / `win-click-button` /
+  `shot-window-pw` 都叫 `-ProcId`。已改名为 `-ProcId`，并保留 **`-Target` 别名**（旧笔记与配方照旧可用）。
+- **`shot-window-pw.ps1` 会把一张全黑的图当成成功截图**：`PrintWindow` 即便什么都没画也返回 TRUE，
+  老脚本照样写 PNG 并打印 `ok=True`。实测（GPU 合成的 Chromium 窗口 Edge，2744x1828）：
+  `-Flags 0` 拍出来 **75.5% 字节为零、3000 像素样本里只剩 2 种颜色**（即基本全黑），却被报成成功
+  —— 一张假图会"证明"那个窗口里什么都没有。现在：**判空 → 换另一档 flags 重试一次 → 仍空白就
+  `stderr` 报错、不写盘、`rc=1`**（照 `open-computer-use-fixed` 的 `Capture-WindowPngBase64` 语义）。
+  实测 `-Flags 0` 现在会自动退到 `flags=2` 并如实标注 `(blank with flags=0 -> retried flags=2)`。
+  另加 `-ProcId` / `-Class`：标题不唯一（两个实例可能同名），`ui.open` 还会把文件名写进主窗标题。
+  **不再「先匹配先赢」，改为选面积最大的那扇**：GS32_Studio 的**启动器控制台**是一扇可见顶层窗，
+  标题 `D:\ProgramFiles\...\GS32_Studio_v1.2.5.2\GS32.exe` **含 `GS32_Studio`** 且**同 pid**
+  （`-ProcId` 分不开），且在 `EnumWindows` 顺序里排在前面 —— 实测旧版因此把 **2048x1536 的工作台**
+  拍成了 **800x500 的黑控制台**（29 KB vs 1.95 MB）并报 `ok=True`。现在选最大的，并打印全部候选
+  （`picked largest of N matching: ConsoleWindowClass:..., SWT_Window0:...`），歧义不再静默。
+  **最小化/离屏目标也拒绝**：`IsIconic` 或 rect 落在 -32000 哨兵上时 `rc=1`、不写盘
+  （实测：`-TitleLike "GS32_Studio"` 会匹配到最小化的那个同名窗，产出 353x56 的无用图，
+  旧脚本照样 `ok=True`；且实测 **pid 880 与 13104 两个进程都叫 `ws - GS32_Studio`**）。
+  **与 `open-computer-use-fixed` 逐字节对拍**：同一窗口、同一时刻，两者 sha256 **完全相同**
+  （两组各 167807 B / 167805 B），确认渲染质量等同，我们只是补上了它早就有的诚实性。
+- **`gc` 是静默的破坏性命令（安全性）**：它
+  ① 从 `common` 继承了 `--run-id` 却**完全忽略**（其它子命令里该参数是"作用域"，于是传它反而像"只扫我的"）；
+  ② **无 dry-run**，`dry_run=False` 写死，CLI 也不暴露开关；
+  ③ **不检查活实例**，`shutil.rmtree(..., ignore_errors=True)` 对手握句柄的活进程会**只删掉一部分**
+  —— 目录还在、内容已残，且静默。
+  实测代价：一次「把每个子命令都点一遍」的探索，把 `runs/` 从 **30 个删到 4 个**，其中包含另一个会话
+  **正在运行**的实例（`endpoint.json`/`bridge.log`/`shots/` 全没，只剩删不掉的 `ws/`）。
+  现在：`gc` 用自己的选项集（**不再接受 `--run-id`**，无法兑现的选项不该被接受）；**默认 dry-run**，
+  必须 `--yes` 才删；**跳过 `endpoint.json` 中 pid 仍存活的 run**（除非显式 `--force-live`）；
+  新增 `--keep N`；删不干净的目录**逐条上报**并 `rc=1`，不再吞掉。
 - **`win-click-button.ps1` 没有 pid 过滤**：实测到**两个实例同时**都显示标题为 `Reset Perspective` 的
   `#32770`，于是无范围的 `BM_CLICK` **可能按到别的实例的按钮** —— 而按按钮是替用户做的不可逆决定。
   已加 `-ProcId`（对齐 `win-close.ps1`）。

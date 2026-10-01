@@ -110,10 +110,17 @@ skill/SKILL.md                           给 agent 的用法说明
 
 ## 实现状态
 
-> **本文档描述目标形态。** 逐阶段进度以 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 之外的
-> 任务记录为准；本仓当前处于 **P0（立骨架与实例纪律）**：
+> 逐阶段进度与验收证据在**项目任务仓**（Trellis 工作区）的 `research/` 下，**不在本仓**：
+> `p0-gate.md` … `p3-gate.md`（各道门的闭环记录）、`hardening-r1-*.md`（硬化轮）。
+> **截至 2026-10-01，G0（立骨架与实例纪律）/ G1（只读面）/ G2（写面与错误契约）/
+> G3（韧性）/ G3R1（硬化轮）均已通过**：
 >
-> - 桥：`LiveBridge.java` 已能从目标树 ECJ 编译打包（BSN `eclipse-ctl.bridge`）
-> - 客户端：骨架已落，命令面在补
-> - 尚未经真机验证的项在 `boundaries.md` 里**逐条标了「未验证」并给了验证入口** —— 请以那里为准，
->   不要拿本文的速查表当「已通过」的证据。
+> - 桥：`LiveBridge.java`（1495 行）由目标树 ECJ 编译打包成 OSGi bundle（BSN `eclipse-ctl.bridge`，v3.1.0），
+>   16 个方法（12 只读 + 4 写），8 个错误码闭集
+> - 客户端：**21 个子命令全部可用，全部支持 `--json`**，纯标准库；`ctl verify` 有
+>   **24 条用例（23 PASS + 1 SKIP / 0 FAIL）**
+> - 未验证的项仍在 `boundaries.md` 里**逐条标注并给了验证入口**，请以那里为准。
+>   **本文速查表描述的是已实测可用的一面，不是全部能力** —— 边界看 `boundaries.md`。
+>
+> 已知未修项（见任务仓的 `hardening-r1-*.md` §6）：`dialog=` 出现时进程退出码仍为 0；`TROUBLESHOOTING.md` §7
+> 只覆盖约 7/45 条真实错误串；`ctl shell` 的错误不带 `; retry:`。

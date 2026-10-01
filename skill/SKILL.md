@@ -68,8 +68,11 @@ dialog_note=… close it and read back (ui.parts) before treating this call as d
 ```
 
 处置：截图 → `win-close.ps1` 关掉 → 再 `parts` 回读一次 → 才下结论。
-**关窗要用 `-Class "#32770"` 或 `-TitleLike` 精确匹配**：`ui.open` 会把文件名写进**主窗标题**，
+**关窗必须给 `-TitleLike`**（它是必填参数），再配 `-Class "#32770"` 或 `-ProcId <pid>` 精确锁定。
+**只给 `-Class` 会被工具直接拒绝**（实测 rc=1）。为什么要精确：`ui.open` 会把文件名写进**主窗标题**，
 按模糊标题关窗可能把工作台关掉。
+⚠️ 而 `win-close.ps1` 在**一个都没匹配到**时返回 **rc=0**（同族的 `win-click-button.ps1` 返回 1）
+—— **不能只看退出码**，必须回读确认框真的没了。
 
 **`views 8→8` 这种「没变」是歧义的**——它既可能是**幂等成功**，也可能是**失败**。分辨手段只有两个：
 回话里的 `dialog=` 行，以及「这条命令本来就该改什么」的先验。**别把「没变」直接读成成功。**
@@ -85,26 +88,42 @@ dialog_note=… close it and read back (ui.parts) before treating this call as d
 ## 4. 超时后怎么办（必读）
 
 1. **不要**认定「没执行」。桥用 `asyncExec`，超时只结束**等待**，排队的动作仍可能生效。
-2. **先截图看清那个框**（不要先猜、不要问用户）：
+2. **先枚举，拿到那个框的真标题**（不要先猜、不要问用户）。**顺序不能反** —— 弹框标题不含
+   `GS32_Studio`，而 `PrintWindow` 只渲染目标窗**自身**的位图、不会带上非子窗的模态框，
+   所以拿主窗名去截会拍到一张**没有框的图**，正好把你推向"一切正常"：
 
    ```bash
-   pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<RUN_ROOT>/<RUN_ID>/shots/hung.png"
+   pwsh -NoProfile -File tools/win-enum.ps1 -Class "#32770"      # ← 先拿标题（#32770 = 对话框类）
    ```
-3. **从图上读出标题与按钮文字**，再枚举子窗拿按钮列表：
+
+3. **再按那个标题截图**（`-ProcId` 用来在多实例时认准自己的实例）：
 
    ```bash
-   pwsh -NoProfile -File tools/win-enum.ps1 -TitleLike ""
-   pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Reset Perspective" -ListOnly
+   pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "Problem Occurred" -ProcId <你的 pid> -Out "<RUN_ROOT>/<RUN_ID>/shots/hung.png"
+   pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Problem Occurred" -ProcId <你的 pid> -ListOnly
    ```
-4. **处置**：默认只关窗（等同点右上角 X）：
+
+   > ⚠️ 标题里可能有**看不见的字符**（实测 Edge 的标题含一个 `\u200b` 零宽空格，`"Microsoft Edge"`
+   > 匹配不上）。匹配不上时改用更短的片段。
+   > **拍 GS32_Studio 主窗时会撞到"标题撞车"**：启动器控制台也是一扇可见顶层窗，标题是
+   > `D:\ProgramFiles\...\GS32_Studio_v1.2.5.2\GS32.exe`（**含 `GS32_Studio`**），且**同 pid**
+   > —— `-ProcId` 分不开它。实测旧版会静默拍到那扇 800×500 的黑控制台并报 `ok=True`。
+   > 现在工具**自动选面积最大的那扇**，并在输出里列出全部候选
+   > （`picked largest of N matching: ConsoleWindowClass:…, SWT_Window0:…`）。
+   > **看到这行就要核对**：工作台是 `SWT_Window0` 且 ~2048×1536（约 2 MB），控制台只有 ~30 KB。
+   > 多个 `SWT_Window0` = 多个实例，用 `-ProcId <你的 pid>`（从 `endpoint.json` 取）指定。
+   > 该脚本**判空**：`PrintWindow` 返回 TRUE 但画出来是全黑时，它会换一个 flags 重试一次，
+   > 仍空白就**不写盘并 rc=1** —— 所以"没有图"是有意义的结论，别当成工具坏了。
+4. **处置**：默认只关窗（等同点右上角 X）。标题**用第 2 步枚举出来的真标题**，
+   不是下面这个示例串（`Reset Perspective` 只是另一处的例子；你屏上很可能是 `Problem Occurred`）：
 
    ```bash
-   pwsh -NoProfile -File tools/win-close.ps1 -TitleLike "Reset Perspective"
+   pwsh -NoProfile -File tools/win-close.ps1 -TitleLike "<第2步枚举到的标题>" -ProcId <你的 pid>
    ```
    只有用例**显式声明**了按钮时才按下它（点按钮 = 替用户做不可逆决定）：
 
    ```bash
-   pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Reset Perspective" -Text "&No"
+   pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "<第2步枚举到的标题>" -ProcId <你的 pid> -Text "&No"
    ```
 5. **探活 —— 但「ping 得通」证明不了「界面没卡」**：
 
@@ -130,7 +149,10 @@ python -m ctl status --target gs32 --json
 python -m ctl recipes run diag-when-hung
 ```
 
-CLI 的每条错误串都带 `; retry: <一条可复跑命令>`，把它贴进 `TROUBLESHOOTING.md` 能 grep 到同一行。
+除 `ctl shell` 外的子命令，错误串都带 `; retry: <一条可复跑命令>`（`shell` 走直接回显桥回话的路径，不带）。
+**但别把它当准绳**：① retry 是**按错误码套模板**生成的，不一定与该错误真正相关
+（实测：文件不存在也会建议 `python -m ctl commands --json`）；② 它**不保证**能在
+`TROUBLESHOOTING.md` 里 grep 到同一行 —— §7 只列了 12 种形态，而 CLI 实际会喷 45+ 种。
 报缺陷要四件套：**环境指纹 + 原始回话片段 + 截图 + 复跑命令**。
 
 ## 6. 别做的事
