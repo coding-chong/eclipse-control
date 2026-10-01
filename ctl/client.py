@@ -32,6 +32,7 @@ from .errors import (
     EndpointNotFound,
     FALLBACK_CODE,
 )
+from . import shadow
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8777
@@ -386,7 +387,13 @@ class Client:
     def request(self, req: str, timeout: Optional[float] = None) -> Response:
         started = time.time()
         raw = self.talk(req, timeout=timeout)
-        return Response(raw, elapsed=time.time() - started)
+        response = Response(raw, elapsed=time.time() - started)
+        # Shadow shots (R1): purely additive observation of write actions.  It
+        # runs *after* the response is built, swallows its own failures and is
+        # never allowed to influence the result or the exit code -- see
+        # `ctl/shadow.py` for why it is not part of the request path.
+        shadow.after(req, response, shadow.for_client(self))
+        return response
 
     def ping(self, timeout: Optional[float] = None) -> bool:
         try:

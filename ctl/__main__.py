@@ -25,6 +25,7 @@ import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import PROTOCOL_VERSION, __version__
+from . import shadow
 from .client import BRIDGE_UI_TIMEOUT_MS, Client, discover_endpoint
 from .console import command_is_dangerous
 from .errors import (
@@ -81,6 +82,7 @@ SUBCOMMANDS = (
     "build",
     "preflight",
     "act",
+    "shadow",
 )
 
 #: Retry hint appended to every bridge-originated error (`A12`: each CLI error
@@ -132,6 +134,16 @@ def _common() -> argparse.ArgumentParser:
                         help="clear a same-port listener and same-configuration processes first")
     parent.add_argument("--json", action="store_true", help="machine-readable output")
     parent.add_argument("--config", metavar="PATH", help="config file (default: ~/.eclipse-ctl/config.json)")
+    # Shadow shots (R7).  `default=None` on purpose: a plain store_true default of
+    # False cannot be told apart from "the flag was not given", and the
+    # precedence (flag > env > file > default) depends on that distinction.
+    parent.add_argument("--no-shadow", dest="no_shadow", action="store_true", default=None,
+                        help="do not record a shadow frame after write actions "
+                             "(the ledger is on by default: ctl shadow --run-id <id>)")
+    parent.add_argument("--shadow-only-changes", dest="shadow_only_changes",
+                        action="store_true", default=None,
+                        help="keep a shadow frame only when the window set changed, the "
+                             "action failed, a dialog appeared or the answer carried nothing")
     return parent
 
 
@@ -198,6 +210,7 @@ def build_parser() -> CtlParser:
     add("build", "compile and package the bridge jar")
     add("preflight", "doctor + verify + doc/CLI consistency + CHANGELOG entry")
     p_act = add("act", "element-addressed input primitives", parents=(common, write))
+    p_shadow = add("shadow", "shadow shots: what the screen looked like after each write")
 
     # -- doctor ------------------------------------------------------------- #
     # (options come from `common`; nothing else)
@@ -277,6 +290,21 @@ def build_parser() -> CtlParser:
     p_act.add_argument("--index", type=int)
     p_act.add_argument("--path")
 
+    # -- shadow -------------------------------------------------------------- #
+    p_shadow.set_defaults(shadow_action="summary")
+    p_shadow.add_argument("--seq", type=int, metavar="N",
+                          help="print one action's record and its frame path")
+    p_shadow.add_argument("--promote", type=int, metavar="N",
+                          help="pin one frame so the ring never prunes it")
+    p_shadow.add_argument("--open", dest="open_", nargs="?", const=-1, type=int, metavar="N",
+                          help="open a frame with the OS viewer (bare = the frame --seq names)")
+    p_shadow.add_argument("--prune", action="store_true",
+                          help="apply the ring limits now")
+    p_shadow.add_argument("--max-frames", dest="max_frames", type=int, metavar="N",
+                          help="override the ring's frame budget for this call")
+    p_shadow.add_argument("--max-bytes", dest="max_bytes", type=int, metavar="BYTES",
+                          help="override the ring's byte budget for this call")
+
     for name in SUBCOMMANDS:
         sub.choices[name].set_defaults(func=HANDLERS[name])
     return parser
@@ -354,7 +382,14 @@ def _client_for(config: Config, target: Target, run_id: Optional[str],
                 retry: float = 0.0) -> Tuple[Client, str]:
     """Resolve the endpoint for a run; never guess a port."""
     if port is not None:
-        return Client(port=int(port), token=config.token), (run_id or "")
+        # An explicit --port still names a *run* when --run-id is given: keep the
+        # run binding so the shadow ledger can record (and know which pid to
+        # photograph).  Without a run id there is nowhere to write, so the client
+        # stays as it was -- `Client.port()` short-circuits on the explicit port, so
+        # binding these two fields cannot change which socket is used.
+        return Client(port=int(port), token=config.token,
+                      run_root=config.run_root if run_id else None,
+                      run_id=run_id or None), (run_id or "")
     rid = run_id or latest_run_id(config.run_root, target.name)
     if not rid:
         raise EndpointNotFound(
@@ -1130,6 +1165,141 @@ def _record(path: str, request: str, response: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# shadow
+# --------------------------------------------------------------------------- #
+
+def _shadow_config(args, config: Config, run_id: str):
+    """Effective shadow settings for a `shadow` invocation (RunRoot + run pinned)."""
+    cfg = shadow.resolve(getattr(args, "no_shadow", None),
+                         getattr(args, "shadow_only_changes", None),
+                         config_path=config.config_path)
+    cfg.run_root = config.run_root
+    cfg.run_id = run_id
+    frames = getattr(args, "max_frames", None)
+    if frames:
+        cfg.max_frames = max(1, int(frames))
+    limit = getattr(args, "max_bytes", None)
+    if limit:
+        cfg.max_bytes = max(1, int(limit))
+    return cfg
+
+
+def _shadow_run_id(args, config: Config, target: Target) -> str:
+    rid = getattr(args, "run_id", None) or latest_run_id(config.run_root, target.name)
+    if not rid:
+        raise EndpointNotFound(
+            "no run for target %s under %s; retry: python -m ctl install --target %s"
+            % (target.name, config.run_root, target.name))
+    return rid
+
+
+def _shadow_describe(cfg, row: dict) -> List[str]:
+    path = shadow.frame_path(cfg, row)
+    if row.get("shot"):
+        frame = "%s (%s bytes)%s" % (path, row.get("bytes"),
+                                     "" if os.path.isfile(path) else "  [pruned]")
+    elif row.get("same_as"):
+        frame = "<same pixels as seq %s -- no new file>" % row.get("same_as")
+    else:
+        frame = "<no frame kept>"
+    lines = ["seq=%s  %s  %s  outcome=%s%s"
+             % (row.get("seq"), row.get("ts"), row.get("method"), row.get("outcome"),
+                "  promoted (%s)" % row.get("promote_reason") if row.get("promoted") else ""),
+             "  args: %s" % (row.get("args") or "-"),
+             "  frame: %s" % frame]
+    if row.get("sha256"):
+        lines.append("  sha256: %s" % row["sha256"])
+    target = row.get("target") or {}
+    lines.append("  target: class=%s hwnd=%s title=%r bounds=%s pid=%s"
+                 % (target.get("class"), target.get("hwnd"), target.get("title"),
+                    target.get("bounds"), target.get("pid")))
+    windows = row.get("windows") or {}
+    lines.append("  windows: %s (%s)" % (windows.get("count"), windows.get("delta")))
+    if row.get("probe"):
+        lines.append("  probe: %s -- %s" % (row["probe"].get("reason"), row["probe"].get("note")))
+    if row.get("dialog"):
+        lines.append("  dialog: %s" % row["dialog"])
+    return lines
+
+
+def _cmd_shadow(args) -> int:
+    config = _load_config(args)
+    target = _single_target(args, config)
+    rid = _shadow_run_id(args, config, target)
+    cfg = _shadow_config(args, config, rid)
+
+    open_seq = getattr(args, "open_", None)
+    if args.seq is not None and args.promote is not None:
+        raise UsageError("--seq and --promote are different actions; retry: python -m ctl shadow --run-id %s" % rid)
+    if args.promote is not None and args.prune:
+        raise UsageError("--promote and --prune are different actions; retry: python -m ctl shadow --run-id %s" % rid)
+
+    if args.promote is not None:
+        row = shadow.promote(cfg, args.promote)
+        if row is None:
+            print("ERR notfound no shadow record with seq=%s in run %s; retry: "
+                  "python -m ctl shadow --run-id %s" % (args.promote, rid, rid), file=sys.stderr)
+            return 1
+        if args.json:
+            _emit_json({"run_id": rid, "promoted": row})
+        else:
+            print("promoted seq=%s (%s)" % (row.get("seq"), row.get("promote_reason") or "manual"))
+        return 0
+
+    if args.prune:
+        deleted = shadow.prune(cfg)
+        if args.json:
+            _emit_json({"run_id": rid, "pruned": [r.get("seq") for r in deleted]})
+        elif deleted:
+            for row in deleted:
+                print("pruned seq=%s %s (%s bytes)" % (row.get("seq"), row.get("shot"), row.get("bytes")))
+        else:
+            print("nothing to prune (limits: %d frame(s) / %d byte(s))"
+                  % (cfg.max_frames, cfg.max_bytes))
+        return 0
+
+    if args.seq is not None or (open_seq is not None and open_seq >= 0):
+        seq = args.seq if args.seq is not None else open_seq
+        if open_seq is not None and open_seq >= 0 and args.seq is not None and open_seq != args.seq:
+            raise UsageError("--open %s and --seq %s name different frames; retry: "
+                             "python -m ctl shadow --run-id %s --seq %s"
+                             % (open_seq, args.seq, rid, args.seq))
+        row = shadow.find(cfg, seq)
+        if row is None:
+            print("ERR notfound no shadow record with seq=%s in run %s; retry: "
+                  "python -m ctl shadow --run-id %s" % (seq, rid, rid), file=sys.stderr)
+            return 1
+        if args.json:
+            _emit_json({"run_id": rid, "record": row, "path": shadow.frame_path(cfg, row)})
+        else:
+            for line in _shadow_describe(cfg, row):
+                print(line)
+        if open_seq is not None:
+            path = shadow.frame_path(cfg, row)
+            if not path or not os.path.isfile(path):
+                print("ERR notfound seq=%s has no frame on disk (pruned or never kept); retry: "
+                      "python -m ctl shadow --run-id %s" % (seq, rid), file=sys.stderr)
+                return 1
+            shadow.open_frame(path)
+        return 0
+
+    if open_seq is not None:
+        raise UsageError("--open needs a frame: use --seq N --open, or --open N; "
+                         "retry: python -m ctl shadow --run-id %s" % rid)
+
+    if args.json:
+        rows = shadow.read_rows(cfg)
+        _emit_json({"run_id": rid, "manifest": cfg.manifest_path(),
+                    "max_frames": cfg.max_frames, "max_bytes": cfg.max_bytes,
+                    "enabled": cfg.enabled, "only_changes": cfg.only_changes,
+                    "records": rows})
+        return 0
+    for line in shadow.summary(cfg):
+        print(line)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # verify
 # --------------------------------------------------------------------------- #
 
@@ -1386,6 +1556,7 @@ HANDLERS = {
     "build": _cmd_build,
     "preflight": _cmd_preflight,
     "act": _cmd_act,
+    "shadow": _cmd_shadow,
 }
 
 
@@ -1409,6 +1580,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               file=sys.stderr)
         return 1
     args = parser.parse_args(argv)
+    try:
+        # Install the shadow settings before anything can reach the bridge: the
+        # hook lives in `Client.request`, i.e. it reads this module state.
+        shadow.configure(shadow.resolve(getattr(args, "no_shadow", None),
+                                        getattr(args, "shadow_only_changes", None),
+                                        config_path=getattr(args, "config", None)))
+    except Exception as exc:                      # never let observation break control
+        print("WARN: shadow configuration failed (%s); the shadow layer stays off" % exc,
+              file=sys.stderr)
+        shadow.configure(shadow.ShadowConfig(enabled=False))
     try:
         return int(args.func(args))
     except EndpointNotFound as exc:
