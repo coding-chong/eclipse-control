@@ -38,5 +38,12 @@ public class WinClose {
 }
 "@
 $r = [WinClose]::Close($TitleLike, $Class, [uint32]$ProcId)
-if ($r.Count -eq 0) { Write-Output "no window matched '$TitleLike'" }
-else { $r | ForEach-Object { Write-Output $_ } }
+if ($r.Count -eq 0) {
+    # Non-zero on "nothing matched": the caller must not read this as "closed".
+    # `win-click-button.ps1` already behaved this way; this one returned 0, so a
+    # script doing `win-close; if rc==0 then assume closed` would silently believe
+    # a stubborn dialog was gone.  Measured 2026-10-01.
+    Write-Output "no window matched '$TitleLike'"
+    exit 1
+}
+$r | ForEach-Object { Write-Output $_ }

@@ -1,6 +1,8 @@
 param(
-    # 0 = enumerate every process's top-level windows
-    [int]$Target = 0,
+    # 0 = enumerate every process's top-level windows.
+    # Named `-ProcId` to match win-close / win-click-button / shot-window-pw;
+    # `-Target` still works via the alias (older notes and recipes use it).
+    [Alias('Target')][int]$ProcId = 0,
     [string]$TitleLike = '',
     # Exact Win32 class match.  `-Class "#32770"` is how the docs say "dialogs only";
     # the class really is exact here (WindowClass names carry no wildcards).
@@ -39,7 +41,7 @@ public class WinEnum2 {
   }
 }
 "@
-[WinEnum2]::Dump([uint32]$Target) | Where-Object {
+[WinEnum2]::Dump([uint32]$ProcId) | Where-Object {
     ($TitleLike -eq '' -or $_ -like "*$TitleLike*") -and
     ($Class -eq '' -or $_ -like "* class=$Class *")
 } | ForEach-Object { Write-Output $_ }
