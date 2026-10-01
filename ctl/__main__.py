@@ -142,6 +142,26 @@ def _write_opts() -> argparse.ArgumentParser:
     return parent
 
 
+def _gc_opts() -> argparse.ArgumentParser:
+    """`gc`'s own option set -- deliberately **no** `--run-id`/`--port`/`--retry`.
+
+    `gc` prunes the whole ``<run_root>``; it previously inherited ``--run-id``
+    and silently ignored it, so passing it looked like scoping while every other
+    session's runs were being deleted (2026-10-01).  An option that cannot be
+    honoured must not be accepted.
+    """
+    parent = CtlParser(add_help=False)
+    parent.add_argument("--config", metavar="PATH", help="config file (default: ~/.eclipse-ctl/config.json)")
+    parent.add_argument("--json", action="store_true", help="machine-readable output")
+    parent.add_argument("--keep", type=int, metavar="N",
+                        help="how many of the newest run directories to keep (default: from config)")
+    parent.add_argument("--yes", action="store_true",
+                        help="actually delete; without it gc only prints what it would delete")
+    parent.add_argument("--force-live", dest="force_live", action="store_true",
+                        help="also delete runs whose recorded pid is still alive (default: skip them)")
+    return parent
+
+
 def build_parser() -> CtlParser:
     common = _common()
     write = _write_opts()
@@ -165,7 +185,7 @@ def build_parser() -> CtlParser:
     p_targets = add("targets", "manage the target matrix")
     p_commands = add("commands", "export the Eclipse command table")
     p_recipes = add("recipes", "list / run usage recipes")
-    add("gc", "prune old run directories")
+    add("gc", "prune old run directories (destructive; needs --yes)", parents=(_gc_opts(),))
     p_tree = add("tree", "dump the SWT widget tree")
     add("parts", "list the workbench parts (views / editors / perspective)")
     p_viewids = add("viewids", "list registered view ids")
@@ -426,30 +446,55 @@ def _doctor_checks(config: Config, target: Target, args) -> List[Dict[str, str]]
     ok, detail = bridge_buildable()
     checks.append(_check("bridge buildable", "PASS" if ok else "FAIL", detail))
 
-    # 5. port free
-    if is_port_free(target.port):
-        checks.append(_check("port %d" % target.port, "PASS", "free"))
-    else:
-        listeners = list_port_listeners(target.port)
-        checks.append(_check("port %d" % target.port, "FAIL",
-                             "in use by pid(s) %s; retry: python -m ctl doctor --ensure-clean --target %s"
-                             % (listeners, target.name)))
-
-    # 6. no leftover instance from *our* run root (a sibling session using the
-    #    same installation tree under a different run root is not a collision;
-    #    collisions happen via the run root's configuration area/port).
+    # 5. is the target port usable by a *new* run?
+    #    A listener under our own run root is one of *our* instances, not a
+    #    foreign one -- reporting it as FAIL (and pointing the retry at
+    #    `--ensure-clean`, which kills the same-port listener) told a healthy
+    #    session to destroy itself.  Measured 2026-10-01.
+    # PIDs are compared across two sources that disagree on type --
+    # `list_processes()` yields strings, `list_port_listeners()` yields ints --
+    # so normalise to int here or every `in` test silently fails.
     leftovers = []
     run_marker = os.path.normpath(config.run_root).replace("\\", "/")
     for row in list_processes():
         cmdline = (row["cmdline"] or "").replace("\\", "/")
         if run_marker and run_marker in cmdline:
-            leftovers.append(row["pid"])
-    if leftovers:
-        checks.append(_check("no leftover instance", "FAIL",
-                             "%d process(es) under %s: %s; retry: python -m ctl install --ensure-clean --target %s"
-                             % (len(leftovers), config.run_root, ",".join(leftovers), target.name)))
+            try:
+                leftovers.append(int(row["pid"]))
+            except (TypeError, ValueError):
+                continue
+    listeners = [] if is_port_free(target.port) else list_port_listeners(target.port)
+    ours = sorted(pid for pid in listeners if pid in leftovers)
+    foreign = sorted(pid for pid in listeners if pid not in leftovers)
+    if not listeners:
+        checks.append(_check("port %d" % target.port, "PASS", "free"))
+    elif foreign:
+        checks.append(_check("port %d" % target.port, "FAIL",
+                             "in use by foreign pid(s) %s; retry: python -m ctl doctor --ensure-clean --target %s"
+                             % (foreign, target.name)))
     else:
+        checks.append(_check("port %d" % target.port, "INFO",
+                             "held by our own run (pid(s) %s) -- that instance is alive; "
+                             "use `python -m ctl status --target %s` to talk to it, or a different --port "
+                             "for a new run" % (ours, target.name)))
+
+    # 6. other instances under *our* run root.
+    #    Siblings (a different run_id) do not collide: each run has its own
+    #    configuration area, workspace and port.  Only a process that also holds
+    #    the target port would actually block a new run -- and check 5 says that.
+    siblings = [pid for pid in leftovers if pid not in ours]
+    if not leftovers:
         checks.append(_check("no leftover instance", "PASS", "0 process under %s" % config.run_root))
+    elif siblings:
+        checks.append(_check("no leftover instance", "INFO",
+                             "%d sibling instance(s) under %s (pid(s) %s); they use their own run_id/"
+                             "configuration/port and do not block a new run"
+                             % (len(siblings), config.run_root,
+                                ",".join(str(p) for p in siblings))))
+    else:
+        checks.append(_check("no leftover instance", "INFO",
+                             "%d instance(s) under %s (pid(s) %s) belong to the port in check 5"
+                             % (len(ours), config.run_root, ",".join(str(p) for p in ours))))
 
     # 7. run_root writable + free space
     run_root = config.run_root
@@ -908,16 +953,28 @@ def _find_bash() -> Optional[str]:
 
 def _cmd_gc(args) -> int:
     config = _load_config(args)
-    removed = lifecycle_gc(config.run_root, config.keep_runs, dry_run=False)
+    keep = args.keep if args.keep is not None else config.keep_runs
+    if keep < 0:
+        raise UsageError("gc --keep must be >= 0, got: %d" % keep)
+    dry_run = not args.yes
+    result = lifecycle_gc(config.run_root, keep, dry_run=dry_run,
+                          skip_live=not args.force_live)
     if args.json:
-        _emit_json({"run_root": config.run_root, "keep": config.keep_runs, "removed": removed})
-    else:
-        print("run_root %s (keep %d)" % (config.run_root, config.keep_runs))
-        for path in removed:
-            print("removed %s" % path)
-        if not removed:
-            print("nothing to remove")
-    return 0
+        _emit_json({"run_root": config.run_root, "keep": keep, "dry_run": dry_run,
+                    "removed": result["removed"], "skipped_live": result["skipped_live"],
+                    "failed": result["failed"]})
+        return 0
+    print("run_root %s (keep %d)%s"
+          % (config.run_root, keep, "  [dry-run: nothing deleted, pass --yes to delete]" if dry_run else ""))
+    for name in result["removed"]:
+        print("%s %s" % ("would remove" if dry_run else "removed", name))
+    for entry in result["skipped_live"]:
+        print("skipped     %s" % entry)
+    for entry in result["failed"]:
+        print("FAILED      %s" % entry)
+    if not (result["removed"] or result["skipped_live"] or result["failed"]):
+        print("nothing to remove")
+    return 1 if result["failed"] else 0
 
 
 # --------------------------------------------------------------------------- #

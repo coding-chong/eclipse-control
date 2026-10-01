@@ -766,19 +766,67 @@ def configuration_bridge_mentions(configuration: str) -> List[str]:
     return hits
 
 
-def gc(run_root: str, keep: int = 3, dry_run: bool = False) -> List[str]:
-    """Remove all but the newest ``keep`` run directories."""
-    removed: List[str] = []
+def pid_alive(pid: int) -> bool:
+    """Is ``pid`` still running (and not a recycled unrelated process)?"""
+    if pid <= 0:
+        return False
+    for row in list_processes():
+        try:
+            if int(row["pid"]) == pid:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def run_live_pid(run_dir: str) -> Optional[int]:
+    """The pid recorded in ``<run_dir>/endpoint.json``, if that process is alive."""
+    path = os.path.join(run_dir, "endpoint.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            pid = int(json.load(fh).get("pid") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return pid if pid_alive(pid) else None
+
+
+def gc(run_root: str, keep: int = 3, dry_run: bool = False,
+       skip_live: bool = True) -> Dict[str, List[str]]:
+    """Prune run directories, keeping the newest ``keep``.
+
+    **Destructive.**  Three rules, each of which was learned the hard way
+    (2026-10-01, when a single unguarded call deleted 26 run directories --
+    including one belonging to a *running* instance in another session):
+
+    * a run whose ``endpoint.json`` pid is still alive is **skipped** unless
+      ``skip_live`` is cleared -- ``shutil.rmtree`` on files a live process has
+      open deletes *part* of the tree, leaving a wrecked run behind a running
+      IDE (``ignore_errors=True`` hides it);
+    * what was skipped or failed is **reported**, never swallowed;
+    * ``dry_run`` decides nothing.
+
+    Returns ``{"removed": [...], "skipped_live": [...], "failed": [...]}``,
+    where every entry is ``"<run_id> (<reason>)"`` for the non-removed buckets.
+    """
+    out: Dict[str, List[str]] = {"removed": [], "skipped_live": [], "failed": []}
     if not os.path.isdir(run_root):
-        return removed
+        return out
     runs = []
     for name in os.listdir(run_root):
         path = os.path.join(run_root, name)
         if os.path.isdir(path):
-            runs.append((os.path.getmtime(path), path))
+            runs.append((os.path.getmtime(path), name, path))
     runs.sort(reverse=True)
-    for _mtime, path in runs[max(keep, 0):]:
-        removed.append(path)
+    for _mtime, name, path in runs[max(keep, 0):]:
         if not dry_run:
+            if skip_live:
+                pid = run_live_pid(path)
+                if pid is not None:
+                    out["skipped_live"].append("%s (pid %d still running)" % (name, pid))
+                    continue
             shutil.rmtree(path, ignore_errors=True)
-    return removed
+            if os.path.isdir(path):  # partially deleted: report, never hide
+                out["failed"].append("%s (still on disk - locked by a running process?)" % name)
+                continue
+        out["removed"].append(name)
+    return out
