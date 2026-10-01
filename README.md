@@ -290,13 +290,15 @@ skill/SKILL.md                           给 agent 的用法说明
 > 逐阶段进度与验收证据在**项目任务仓**（Trellis 工作区）的 `research/` 下，**不在本仓**：
 > `p0-gate.md` … `p3-gate.md`（各道门的闭环记录）、`hardening-r1-*.md`（硬化轮）、
 > `popup-observation-matrix-*.md`（两条观测路径对小弹窗的实测矩阵）、`s4-acceptance-*.md`（影子截图验收）。
-> **截至 2026-10-01，G0（立骨架与实例纪律）/ G1（只读面）/ G2（写面与错误契约）/
-> G3（韧性）/ G3R1（硬化轮）均已通过**：
+> **截至 2026-10-02，G0（立骨架与实例纪律）/ G1（只读面）/ G2（写面与错误契约）/
+> G3（韧性）/ G3R1（硬化轮）/ G4（跨产品）均已通过**：
 >
 > - 桥：`LiveBridge.java` 由目标树 ECJ 编译打包成 OSGi bundle（BSN `eclipse-ctl.bridge`，v3.1.0），
 >   16 个方法（12 只读 + 4 写），8 个错误码闭集
 > - 客户端：**22 个子命令全部可用，全部支持 `--json`**，纯标准库；`ctl verify` 有
->   **24 条用例（23 PASS + 1 SKIP / 0 FAIL）**
+>   **24 条用例，两个 target 各自跑通**：**gs32 = 23 PASS + 1 SKIP / 0 FAIL**、
+>   **ccs12 = 19 PASS + 5 SKIP / 0 FAIL**（6 条 SKIP 全为「声明式 skip」或「判据不适用」，
+>   差异逐条见 [`boundaries.md`](boundaries.md) §A5）
 > - **影子留档**（`ctl shadow` / `tools/win-probe.ps1`）：写动作后自动留帧；**帧不参与判据**。
 >   实测（2026-10-01 真机）：`verify --all` 在影子开着时仍 **23 PASS + 1 SKIP / 0 FAIL**（两次覆盖
 >   共 54 个样本，**控制台零命中**）；S4 桌面项 **13/13 PASS**
