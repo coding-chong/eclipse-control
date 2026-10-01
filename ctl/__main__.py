@@ -1190,6 +1190,16 @@ def _shadow_run_id(args, config: Config, target: Target) -> str:
         raise EndpointNotFound(
             "no run for target %s under %s; retry: python -m ctl install --target %s"
             % (target.name, config.run_root, target.name))
+    # An explicit --run-id is not validated above, so a typo used to read as
+    # "no shadow records" *and still exit 0* -- a lookup error must never look
+    # like an empty result (`design-obs-ux.md` 14.3: exit 1 covers "find" errors
+    # and carries `ERR notfound`).  Only the *directory* is checked, on purpose:
+    # reviewing frames has to keep working with the bridge dead -- that is the
+    # whole point of a ledger -- so this must never touch endpoint.json.
+    if not os.path.isdir(os.path.join(config.run_root, rid)):
+        raise EndpointNotFound(
+            "no run %s under %s; retry: python -m ctl install --target %s"
+            % (rid, config.run_root, target.name))
     return rid
 
 
