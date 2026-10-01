@@ -291,11 +291,14 @@ def build_parser() -> CtlParser:
     # (options come from `common`)
 
     # -- act ----------------------------------------------------------------- #
-    p_act.add_argument("act_action", choices=["click-button"])
+    p_act.add_argument("act_action", choices=["click-button", "send-keys", "set-text"])
     p_act.add_argument("--title", required=True)
     p_act.add_argument("--text")
     p_act.add_argument("--index", type=int)
     p_act.add_argument("--path")
+    p_act.add_argument("--key", help="key name for send-keys (RETURN / TAB / ESCAPE / F5 / A / 1 ...)")
+    p_act.add_argument("--class", dest="class_", default="Edit",
+                       help="target child window class for send-keys / set-text (default: Edit)")
 
     # -- shadow -------------------------------------------------------------- #
     p_shadow.set_defaults(shadow_action="summary")
@@ -1517,8 +1520,21 @@ def _tool_script(name: str) -> str:
 
 
 def _cmd_act(args) -> int:
-    if args.act_action != "click-button":
-        raise UsageError("unknown act action: %s; retry: python -m ctl --help" % args.act_action)
+    """Element-addressed input primitives (`design-project.md` §18.3).
+
+    Every action addresses a *control inside a window*: the message goes to the
+    control's own HWND, so nothing depends on where it sits on screen or on which
+    window holds the foreground.  Addressing must resolve to exactly one control
+    -- a silent pick is what lets two same-labelled widgets be confused.
+    """
+    if args.act_action == "click-button":
+        return _act_click_button(args)
+    if args.act_action in ("send-keys", "set-text"):
+        return _act_send_input(args)
+    raise UsageError("unknown act action: %s; retry: python -m ctl --help" % args.act_action)
+
+
+def _act_click_button(args) -> int:
     if args.index is not None or args.path:
         raise UsageError(
             "--index/--path are not supported by tools/win-click-button.ps1 (text addressing only); "
@@ -1553,6 +1569,75 @@ def _cmd_act(args) -> int:
     if args.json:
         _emit_json({"title": args.title, "text": args.text, "matched": matches, "rc": code,
                     "output": output})
+    else:
+        print(output.rstrip())
+    return 0 if code == 0 else 1
+
+
+def _act_send_input(args) -> int:
+    """``send-keys`` / ``set-text`` -- element-addressed keyboard and text input.
+
+    Keys go out as ``WM_KEYDOWN``/``WM_KEYUP`` and text as ``WM_SETTEXT``, both to
+    the addressed child's own HWND (`design-project.md` §18.3).  ``WM_SETTEXT``
+    replaces the control's text outright, which makes it independent of focus and
+    of keyboard layout -- this addresses fields, it does not imitate a typist.
+    """
+    action = args.act_action
+    script = _tool_script("win-send-input.ps1")
+    if not os.path.isfile(script):
+        raise PrereqNotReady("missing tool: %s; retry: python -m ctl --help" % script)
+    if args.path:
+        raise UsageError(
+            "--path is not supported by tools/win-send-input.ps1 (class + index addressing only); "
+            'retry: python -m ctl act %s --title "<title>" --class <class>' % action)
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    if not pwsh:
+        raise PrereqNotReady("pwsh not found; retry: python -m ctl --help")
+
+    if action == "send-keys":
+        if not args.key:
+            raise UsageError('send-keys needs --key <name>; retry: python -m ctl act send-keys '
+                             '--title "<title>" --key RETURN')
+        request = ("send-keys title=%r class=%s index=%s key=%s"
+                   % (args.title, args.class_, args.index, args.key))
+        extra = ["-Action", "key", "-Key", args.key]
+    else:
+        if args.text is None:
+            raise UsageError('set-text needs --text <payload>; retry: python -m ctl act set-text '
+                             '--title "<title>" --text "<payload>"')
+        request = ("set-text title=%r class=%s index=%s payload=%r"
+                   % (args.title, args.class_, args.index, args.text))
+        extra = ["-Action", "text", "-Payload", args.text]
+
+    index = -1 if args.index is None else args.index
+    # Enumerate first (no side effect) so ambiguous class addressing fails closed
+    # *before* anything is typed -- the same rule click-button applies to text.
+    code, listing = _run([pwsh, "-NoProfile", "-NonInteractive", "-File", script,
+                          "-TitleLike", args.title, "-Class", args.class_,
+                          "-Index", str(index), "-ListOnly"])
+    if code != 0:
+        raise NotFoundError("no visible window matching %r; retry: python -m ctl --help" % args.title)
+    matches = [line.strip() for line in listing.splitlines()
+               if ("class=%s " % args.class_) in line]
+    if not matches:
+        raise NotFoundError(
+            'no visible child of class %r in %r; retry: python -m ctl act %s --title "%s" --class <class>'
+            % (args.class_, args.title, action, args.title))
+    if index < 0 and len(matches) > 1:
+        raise UsageError("ambiguous: %d visible children of class %r (addressing must be unique; "
+                         "pass --index); retry: python -m ctl --help" % (len(matches), args.class_))
+    if index >= len(matches):
+        raise UsageError("--index %d out of range (%d match(es)); retry: python -m ctl --help"
+                         % (index, len(matches)))
+
+    if not args.yes:
+        return _dry_run(args, request)
+    code, output = _run([pwsh, "-NoProfile", "-NonInteractive", "-File", script,
+                         "-TitleLike", args.title, "-Class", args.class_,
+                         "-Index", str(index)] + extra)
+    if args.json:
+        _emit_json({"action": action, "title": args.title, "class": args.class_,
+                    "matched": matches, "rc": code, "output": output})
     else:
         print(output.rstrip())
     return 0 if code == 0 else 1
