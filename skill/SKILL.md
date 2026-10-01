@@ -85,8 +85,31 @@ dialog_note=… close it and read back (ui.parts) before treating this call as d
 `true` = 可重试；`false` = 不可；**`per-command`** = 一个方法名承载任意命令、**方法级无从保证**
 （`cmd.run` / `cmd.runp` 就是这档，实测开关型命令连点两次会**回到原状**）⇒ 与 `unknown` **同等保守，一律不重试**。
 
-## 4. 超时后怎么办（必读）
+### 3bis. 影子留档：每次写动作**系统已经替你留了一帧**
 
+**你不需要做任何事，也不需要去看它。** 每次写动作完成后，`ctl` 会自动在
+`<run_root>/<run_id>/shadow/` 留一帧屏幕 + 一行清单（`manifest.jsonl`）。
+
+**它是留档，不是判据。** 判断一个写动作成不成，仍然只靠这两条：**回读差** 与 **回话里的 `dialog=` 行**。
+理由：`PrintWindow` 有「返回 TRUE 却画全黑」的真实失败模式 —— **一个会撒谎的通道不能当断言**。
+⇒ **不要**因为"有图"就去读图、更不要拿图去论证成功/失败。
+
+什么时候才去看它：
+
+```bash
+python -m ctl shadow --run-id <RUN_ID>            # 清单摘要（seq / 时间 / 方法 / 结果 / 是否 promote）
+python -m ctl shadow --run-id <RUN_ID> --seq 7    # 第 7 个动作之后那一眼（--open 7 直接打开）
+```
+
+- 失败 / `ERR timeout` / 弹框触发的帧会被 **promote**（永不被环形裁剪清掉），优先看这些。
+- 清单每行带 `target.class/hwnd/title/bounds` —— **先看 `target.class`**：它应该是
+  `SWT_Window0`（工作台）或 `#32770`（原生对话框）。出现别的类名本身就是一条缺陷记录。
+- 环形上限默认 20 帧 / 32 MB，`ctl shadow --prune` 手动裁。
+
+留档会拖慢每个写动作约 0.3–0.4 s（拍一张 ~0.9 s，其中大部分是 pwsh 启动）。
+不需要时用 `--no-shadow` 关掉；只在变化/异常时留用 `--shadow-only-changes`。
+
+## 4. 超时后怎么办（必读）
 1. **不要**认定「没执行」。桥用 `asyncExec`，超时只结束**等待**，排队的动作仍可能生效。
 2. **先枚举，拿到那个框的真标题**（不要先猜、不要问用户）。**顺序不能反** —— 弹框标题不含
    `GS32_Studio`，而 `PrintWindow` 只渲染目标窗**自身**的位图、不会带上非子窗的模态框，

@@ -8,8 +8,37 @@
 
 ## [Unreleased]
 
+### Added
+
+- **影子留档（shadow shots）—— 写动作后自动留一帧屏幕**：每次**写动作**完成后截一帧存进
+  `<run_root>/<run_id>/shadow/`（`manifest.jsonl` + 帧），**默认不读**，出事时用
+  `python -m ctl shadow --run-id <id> [--seq N] [--promote N] [--open N] [--prune]` 回看。
+  新增 `tools/win-probe.ps1`（**一次** pwsh 调用同时产出窗口集 JSON 与像素）与 `ctl/shadow.py`
+  （策略与簿记：sha256 去重 / 环形 20 帧·32 MB / promote / 清单）；挂钩在 `Client.request` 尾部，
+  纯附加，**任何失败都不得影响请求结果或退出码**；开关 `--no-shadow` / `--shadow-only-changes`
+  （优先级：命令行 > 环境变量 > 配置文件 > 默认）。
+- **`ui.shells` 之外，窗口选题改由类名白名单定身份**：`pid` ∧ `class ∈ {SWT_Window0, #32770}` ∧
+  `vis=True` ∧ 标题非辅助窗；**没有合法候选就 `rc=1` 且不写盘**（fail closed）。
+
 ### Fixed
 
+- **`ctl shadow` 的写方法判定漏掉 `cmd.runp`**（验收时发现，S4）：`sys.help` 的 `cmd.runp` 行
+  **args 列自身含一个 `|`**（`<paramId|=paramName>=<value>`），朴素 `split("|")` 把列冲歪，
+  `fields[2]` 不再是 write 列 ⇒ 该行被判成非写 ⇒ **`ctl cmd` 带参数时一律走 `cmd.runp`，
+  等于绝大多数参数化命令写操作全都没被留档**，而且**没有任何告警**。
+  改为按"第一个 `yes`/`no` 且其后紧跟合法 idempotent 值"定位写列。对拍：
+  旧 `{cmd.run, ui.close, ui.open}` → 新 `{cmd.run, cmd.runp, ui.close, ui.open}`；12 个读方法零泄漏。
+- **环形裁剪把 promoted 帧算进额度**：与"promoted 不计入额度"的约定矛盾 ⇒ 1 张 promoted 帧
+  会静默吃掉 1 张普通帧的额度。
+- **显式 `--port` 时不绑 `run_root`/`run_id`**：即使给了 `--run-id`，影子层也静默不写清单。
+- **截图 tmp 文件残留**：`os.replace` 失败时只告警不删，`shadow/` 会积 `.pending-*.png`。
+
+### Changed
+
+- **影子探针固定用 `-Flags 0`**（不设为配置项）：观测通道不该扰动被测物 ——
+  `resilience_modal_reset` 记着一条"`flags=2` 可能让活模态框消失"的未复现怀疑，而影子会按
+  "新窗优先"恰好去拍那扇 `#32770`。拍空时工具会自己换档重试，故选 0 零代价。
+  实测（2026-10-01，第三次独立测）：**两档都拍到活模态框、都没让它消失**。
 - **写命令失败是异步的，回话会谎报 `OK`（用户在一张截图上发现的）**：
   `cmd.runp org.eclipse.ui.views.showView viewId=<不存在的视图>` 回话 `OK`、
   `executeCommand returned: null`，但 Eclipse 随后弹出 `Problem Occurred`（`ExecutionException`），

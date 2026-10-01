@@ -20,6 +20,8 @@
 | 按 UI 文字反查命令 id | `python -m ctl commands find --text "Reset Perspective"` |
 | 跑门禁用例 | `python -m ctl verify --group write --run-id <id>`（组：`read` / `write` / `errors`） |
 | 跑全部门禁 | `python -m ctl verify --all --run-id <id>` |
+| 回看某次动作之后的屏幕 | `python -m ctl shadow --run-id <id>`（`--seq N` 取那一帧，`--open N` 打开） |
+| 关掉影子留档 | 任意子命令加 `--no-shadow`；只在变化/异常时留用 `--shadow-only-changes` |
 | 长脚本扛 IDE 重启 | 加 `--retry 120`（退避重连；重连后验身，版本不符则报错退出） |
 | 卸桥并自检干净 | `python -m ctl uninstall --target gs32 --verify-clean` |
 | 编译打包桥 | `python -m ctl build --target gs32` |
@@ -32,6 +34,21 @@
 理由见 `protocol.md` §4.3：写命令的失败是**异步**的，回话里的 `OK` 会撒谎 ——
 `cmd.runp showView viewId=<不存在的视图>` 回 `OK`、回读差为 0，屏幕上却弹着 `Problem Occurred`。
 `--no-screen-guard` 只用于复现这个漏洞，`preflight` 里恒为关。
+
+**影子留档（`ctl shadow`）**：每次**写动作**完成后自动留一帧屏幕到
+`<run_root>/<run_id>/shadow/`（`manifest.jsonl` + 帧），**默认不读**，出事时回看。
+与 `shots/` 分工不同：`shots/` 是"我被要求证明什么"（验收证据），`shadow/` 是"当时屏幕长什么样"（常备留档）。
+
+- **留哪扇窗**：四条同时满足 —— `pid` = 目标实例 ∧ `class ∈ {SWT_Window0, #32770}` ∧ `vis=True`
+  ∧ 标题不是已知辅助窗（`PartRenderingEngine's limbo` / `SWT_Window_GS32_Studio`）。
+  **没有合法候选就 `rc=1` 且不写盘**（fail closed）—— 一张来历不明的窗口被记成"当时界面就是这样"，
+  比没有这张图更糟。
+- **`SWT_Window0` 不是工作台专属**：实测同一 pid 下有 3 扇顶层 `SWT_Window0`；
+  启动器控制台与工作台**同 pid、标题同含 `GS32_Studio`、都可见**，面积差只有 18%
+  ⇒ 面积只能当白名单**内**的次级判据，身份靠类名 + 可见性 + 标题。
+- **帧不是判据**：它**不参与任何 PASS/FAIL**。`PrintWindow` 存在"返回 TRUE 却画全黑"的失败模式，
+  会撒谎的通道不能当断言。清理用 `--no-shadow`；`ctl shadow --prune` 按环形上限（默认 20 帧 / 32 MB）裁剪，
+  失败/超时/弹框触发的帧会被 **promote** 且永不裁。
 
 ---
 
@@ -111,14 +128,18 @@ skill/SKILL.md                           给 agent 的用法说明
 ## 实现状态
 
 > 逐阶段进度与验收证据在**项目任务仓**（Trellis 工作区）的 `research/` 下，**不在本仓**：
-> `p0-gate.md` … `p3-gate.md`（各道门的闭环记录）、`hardening-r1-*.md`（硬化轮）。
+> `p0-gate.md` … `p3-gate.md`（各道门的闭环记录）、`hardening-r1-*.md`（硬化轮）、
+> `popup-observation-matrix-*.md`（两条观测路径对小弹窗的实测矩阵）、`s4-acceptance-*.md`（影子截图验收）。
 > **截至 2026-10-01，G0（立骨架与实例纪律）/ G1（只读面）/ G2（写面与错误契约）/
 > G3（韧性）/ G3R1（硬化轮）均已通过**：
 >
-> - 桥：`LiveBridge.java`（1495 行）由目标树 ECJ 编译打包成 OSGi bundle（BSN `eclipse-ctl.bridge`，v3.1.0），
+> - 桥：`LiveBridge.java` 由目标树 ECJ 编译打包成 OSGi bundle（BSN `eclipse-ctl.bridge`，v3.1.0），
 >   16 个方法（12 只读 + 4 写），8 个错误码闭集
-> - 客户端：**21 个子命令全部可用，全部支持 `--json`**，纯标准库；`ctl verify` 有
+> - 客户端：**22 个子命令全部可用，全部支持 `--json`**，纯标准库；`ctl verify` 有
 >   **24 条用例（23 PASS + 1 SKIP / 0 FAIL）**
+> - **影子留档**（`ctl shadow` / `tools/win-probe.ps1`）：写动作后自动留帧；**帧不参与判据**。
+>   实测（2026-10-01 真机）：`verify --all` 在影子开着时仍 **23 PASS + 1 SKIP / 0 FAIL**（两次覆盖
+>   共 54 个样本，**控制台零命中**）；S4 桌面项 **13/13 PASS**
 > - 未验证的项仍在 `boundaries.md` 里**逐条标注并给了验证入口**，请以那里为准。
 >   **本文速查表描述的是已实测可用的一面，不是全部能力** —— 边界看 `boundaries.md`。
 >
