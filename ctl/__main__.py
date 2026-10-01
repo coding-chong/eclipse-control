@@ -1564,6 +1564,10 @@ def _act_click_button(args) -> int:
     if len(matches) > 1:
         raise UsageError("ambiguous: %d Buttons contain %r (text addressing must be unique); "
                          "retry: python -m ctl --help" % (len(matches), args.text))
+    # `design-project.md` §16.2: dry-run covers `act *` too -- pressing a button
+    # decides for the user, so it must not happen without an explicit --yes.
+    if not args.yes:
+        return _dry_run(args, "click-button title=%r text=%r" % (args.title, args.text))
     code, output = _run([pwsh, "-NoProfile", "-NonInteractive", "-File", script,
                          "-TitleLike", args.title, "-Text", args.text])
     if args.json:
