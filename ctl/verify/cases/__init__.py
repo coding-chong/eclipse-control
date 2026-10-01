@@ -7,7 +7,9 @@ happy path but a *failure mode*: what a modal dialog costs the connection that
 opened it (and what it does **not** cost the others), and what a write that
 answered ``ERR timeout`` is allowed to have done.  Both drive their own window
 snapshots instead of the runner's guard, because the modal has to be observed
-*while it is on screen*.
+*while it is on screen*.  ``input`` holds the one case that judges **the target
+product's SWT**, not the bridge: it starts its own fixture and never connects,
+so it runs without ``install``.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from .write_close_view import CASE as WRITE_CLOSE_VIEW
 from .write_open_editor import CASE as WRITE_OPEN_EDITOR
 from .write_run_toggle import CASE as WRITE_RUN_TOGGLE
 from .write_runp_show_view import CASE as WRITE_RUNP_SHOW_VIEW
+from .input_fixture import CASE as INPUT_FIXTURE
 
 #: Every registered case, in execution order: read surface, write surface
 #: (screen-guarded), then the error contract.
@@ -58,6 +61,7 @@ ALL_CASES = [
     WRITE_CLOSE_VIEW,
     WRITE_RUNP_SHOW_VIEW,
     WRITE_RUN_TOGGLE,
+    INPUT_FIXTURE,
     ERRORS_UNKNOWN_METHOD,
     ERRORS_BAD_PARAM,
     ERRORS_MISSING_ID,
