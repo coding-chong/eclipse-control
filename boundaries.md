@@ -65,9 +65,41 @@
   `commands.json`（gs32 自省产物，`total=666`）、`ctl commands --run-id ccs12-p42`（807 / `com.ti` 115）；ccs12 侧截图归档
   `<run_root>/ccs12-p42/shots/errors.plugin-id-as-view-005355-Problem_Occurred.png`。
 
-### A6 Input 域 · 元素寻址点按钮
-- **能力**：`EnumChildWindows` 取到 `Button` 子窗（文本含助记符如 `&Reset Perspective` / `&No`）→ `SendMessage(hwnd, BM_CLICK=0x00F5, 0, 0)`，**不用鼠标、不需前台**就能按下真实按钮；按下后对话框消失、桥瞬间复活。
-- **证据**：`research/facts-baseline.md` §6 子窗枚举表 + §11.1「按钮可被真点」行。
+### A6 Input 域 · 元素寻址的输入原语
+- **能力**：`EnumChildWindows` 定位窗口内的**控件自身 HWND**，把消息直接发给它 —— **不用鼠标、不要求前台**。
+  审批口径见 `design-project.md` §18.2/§18.3；**坐标注入不在产品面内**（见下表末三行，只作定论记录）。
+
+  **原语表**（A14：每行给「原语 / 寻址 / 实测结果 / 证据」）
+
+  | 原语 | 寻址 | 手段 | 实测结果 | 性质 |
+  |---|---|---|---|---|
+  | **点 `Button`** | 窗口标题 + 控件**文本**（必须唯一） | `SendMessage(hwnd, BM_CLICK=0x00F5, 0, 0)` | ✅ 标题 `ctl-fixture` → **`GO n`** | **能力** |
+  | **按键** | 窗口标题 + **类名 + 序位** | `WM_KEYDOWN/WM_KEYUP`（`0x0100`/`0x0101`） | ✅ 标题 → **`KEY 13`**（VK_RETURN） | **能力** |
+  | **文本输入** | 窗口标题 + **类名 + 序位** | `WM_SETTEXT`（`0x000C`） | ✅ 标题 → **`TEXT <载荷>`** | **能力**（与焦点/键盘布局无关） |
+  | 点**不存在**的控件 | 文本 | `ctl act click-button` | ✅ **退出码 1**（存在控件为 0） | **证伪** |
+  | 坐标 → **按钮 HWND** | client 坐标 | `WM_LBUTTONDOWN/UP`（`0x0201`/`0x0202`） | ✅ 标题 → `GO n+1`（**有效**） | 定论记录 |
+  | 坐标 → **顶层 Shell**（同一坐标、同一消息） | client 坐标 | 同上 | ⚠️ 标题**不变**（**无效**） | 定论记录（**对照组**） |
+  | 坐标 → 空白 (5,5) | client 坐标 | 同上 | ✅ 标题**不变** | **证伪** |
+
+  > **②a vs ②b 是本域最有价值的一条**：两条**坐标相同、消息相同**，只差**收件人** —— 发给按钮自己的
+  > HWND 有效，发给顶层 Shell 无效（`PostMessage` **不做命中测试**，顶层窗不会把落在子控件区域的
+  > 鼠标消息转给子控件）。⇒ **决定成败的是「寻址」，不是「SWT 不认合成输入」。**
+
+  **寻址纪律**（`design-project.md` §18.3）：**命中 0 或 >1 一律失败**（fail closed），不允许「挑第一个」——
+  否则同名 `&Save`/`&OK` 会**静默点错**。三个 `act` 动作**都不带 `--yes` 只打印 `DRY-RUN`**（§16.2 的 `act *` 口径）。
+
+  **CLI 入口**：`act click-button`（文本寻址）/ `act send-keys --key <名>` / `act set-text --text <载荷>`
+  （后两者按 `--class`（缺省 `Edit`）+ 可选 `--index` 寻址）。命令面定义见 `design-obs-ux.md` §14.3。
+
+  **已知差距**（如实）：`act click-button` **只支持文本寻址**，`--index`/`--path` 显式拒绝（见 N11）；
+  **菜单 / 工具栏 / 树节点**走命令框架（`cmd.run`/`cmd.runp`）为主线，输入路径只作兜底，三类控件的
+  逐条结论**尚待补**。
+
+- **证据**：`research/p6-input-fixture-2026-10-01.md`（六条断言首次实测）；
+  **2026-10-02 独立复现**（同一夹具、全新实例 `pid=3688`/`7816`）：① `BM_CLICK` → `GO 1`；
+  ②a 坐标→Button 有效 / ②b 坐标→Shell 无效；③ `VK_RETURN` → `KEY 13`；④ `WM_SETTEXT` → `TEXT CLIPROVE`；
+  ⑤ `--class NoSuchClass` 与不存在的按钮均 **rc=1**；⑥ 空白坐标无变化。
+  夹具源码 `tools/fixture-swt/Fixture.java`；取证探针 `research/probes/p6-input-probe.ps1`（只作取证，不属产品）。
 
 ### A7 观测装置 · 截图
 - **能力**：`tools/shot-window-pw.ps1`（`PrintWindow` + 先 `SetProcessDPIAware`）为**主通道**，不受遮挡、不受 DPI 虚拟化影响；OCU 的 `get_app_state(include_image=true)` 为**备用**（小窗可用）。
@@ -127,7 +159,11 @@
 
 ### N11 `ctl act click-button` 当前只支持**文本**寻址
 - **不能做**：用 `--index` / `--path` 寻址。这两个参数**存在但会显式拒绝**（底层 `tools/win-click-button.ps1` 只做 `--text` 文本匹配）。
-- **证据**：`design-project.md` §18.3 的「寻址稳定性契约」把**路径（下标）列为首选**、文本列次选——但当前 `act` 实现只落到文本这一档，路径/索引两档**未实现**；参数存在但拒绝见 CLI 实际行为（`ctl act click-button --index 0` 报错）。这条是**设计 ↔ 实现的差距**，不写成「已证伪」。
+- **证据**：`design-project.md` §18.3 的「寻址稳定性契约」把**路径（下标）列为首选**、文本列次选 —— 但
+  **`act click-button` 只落到「文本」这一档**，`--index`/`--path` 参数存在却被显式拒绝（实测
+  `ctl act click-button --index 0` 报错）。**范围限定**：这是 `click-button` 一条的差距；
+  同族新增的 `act send-keys` / `act set-text` **已支持「类名 + 序位」寻址**（`--class` / `--index`）。
+  本条的**剩余**差距是「路径（下标路径）」这一档仍未实现。这条是**设计 ↔ 实现的差距**，不写成「已证伪」。
 
 ---
 
