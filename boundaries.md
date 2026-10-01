@@ -30,7 +30,40 @@
 
 ### A5 跨产品复现
 - **能力**：同一套技术对 CCS 12（Eclipse 4.23 / JRE 11）复现成功，不只 GS32（4.30 / JRE 23）。
-- **证据**：`research/facts-baseline.md` §1 目标环境表；`prd.md` F5（出处 `route-comparison.md` §9.12）。
+  **两个 target 各自跑通全量门禁**（2026-10-02 实测）：
+
+  | 门禁 | gs32 | ccs12 |
+  |---|---|---|
+  | `verify --all` | **23 PASS + 1 SKIP / 0 FAIL** | **19 PASS + 5 SKIP / 0 FAIL** |
+
+  **差异逐条**（6 条 SKIP **全部**是"声明式 skip"或"判据不适用"，**无一条是失败**）：
+
+  | 差异 | gs32 | ccs12 | 原因 |
+  |---|---|---|---|
+  | 命令总数 | 666 | **807** | 厂商 bundle 数 `com.gs` 15 个 vs `com.ti` 177 个 |
+  | 厂商命令数 | `com.gs` **7** | `com.ti` **115** | 两家产品命令面不同 |
+  | 活动透视图 | `org.eclipse.cdt.ui.CPerspective` | `com.ti.ccstudio.TICPerspective` | 厂商产品自带透视图 |
+  | `read.console` | PASS | **SKIP** | 该 ccs12 实例**没有 console 页**（`Console view has no console page`）⇒ 判据不适用 |
+  | `write.close-view` / `write.runp-show-view` / `resilience.modal-reset` / `resilience.timeout-applied` | PASS | **SKIP** | 四条用例声明 `targets=("gs32",)`，**按 target 声明 skip 而非 fail** |
+
+- **兼容矩阵**（五项列）：
+
+  | 列 | gs32（GS32_Studio v1.2.5.2） | ccs12（CCS 12.8.1） |
+  |---|---|---|
+  | 平台版本 | Eclipse Platform **4.30.0** | Eclipse Platform **4.23.0** |
+  | JRE 模块数 | **30**（JustJ JRE 23.0.2） | **55**（JRE 11.0.13） |
+  | 命令服务 bundle 版本 | `org.eclipse.ui.workbench` **3.131.0** | `org.eclipse.ui.workbench` **3.125.0** |
+  | 厂商命令数 | `com.gs` **7**（总 666） | `com.ti` **115**（总 807） |
+  | 必须重编的产物 | `eclipse-ctl.bridge_3.1.0_gs32.jar`（class-file **61** = Java 17） | `eclipse-ctl.bridge_3.1.0_ccs12.jar`（class-file **55** = Java 11） |
+
+  > **同一份源码、两个字节码级别**：ccs12 的 JRE 是 11 ⇒ `-source/-target 11`；gs32 是 17。
+  > 两个 jar **按 target 命名并存**（此前同名会互相覆盖），`doctor` 会校验 jar 内 class-file 级别
+  > 与目标声明的 `java_target` 一致。ccs12 **不带 JDT**，其 ECJ 从 gs32 安装树外借。
+
+- **证据**：`research/facts-baseline.md` §1 目标环境表；`prd.md` F5（出处 `route-comparison.md` §9.12）；
+  2026-10-02 实测：`verify --all --target gs32` / `verify --all --target ccs12` 的逐条输出、
+  `commands.json`（gs32 自省产物，`total=666`）、`ctl commands --run-id ccs12-p42`（807 / `com.ti` 115）；ccs12 侧截图归档
+  `<run_root>/ccs12-p42/shots/errors.plugin-id-as-view-005355-Problem_Occurred.png`。
 
 ### A6 Input 域 · 元素寻址点按钮
 - **能力**：`EnumChildWindows` 取到 `Button` 子窗（文本含助记符如 `&Reset Perspective` / `&No`）→ `SendMessage(hwnd, BM_CLICK=0x00F5, 0, 0)`，**不用鼠标、不需前台**就能按下真实按钮；按下后对话框消失、桥瞬间复活。
