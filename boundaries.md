@@ -167,8 +167,15 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 
 | 面 | 状态 | 内容 |
 |---|---|---|
-| **机制**（推论，已标注） | `[INFERENCE]` | 合成输入与真实输入**走同一条投递路径**，都由 UI 线程处理。因此**只有当某个输入触发了"阻塞 UI 线程的行为"**（弹模态框、跑长任务）时才可能停摆 —— 与 F7 是**同一个失败面**，不是新的一类。空闲点击的 handler 微秒级返回，**观测不到**。 |
-| **实测** | ❌ **本轮未做**（且**原写法已证明不可执行**，见下） | **不得**用"命令弹模态框"的场景（§6 那次）冒充"输入场景"。见下方验证入口。 |
+| **机制** | ✅ **已实测（2026-10-04）** | 合成输入与桥的 `asyncExec` **走同一个 UI 线程**。判据：`SendMessage` **同步**往返 = 「UI 线程处理一次坐标点击」的耗时，5 次为 **4.684 / 0.492 / 0.431 / 0.296 / 0.244 ms**（第 1 次含首次跨进程附加开销）；`SendMessage` 只在目标窗口过程返回后才返回 ⇒ **消息确实被投递并在 UI 线程上处理**。 |
+| **实测（空闲单击）** | ✅ **无争用** | 与点击**同时**、在**另一条连接**上以 ~25 ms 轮询：`sys.ping` n=254 p50=14.8 p95=17.9 max=27.6 ms；`ui.parts` n=230 p50=14.9 p95=20.6 max=27.8 ms（与基线同量级）；回读 `ui.shells`/`ui.parts` **逐字不变**（`shellCount=2`，无弹框）。⇒ 空闲点击的 handler 微秒级 ⇒ **观测不到** —— 原 `[INFERENCE]` 由此升级为实测。 |
+| **实测（输入积压）** | ✅ **争用可测、且只在 UI 线程上** | 突发 3000 对 `WM_LBUTTONDOWN/UP` 到同一目标：`ui.parts` 出现**孤立尖峰 1142.5 / 1174.9 / 1227.9 ms**（3 次复跑，均在点击后 +483..+494 ms）；`sys.ping` 三趟 max **26.2 / 26.7 / 28.0 ms**；`--burst 1` 对照组无尖峰（max 35.0 ms，排除 CPU 饥饿与探针自身开销）。⇒ 与 F7 **同一个失败面**：只有**输入造成的 UI 线程工作量**才会拖慢 `ui.*`，**不碰 UI 线程的 `sys.ping` 不受影响**。 |
+
+**复跑（2026-10-04 执行的配方）**：`install --target gs32 --run-id <id>`（端口先确认空）→ 枚举主窗子窗
+（`research/probes/p66-coord-target.ps1 -ListOnly`）→ 选一个**显式声明的** `SWT_Window0` 目标 →
+`research/probes/p66-contention.py [--sync | --burst N]`。**目标**：状态行消息区
+`class=SWT_Window0 hwnd=0x2311CA rect=70,1527,2020x52`，客户区坐标 (101,26)（左端 5%、纵向居中；
+状态行左侧消息区，无 contribution、**不弹框**）。**证据**：`research/batch2-2026-10-04.md` §3（子项 2.2）。
 
 **⚠️ 2026-10-02 修正：本节要求的目标在真 IDE 上不存在。**
 原文写「用 `BM_CLICK` 点**主窗一个无害按钮**」，但 §A6b-2 的全量子窗枚举实测：
@@ -178,20 +185,17 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 它在真 IDE 的真实适用面是**对话框**（`#32770`，那里实测有 `&Reset Perspective` / `&No` 这类真 `Button`）。
 这不是"做不到"，是**原写法选错了目标**：把「主窗」换成「某个子控件 HWND」或「对话框」，命题才可测。
 
-**为什么本轮不做（不是遗漏，是刻意）**：把合成点击打进**真 IDE 的工作台**，等于**在不知会用户的情况下替它按下一个未知按钮**
+**为什么当时标"未验"（不是遗漏，是刻意）**：把合成点击打进**真 IDE 的工作台**，等于**在不知会用户的情况下替它按下一个未知按钮**
 ——坐标落点不可预判，可能触发 `Open Perspective` 之类会弹框的操作。
 仓库纪律是「点按钮 = 替用户做不可逆决定 → **只有用例显式声明时才点**」（`design-obs-ux.md` §13.2.2）。
-在**没有声明目标按钮**的前提下做这件事，与纪律直接冲突。**所以本轮如实标为"未验"，而不是偷偷做掉。**
+在**没有声明目标**的前提下做这件事，与纪律直接冲突。**所以当时如实标为"未验"，而不是偷偷做掉。**
 
-**验证入口（安全做法，供后续执行）**：
-1. `install --target gs32 --run-id gs32-p66` 起实例，`sys.ping` 确认桥活；
-2. **先在夹具上**（`verify --case input.fixture`）确认原语能用 —— 夹具已证明「SWT 认，且成败在寻址」；
-3. **再由用例显式声明**一个**已知无害**的目标。⚠️ **不要写成"主窗某个按钮"** —— §A6b-2 已实测主窗
-   `Button`/`Edit` **都是 0**。可行的声明对象是**坐标寻址**：对某个 `SWT_Window0` 子控件（如只读视图的
-   空白区）发一次 `WM_LBUTTONDOWN/UP`，**同时**以 ≤50 ms 间隔轮询 `sys.ping`；
-   **不要**把目标选成会弹框的东西（那会把"输入"与"命令弹框"混起来，正是本节禁止的）；
-4. 判据：`sys.ping` 全程 p95 **仍 ≤ 50 ms** ⇒ 输入不停摆桥；若出现停摆，**必须先截图**确认是不是弹了框（§13.2.1）；
-5. 把结果回填本节，并把 `[INFERENCE]` 换成实测。
+**2026-10-04 的解法（把命题改成可测且安全）**：目标不改按钮、不改对话框，改成**显式声明一个已知无害的
+`SWT_Window0` 子控件 = 状态行消息区**，只发**坐标消息**（不是 `BM_CLICK`、不是未知控件）；并在发输入时
+**同时**在另一条连接上量两条通道 —— 判据与结果见上表。四条纪律照旧：不碰会弹框的目标、不拿命令弹框
+冒充输入、写方法要回读差、**点之前目标先声明**。
+> 本节原先的第 1–5 步「验证入口」已被上表的**已执行配方**取代；其中第 2 步
+> （`verify --case input.fixture` 先确认原语能力）仍然成立，见本节末「证据」。
 
 - **证据**：`research/p6-input-fixture-2026-10-01.md` §2（六条断言首次实测）与 §7（P6.4 五类控件）；
   **用例化复现（2026-10-02，`target=gs32`）**：`python -m ctl verify --case input.fixture --target gs32` → **PASS**，
@@ -199,6 +203,9 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
   ③ →`KEY 13`、④ →`TEXT P6CASE`、⑤ `ctl act click-button --text &NoSuchButton` **退出码 1**、⑥ (5,5) **不变**。
   夹具源码 `tools/fixture-swt/Fixture.java`；探针 `tools/fixture-swt/probe.ps1`（随夹具走，取证装置，不属产品）；
   用例 `ctl/verify/cases/input_fixture.py`（`requires_bridge=False`，自带夹具启停）。
+- **证据（P6.6 实测，2026-10-04，run `gs32-p66b`）**：`research/batch2-2026-10-04.md` §3（子项 2.2）；
+  探针 `research/probes/p66-coord-target.ps1`（`-Sync` / `-Burst`）与 `research/probes/p66-contention.py`；
+  该实例的起停四件（端口先空 / `bundle id` 比对 / `--stop` 四项清洁）见同档 §1。
 
 ### A7 观测装置 · 截图
 - **能力**：`tools/shot-window-pw.ps1`（`PrintWindow` + 先 `SetProcessDPIAware`）为**主通道**，不受遮挡、不受 DPI 虚拟化影响；OCU 的 `get_app_state(include_image=true)` 为**备用**（小窗可用）。
