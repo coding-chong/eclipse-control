@@ -1632,6 +1632,49 @@ def _tool_script(name: str) -> str:
     return os.path.join(REPO_ROOT, "tools", name)
 
 
+#: One re-runnable command per error (`A12`), the way `run.py` carries one.
+ACT_RETRY = ('retry: python -m ctl act click-button --run-id <run_id> '
+             '--title "<title>" --text "<button>"')
+
+
+def _act_argv(pwsh: str, script: str, flags: Sequence[str], pid: int) -> List[str]:
+    """One ``tools/*.ps1`` invocation, always ``-ProcId``-scoped (`A4-1b`).
+
+    Without the pid the helper finds the *first* visible window whose title
+    matches -- which, with two instances on screen (both showing ``OK`` /
+    ``Reset Perspective``), is another workbench's window.  Building the argv in
+    one place is what keeps the listing pass and the writing pass on the same
+    process set.
+    """
+    return ([pwsh, "-NoProfile", "-NonInteractive", "-File", script]
+            + list(flags) + ["-ProcId", str(int(pid))])
+
+
+def _act_pid(args) -> int:
+    """The pid recorded for this run -- resolved like ``run.py::_click_button``.
+
+    ``act`` addresses a control *inside a process*: ``-ProcId`` is what separates
+    this instance's ``OK`` button from a second instance's.  The number comes from
+    ``<run_root>/<run_id>/endpoint.json``, the same single source the run door
+    uses, and a run that records none fails closed (exit 2) instead of silently
+    addressing any process (``A4-1b``).
+    """
+    config = _load_config(args)
+    target = _single_target(args, config)
+    rid = getattr(args, "run_id", None) or latest_run_id(config.run_root, target.name)
+    pid = 0
+    if rid:
+        try:
+            pid = int(discover_endpoint(config.run_root, rid).get("pid") or 0)
+        except (CtlError, TypeError, ValueError):
+            pid = 0
+    if not pid:
+        raise PrereqNotReady(
+            "run %s records no pid, so the IDE window cannot be addressed; %s"
+            % (rid or "<none>", ACT_RETRY))
+    return pid
+
+
 def _cmd_act(args) -> int:
     """Element-addressed input primitives (`design-project.md` §18.3).
 
@@ -1661,28 +1704,32 @@ def _act_click_button(args) -> int:
     if not pwsh:
         raise PrereqNotReady("pwsh not found; retry: python -m ctl --help")
 
+    # Same pid contract as `run.py::_click_button`: address this run's process,
+    # never "whatever window happens to match first" (`A4-1b`).
+    pid = _act_pid(args)
+    base = _act_argv(pwsh, script, ["-TitleLike", args.title], pid)
+
     # First enumerate (no click) so ambiguous text addressing fails closed.
-    code, listing = _run([pwsh, "-NoProfile", "-NonInteractive", "-File", script,
-                          "-TitleLike", args.title, "-ListOnly"])
+    code, listing = _run(base + ["-ListOnly"])
     if code != 0:
-        raise NotFoundError("no visible window matching %r; retry: python -m ctl --help" % args.title)
+        raise NotFoundError("no visible window matching %r in pid %d; retry: python -m ctl --help"
+                            % (args.title, pid))
     matches = []
     for line in listing.splitlines():
         if "class=Button" in line and args.text.lower() in line.lower():
             matches.append(line.strip())
     if not matches:
         raise NotFoundError(
-            'no Button containing %r; retry: python -m ctl act click-button --title "%s" --text "%s"'
-            % (args.text, args.title, args.text))
+            'no Button containing %r in pid %d; retry: python -m ctl act click-button '
+            '--title "%s" --text "%s"' % (args.text, pid, args.title, args.text))
     if len(matches) > 1:
         raise UsageError("ambiguous: %d Buttons contain %r (text addressing must be unique); "
                          "retry: python -m ctl --help" % (len(matches), args.text))
     # `design-project.md` §16.2: dry-run covers `act *` too -- pressing a button
     # decides for the user, so it must not happen without an explicit --yes.
     if not args.yes:
-        return _dry_run(args, "click-button title=%r text=%r" % (args.title, args.text))
-    code, output = _run([pwsh, "-NoProfile", "-NonInteractive", "-File", script,
-                         "-TitleLike", args.title, "-Text", args.text])
+        return _dry_run(args, "click-button title=%r text=%r pid=%d" % (args.title, args.text, pid))
+    code, output = _run(base + ["-Text", args.text])
     if args.json:
         _emit_json({"title": args.title, "text": args.text, "matched": matches, "rc": code,
                     "output": output})
@@ -1711,35 +1758,42 @@ def _act_send_input(args) -> int:
     if not pwsh:
         raise PrereqNotReady("pwsh not found; retry: python -m ctl --help")
 
+    # Usage errors first: they must not be masked by "the run records no pid".
+    if action == "send-keys" and not args.key:
+        raise UsageError('send-keys needs --key <name>; retry: python -m ctl act send-keys '
+                         '--title "<title>" --key RETURN')
+    if action != "send-keys" and args.text is None:
+        raise UsageError('set-text needs --text <payload>; retry: python -m ctl act set-text '
+                         '--title "<title>" --text "<payload>"')
+
+    # Same pid contract as `run.py::_click_button` (`A4-1b`): keys and text must
+    # land in *this* instance's window, not in a same-titled window of another.
+    pid = _act_pid(args)
+    base = _act_argv(pwsh, script, ["-TitleLike", args.title, "-Class", args.class_], pid)
+
     if action == "send-keys":
-        if not args.key:
-            raise UsageError('send-keys needs --key <name>; retry: python -m ctl act send-keys '
-                             '--title "<title>" --key RETURN')
-        request = ("send-keys title=%r class=%s index=%s key=%s"
-                   % (args.title, args.class_, args.index, args.key))
+        request = ("send-keys title=%r class=%s index=%s key=%s pid=%d"
+                   % (args.title, args.class_, args.index, args.key, pid))
         extra = ["-Action", "key", "-Key", args.key]
     else:
-        if args.text is None:
-            raise UsageError('set-text needs --text <payload>; retry: python -m ctl act set-text '
-                             '--title "<title>" --text "<payload>"')
-        request = ("set-text title=%r class=%s index=%s payload=%r"
-                   % (args.title, args.class_, args.index, args.text))
+        request = ("set-text title=%r class=%s index=%s payload=%r pid=%d"
+                   % (args.title, args.class_, args.index, args.text, pid))
         extra = ["-Action", "text", "-Payload", args.text]
 
     index = -1 if args.index is None else args.index
     # Enumerate first (no side effect) so ambiguous class addressing fails closed
     # *before* anything is typed -- the same rule click-button applies to text.
-    code, listing = _run([pwsh, "-NoProfile", "-NonInteractive", "-File", script,
-                          "-TitleLike", args.title, "-Class", args.class_,
-                          "-Index", str(index), "-ListOnly"])
+    code, listing = _run(base + ["-Index", str(index), "-ListOnly"])
     if code != 0:
-        raise NotFoundError("no visible window matching %r; retry: python -m ctl --help" % args.title)
+        raise NotFoundError("no visible window matching %r in pid %d; retry: python -m ctl --help"
+                            % (args.title, pid))
     matches = [line.strip() for line in listing.splitlines()
                if ("class=%s " % args.class_) in line]
     if not matches:
         raise NotFoundError(
-            'no visible child of class %r in %r; retry: python -m ctl act %s --title "%s" --class <class>'
-            % (args.class_, args.title, action, args.title))
+            'no visible child of class %r in %r (pid %d); retry: python -m ctl act %s '
+            '--title "%s" --class <class>'
+            % (args.class_, args.title, pid, action, args.title))
     if index < 0 and len(matches) > 1:
         raise UsageError("ambiguous: %d visible children of class %r (addressing must be unique; "
                          "pass --index); retry: python -m ctl --help" % (len(matches), args.class_))
@@ -1749,9 +1803,7 @@ def _act_send_input(args) -> int:
 
     if not args.yes:
         return _dry_run(args, request)
-    code, output = _run([pwsh, "-NoProfile", "-NonInteractive", "-File", script,
-                         "-TitleLike", args.title, "-Class", args.class_,
-                         "-Index", str(index)] + extra)
+    code, output = _run(base + ["-Index", str(index)] + extra)
     if args.json:
         _emit_json({"action": action, "title": args.title, "class": args.class_,
                     "matched": matches, "rc": code, "output": output})

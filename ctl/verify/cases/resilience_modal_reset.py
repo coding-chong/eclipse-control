@@ -93,7 +93,7 @@ def _action(ctx):
 
     # --- 3. the screenshot (flags=0: conservative; see shoot_verbose) -------- #
     shot = screen.shot_path(ctx.runner.shots_dir(), ctx.case.name, title)
-    landed, note = screen.shoot_verbose(title, shot, flags=0)
+    landed, note = screen.shoot_verbose(title, shot, flags=0, pids=[pid])
     shot_bytes = os.path.getsize(shot) if os.path.exists(shot) else 0
     ctx.note("3. modal shot -> %s (%d bytes, PrintWindow -Flags 0) | %s"
              % (shot if landed else "<not written>", shot_bytes, note))

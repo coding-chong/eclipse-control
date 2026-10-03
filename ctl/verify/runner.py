@@ -527,7 +527,8 @@ class Runner:
             return []
         problems = []
         for hwnd, (pid, cls, title) in sorted(extra.items()):
-            landed, note = screen.shoot_verbose(title, screen.shot_path(self.shots_dir(), ctx.case.name, title))
+            landed, note = screen.shoot_verbose(
+                title, screen.shot_path(self.shots_dir(), ctx.case.name, title), pids=[pid])
             ctx.note('screen: leftover window hwnd=%s class=%s title="%s" pid=%d shot=%s'
                      % (hwnd, cls, title, pid, note[:160] if landed else "<not written>"))
             ctx.dialogs.append({"hwnd": hwnd, "pid": pid, "class": cls, "title": title,

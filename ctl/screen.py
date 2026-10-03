@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 import time
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -82,10 +81,36 @@ class ScreenError(RuntimeError):
 # Tool plumbing
 # --------------------------------------------------------------------------- #
 
-def tools_available() -> bool:
-    """True when the four ``tools/*.ps1`` helpers can be reached at all."""
-    return (shutil.which("pwsh") is not None
-            and all(os.path.isfile(p) for p in (ENUM_PS1, SHOT_PS1, CLOSE_PS1, CLICK_PS1)))
+def _proc_id_arg(tool: str, pids: Optional[Iterable[int]]) -> List[str]:
+    """The ``-ProcId`` argv slice for one ``tools/*.ps1`` call -- or fail closed.
+
+    ``-ProcId`` is a single ``[int]`` (``0`` = any process) in every helper, so a
+    *set* of candidate pids cannot be expressed.  Dropping the constraint when
+    there was more than one candidate made ``close`` / ``buttons`` /
+    ``click_button`` act on a same-titled window of **any** process -- a silent
+    wrong-target press or ``WM_CLOSE``, the failure class this module exists to
+    notice (``A4-1a``).  Refusing names the candidates so the caller can narrow
+    them, instead of quietly widening the scope.
+
+    ``pids=None`` is kept as the caller's *explicit* "every process" (the default
+    :func:`visible_windows` documents); it is never reached by dropping a set.
+    """
+    if pids is None:
+        return []
+    wanted = sorted({int(p) for p in pids})
+    if len(wanted) == 1:
+        return ["-ProcId", str(wanted[0])]
+    raise ScreenError(
+        "%s cannot be scoped to %d candidate pid(s) [%s]: its -ProcId takes one int, "
+        "so dropping the scope would act on any process's window; narrow the instance "
+        "to a single pid first"
+        % (os.path.basename(tool), len(wanted), ", ".join(str(p) for p in wanted)))
+
+
+def _tool_argv(tool: str, flags: Sequence[str],
+               pids: Optional[Iterable[int]]) -> List[str]:
+    """``[tool, *flags, …]`` with the pid scope appended (see :func:`_proc_id_arg`)."""
+    return [tool] + list(flags) + _proc_id_arg(tool, pids)
 
 
 def _pwsh(args: Sequence[str], timeout: float = 60.0) -> Tuple[int, str]:
@@ -183,21 +208,39 @@ def shot_path(shots_dir: str, tag: str, title: str, when: Optional[time.struct_t
     return os.path.join(shots_dir, "%s-%s-%s.png" % (base, stamp, slug))
 
 
+def shoot_argv(title_like: str, out_path: str, flags: Optional[int] = None,
+               pids: Optional[Iterable[int]] = None) -> List[str]:
+    """The exact argv :func:`shoot_verbose` runs (printable without touching any window)."""
+    args = ["-TitleLike", title_like, "-Out", out_path]
+    if flags is not None:
+        args += ["-Flags", str(int(flags))]
+    return _tool_argv(SHOT_PS1, args, pids)
+
+
 def shoot(title_like: str, out_path: str, timeout: float = 60.0,
-          flags: Optional[int] = None) -> bool:
+          flags: Optional[int] = None, pids: Optional[Iterable[int]] = None) -> bool:
     """Screenshot the visible window whose title contains ``title_like``.
 
     Returns whether the PNG actually landed on disk (``shot-window-pw.ps1`` uses
     PrintWindow, so the shot is immune to occlusion and DPI virtualisation).
+    ``pids`` carries the same single-pid-or-refuse contract as :func:`close`.
     """
-    ok, _note = shoot_verbose(title_like, out_path, timeout, flags=flags)
+    ok, _note = shoot_verbose(title_like, out_path, timeout, flags=flags, pids=pids)
     return ok
 
 
 def shoot_verbose(title_like: str, out_path: str,
-                  timeout: float = 60.0, flags: Optional[int] = None
+                  timeout: float = 60.0, flags: Optional[int] = None,
+                  pids: Optional[Iterable[int]] = None
                   ) -> Tuple[bool, str]:
     """``shoot`` plus the tool's verbatim output (kept as evidence).
+
+    ``pids`` is **not optional in practice for evidence**: window titles are not
+    unique (measured: two processes both called ``ws - GS32_Studio``), so a shot
+    taken by title alone can be another instance's window -- a wrong picture that
+    *looks* like proof (`facts-runtime.md` §13 / §13.2: pick the pid from
+    ``endpoint.json`` first).  Callers that already know the window's own pid must
+    pass it as ``pids=[pid]``; a *set* is refused (see :func:`_proc_id_arg`).
 
     ``flags`` is ``PrintWindow``'s flag word.  Live modals are shot with
     ``flags=0`` as a **conservative choice**: it renders the dialog legibly and is
@@ -215,37 +258,49 @@ def shoot_verbose(title_like: str, out_path: str,
     different bytes (15821 vs 14057 on the same dialog), so they are not
     interchangeable renderings.
     """
+    argv = shoot_argv(title_like, out_path, flags, pids)
     parent = os.path.dirname(out_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    args = [SHOT_PS1, "-TitleLike", title_like, "-Out", out_path]
-    if flags is not None:
-        args += ["-Flags", str(int(flags))]
-    _code, note = _pwsh(args, timeout=timeout)
+    _code, note = _pwsh(argv, timeout=timeout)
     return os.path.isfile(out_path), note.strip()[:400]
+
+
+def close_argv(title_like: str, cls: str = "",
+               pids: Optional[Iterable[int]] = None) -> List[str]:
+    """The exact argv :func:`close` runs (printable without touching any window)."""
+    flags = ["-TitleLike", title_like]
+    if cls:
+        flags += ["-Class", cls]
+    return _tool_argv(CLOSE_PS1, flags, pids)
 
 
 def close(title_like: str, cls: str = "", pids: Optional[Iterable[int]] = None,
           timeout: float = 60.0) -> str:
     """Post ``WM_CLOSE`` to every visible window whose title contains ``title_like``.
 
+    ``pids`` is the instance scope: a **single** pid becomes ``-ProcId``, and a
+    *set* (the runner widens the recorded pid by command line when the launcher
+    handed the workbench to a child JVM) is **refused** -- the tool cannot express
+    a set, and dropping the constraint would close another instance's window
+    (``A4-1a``).  ``pids=None`` stays the explicit "every process" scope.
+
     Returns the tool's verbatim output (``no window matched '…'`` when nothing
     matched).  Callers must *re-observe* afterwards: a posted ``WM_CLOSE`` is a
     request, not a guarantee.
     """
-    args = [CLOSE_PS1, "-TitleLike", title_like]
-    if cls:
-        args += ["-Class", cls]
-    if pids is not None:
-        wanted = [int(p) for p in pids]
-        if len(wanted) == 1:
-            args += ["-ProcId", str(wanted[0])]
-    _code, out = _pwsh(args, timeout=timeout)
+    _code, out = _pwsh(close_argv(title_like, cls, pids), timeout=timeout)
     return out.strip()[:400]
 
 
 #: ``  hwnd=0x… class=Button vis=True text="…" rect=…`` from ``win-click-button.ps1``.
 _BUTTON = re.compile(r'^\s*hwnd=(0x[0-9A-Fa-f]+)\s+class=(\S+)\s+vis=(\w+)\s+text="(.*)"\s+rect=')
+
+
+def buttons_argv(title_like: str,
+                 pids: Optional[Iterable[int]] = None) -> List[str]:
+    """The exact argv :func:`buttons` runs (printable without touching any window)."""
+    return _tool_argv(CLICK_PS1, ["-TitleLike", title_like, "-ListOnly"], pids)
 
 
 def buttons(title_like: str, pids: Optional[Iterable[int]] = None,
@@ -254,14 +309,10 @@ def buttons(title_like: str, pids: Optional[Iterable[int]] = None,
 
     The dialog is addressed **by title** (``win-click-button.ps1`` has no class
     filter); callers that need the identity of the window must cross-check it
-    against :func:`visible_windows` first.
+    against :func:`visible_windows` first.  ``pids`` carries the same
+    single-pid-or-refuse contract as :func:`close` (``A4-1a``).
     """
-    args = [CLICK_PS1, "-TitleLike", title_like, "-ListOnly"]
-    if pids is not None:
-        wanted = [int(p) for p in pids]
-        if len(wanted) == 1:
-            args += ["-ProcId", str(wanted[0])]
-    _code, out = _pwsh(args, timeout=timeout)
+    _code, out = _pwsh(buttons_argv(title_like, pids), timeout=timeout)
     found: List[Tuple[str, str]] = []
     for line in out.splitlines():
         match = _BUTTON.match(line)
@@ -270,22 +321,26 @@ def buttons(title_like: str, pids: Optional[Iterable[int]] = None,
     return found
 
 
+def click_button_argv(title_like: str, text: str,
+                      pids: Optional[Iterable[int]] = None) -> List[str]:
+    """The exact argv :func:`click_button` runs (printable without touching any window)."""
+    return _tool_argv(CLICK_PS1, ["-TitleLike", title_like, "-Text", text], pids)
+
+
 def click_button(title_like: str, text: str, pids: Optional[Iterable[int]] = None,
                  timeout: float = 60.0) -> str:
     """Press the ``Button`` whose text contains ``text`` via ``BM_CLICK``.
 
     A button press **answers a question on the user's behalf**; it is the caller's
     job to have narrowed that to a declared, deliberate decision (see
-    ``Runner.answer_modal``).  Returns the tool's verbatim output, which names
-    the ``hwnd`` it actually clicked -- or says that nothing matched, which the
-    caller must treat as "not pressed".
+    ``Runner.answer_modal``).  ``pids`` carries the same single-pid-or-refuse
+    contract as :func:`close`: pressing the identically-labelled button of another
+    instance is exactly the "silent wrong click" this refusal prevents (``A4-1a``).
+    Returns the tool's verbatim output, which names the ``hwnd`` it actually
+    clicked -- or says that nothing matched, which the caller must treat as
+    "not pressed".
     """
-    args = [CLICK_PS1, "-TitleLike", title_like, "-Text", text]
-    if pids is not None:
-        wanted = [int(p) for p in pids]
-        if len(wanted) == 1:
-            args += ["-ProcId", str(wanted[0])]
-    _code, out = _pwsh(args, timeout=timeout)
+    _code, out = _pwsh(click_button_argv(title_like, text, pids), timeout=timeout)
     return out.strip()[:1200]
 
 
@@ -322,7 +377,7 @@ def guard(do_action: Callable[[], object], shots_dir: str, tag: str,
         path = shot_path(shots_dir, tag, title)
         if os.path.isfile(path):
             path = path[:-4] + "-" + hwnd.lstrip("0x")[-4:] + ".png"
-        landed, note = shoot_verbose(title, path)
+        landed, note = shoot_verbose(title, path, pids=[pid])
         dialogs.append({
             "hwnd": hwnd,
             "pid": pid,
