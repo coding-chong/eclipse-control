@@ -96,14 +96,13 @@ def discover_endpoint(run_root: str, run_id: str) -> dict:
 
 
 def write_endpoint(run_root: str, run_id: str, port: int, pid: Optional[int] = None,
-                   configuration: str = "", token: str = "") -> str:
+                   configuration: str = "") -> str:
     """Record the live instance under ``<run_root>/<run_id>/endpoint.json``."""
     directory = os.path.join(run_root, run_id)
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, ENDPOINT_FILENAME)
     payload = {
         "port": int(port),
-        "token": token or "",
         "pid": int(pid) if pid is not None else None,
         "configuration": configuration or "",
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -227,7 +226,7 @@ def _parse_env(raw: str) -> dict:
 
 
 def talk(req: str, port: Optional[int] = None, timeout: float = DEFAULT_TIMEOUT,
-         host: str = HOST, token: str = "", run_root: Optional[str] = None,
+         host: str = HOST, run_root: Optional[str] = None,
          run_id: Optional[str] = None) -> str:
     """Send one request line, return the raw response text.
 
@@ -245,13 +244,6 @@ def talk(req: str, port: Optional[int] = None, timeout: float = DEFAULT_TIMEOUT,
                        % (host, actual_port, exc))
     try:
         sock.settimeout(timeout)
-        if token:
-            sock.sendall(("auth " + token).encode("utf-8") + b"\n")
-            auth = _recv_until_end(sock, timeout)
-            auth_kind, _, auth_msg = parse_status(auth.decode("utf-8", "replace").splitlines()[0]
-                                                  if auth.splitlines() else "")
-            if auth_kind != "ok":
-                raise BridgeError("badrequest", "authentication failed: %s" % auth_msg)
         sock.sendall(req.encode("utf-8") + b"\n")
         data = _recv_until_end(sock, timeout)
     finally:
@@ -311,13 +303,12 @@ class Client:
     """
 
     def __init__(self, port: Optional[int] = None, host: str = HOST,
-                 timeout: float = DEFAULT_TIMEOUT, token: str = "",
+                 timeout: float = DEFAULT_TIMEOUT,
                  run_root: Optional[str] = None, run_id: Optional[str] = None,
                  retry: float = 0.0):
         self._port = port
         self.host = host
         self.timeout = timeout
-        self.token = token
         self.run_root = run_root
         self.run_id = run_id
         #: 连接失败时的退避重连预算（秒）。0 = 立刻失败（默认，保持一次性命令的行为）。
@@ -329,10 +320,9 @@ class Client:
 
     @classmethod
     def from_run(cls, run_root: str, run_id: str, timeout: float = DEFAULT_TIMEOUT,
-                 token: str = "", retry: float = 0.0) -> "Client":
+                 retry: float = 0.0) -> "Client":
         endpoint = discover_endpoint(run_root, run_id)
         return cls(port=endpoint["port"], timeout=timeout,
-                   token=token or endpoint.get("token") or "",
                    run_root=run_root, run_id=run_id, retry=retry)
 
     def port(self) -> int:
@@ -340,7 +330,7 @@ class Client:
 
     def _raw(self, req: str, timeout: float) -> str:
         return talk(req, port=self._port, timeout=timeout,
-                    host=self.host, token=self.token,
+                    host=self.host,
                     run_root=self.run_root, run_id=self.run_id)
 
     def _pin(self) -> dict:
@@ -381,7 +371,7 @@ class Client:
 
     def resp(self, req: str, timeout: Optional[float] = None) -> Tuple[str, List[str], str]:
         return resp(req, port=self._port, timeout=timeout or self.timeout,
-                    host=self.host, token=self.token,
+                    host=self.host,
                     run_root=self.run_root, run_id=self.run_id)
 
     def request(self, req: str, timeout: Optional[float] = None) -> Response:

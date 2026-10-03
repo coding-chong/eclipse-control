@@ -30,8 +30,10 @@
 - **判定**：**有条件通过**。理由：`new ServerSocket(PORT, 50, InetAddress.getByName("127.0.0.1"))`
   把绑定地址**硬编码为回环**，不接受来自其它主机的连接；端口可配（`-Dctl.port` / `CTL_PORT` / 默认 8777）
   **不改变**绑定地址，故改端口不扩大暴露面。
-  **条件（残余风险，必须随发布说明携带）**：默认 `token` 为空 ⇒ **本机上任何进程/用户都能连**。
-  单用户开发机可接受；**多用户共享机器必须启用 `token`**（`design-project.md` §15.4 第 4 条）。
+  **条件（残余风险，必须随发布说明携带）**：桥**没有任何鉴权面** —— 本机上任何进程/用户都能连。
+  单用户开发机可接受；**多用户共享机器不得使用本工具**。
+  （原条目曾写「默认 `token` 为空 ⇒ …必须启用 `token`」：`token` / `auth <token>` 握手
+  **该项不存在，已删**（2026-10-03，见下方待复审队列与 `protocol.md` §5）——桥侧从未实现它。）
 - **复核命令**：
   ```bash
   grep -n 'InetAddress.getByName("127.0.0.1")' bridge/src/ctl/bridge/LiveBridge.java
@@ -91,7 +93,7 @@
 |---|---|---|
 | 写操作**默认 dry-run**、需显式 `--yes` | `design-project.md` §15.4 第 2 条 / §16.2 | 待 `ctl/` 落地后复审（CLI 侧，不改桥） |
 | 控制台**危险命令黑名单默认拒绝**（`init` / `close` / `shutdown` / `exit` / `threads -t` / `gc`） | `design-project.md` §15.4 第 3 条 | 待 `ctl/` 落地后复审 |
-| `token` 启用路径（启用后首行 `auth <token>`） | `design-project.md` §15.4 第 4 条 / `protocol.md` §5 | 待运行期实测 + 复审 |
+| ~~`token` 启用路径（启用后首行 `auth <token>`）~~ | ~~`design-project.md` §15.4 第 4 条 / `protocol.md` §5~~ | **该项不存在，已删**（2026-10-03）：桥侧从未实现该握手，需求条目为 AI 自造、非用户口径；配置键 `token` / 握手首行 / `endpoint.json` 字段一并移除，见 `protocol.md` §5 |
 | 桥内不做任何点击动作（模态框交由外部处置） | `design.md` §5（「桥内不自动点」） | 待桥侧用例落地后复审 |
 | `act click-button` 未声明用例时拒绝执行 | `prd.md` A12b ② | 待 `ctl/` 落地后复审 |
 

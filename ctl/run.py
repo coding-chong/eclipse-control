@@ -289,11 +289,11 @@ def _live_client(config: Config, run_id: str, port: Optional[int]) -> Optional[C
     """A client for the run **only if** the bridge answers ``sys.ping``."""
     try:
         if port is not None:
-            client = Client(port=int(port), token=config.token,
+            client = Client(port=int(port),
                             run_root=config.run_root, run_id=run_id)
         else:
             endpoint = discover_endpoint(config.run_root, run_id)
-            client = Client(port=endpoint["port"], token=config.token or endpoint.get("token") or "",
+            client = Client(port=endpoint["port"],
                             run_root=config.run_root, run_id=run_id)
     except CtlError:
         return None
@@ -380,7 +380,7 @@ def cmd_run(args) -> int:
         instance = lifecycle_install(config, name, run_id, port,
                                      bool(getattr(args, "ensure_clean", False)))
         state.run_id = instance.paths.run_id
-        client = Client.from_run(config.run_root, instance.paths.run_id, token=config.token)
+        client = Client.from_run(config.run_root, instance.paths.run_id)
         state.started = True
         print("run: started it (pid=%s, port=%s); the script runs against this instance"
               % (instance.pid, client.port()), file=sys.stderr)

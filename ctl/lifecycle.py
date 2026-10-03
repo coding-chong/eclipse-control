@@ -451,11 +451,10 @@ def parse_env(text: str) -> Dict[str, str]:
     return values
 
 
-def wait_for_bridge(port: int, timeout: float = 120.0, poll: float = 1.0,
-                    token: str = "") -> bool:
+def wait_for_bridge(port: int, timeout: float = 120.0, poll: float = 1.0) -> bool:
     """Poll ``sys.ping`` until the bridge answers (cold start <= 120 s)."""
     deadline = time.time() + timeout
-    client = Client(port=port, token=token)
+    client = Client(port=port)
     while time.time() < deadline:
         if client.ping(timeout=3.0):
             return True
@@ -602,15 +601,14 @@ def launch(target: Target, paths: RunPaths, port: int, startup_wait: float = 95.
     return console
 
 
-def wait_for_workbench(port: int, timeout: float = 180.0, poll: float = 2.0,
-                       token: str = "") -> Tuple[bool, str]:
+def wait_for_workbench(port: int, timeout: float = 180.0, poll: float = 2.0) -> Tuple[bool, str]:
     """Poll ``ui.parts`` until the SWT workbench answers.
 
     The Gogo console answers long before the UI exists, so a bridge that pings
     is not yet a bridge whose read surface works.  `ui.parts` is UI-backed and
     therefore doubles as the readiness probe (`design.md` §7, F7).
     """
-    client = Client(port=port, token=token)
+    client = Client(port=port)
     deadline = time.time() + timeout
     last = "<no attempt>"
     while time.time() < deadline:
@@ -703,18 +701,17 @@ def install(config: Config, target_name: Optional[str] = None, run_id: Optional[
             raise CtlError("internal",
                            "IDE exited during startup; %s" % console.diagnose())
         instance.bundle_id = install_bundle(console, jar)
-        if not wait_for_bridge(effective_port, timeout=ping_timeout, token=config.token):
+        if not wait_for_bridge(effective_port, timeout=ping_timeout):
             raise CtlError("timeout",
                            "bridge did not answer on port %d within %.0f s; retry: python -m ctl status --target %s"
                            % (effective_port, ping_timeout, target.name))
-        ready, detail = wait_for_workbench(effective_port, timeout=workbench_timeout,
-                                           token=config.token)
+        ready, detail = wait_for_workbench(effective_port, timeout=workbench_timeout)
         if not ready:
             raise CtlError("noWorkbench",
                            "workbench did not become ready within %.0f s (last: %s); "
                            "retry: python -m ctl doctor --target %s" % (workbench_timeout, detail, target.name))
         instance.notes.append("workbench ready: %s" % detail)
-        client = Client(port=effective_port, token=config.token)
+        client = Client(port=effective_port)
         env_response = client.env()
         if not env_response.ok:
             raise CtlError(env_response.code or "internal", env_response.message)
@@ -726,7 +723,7 @@ def install(config: Config, target_name: Optional[str] = None, run_id: Optional[
                            "protocol mismatch: bridge reports %s, client expects %s; retry: python -m ctl build --target %s"
                            % (reported_protocol, _expected_protocol(), target.name))
         write_endpoint(config.run_root, run_id, effective_port, pid=instance.pid,
-                       configuration=paths.configuration, token=config.token)
+                       configuration=paths.configuration)
         instance.post_fingerprint = dir_fingerprint(paths.configuration)
         return instance
     except Exception:

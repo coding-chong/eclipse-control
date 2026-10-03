@@ -93,7 +93,6 @@ class ShadowConfig:
     run_id: str = ""
     host: str = "127.0.0.1"
     port: Optional[int] = None
-    token: str = ""
     pid: int = 0
     probe_script: str = PROBE_PS1
     pwsh: str = "pwsh"
@@ -225,7 +224,6 @@ def for_client(client) -> ShadowConfig:
         cfg.run_root = getattr(client, "run_root", "") or ""
         cfg.run_id = getattr(client, "run_id", "") or ""
         cfg.host = getattr(client, "host", cfg.host) or cfg.host
-        cfg.token = getattr(client, "token", "") or ""
         try:
             cfg.port = int(client.port())
         except Exception:
@@ -280,7 +278,7 @@ def _bridge(cfg: ShadowConfig, request: str, timeout: float) -> str:
     """One fresh connection, no retry/pinning -- this layer must stay cheap."""
     from .client import talk
     return talk(request, port=cfg.port, timeout=timeout, host=cfg.host,
-                token=cfg.token, run_root=cfg.run_root, run_id=cfg.run_id)
+                run_root=cfg.run_root, run_id=cfg.run_id)
 
 
 def _write_table(cfg: ShadowConfig) -> Optional[frozenset]:

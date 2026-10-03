@@ -151,11 +151,10 @@ class Runner:
 
     def __init__(self, config: Config, target_name: Optional[str] = None,
                  run_id: Optional[str] = None, port: Optional[int] = None,
-                 token: str = "", screen_guard: bool = True):
+                 screen_guard: bool = True):
         self.config = config
         self.target = config.target(target_name)
         self.port = port
-        self.token = token or config.token
         self.screen_guard = screen_guard
         self.run_id = run_id or latest_run_id(config.run_root, self.target.name)
         self.paths = run_paths(config.run_root, self.run_id) if self.run_id else None
@@ -168,10 +167,9 @@ class Runner:
         if self._client is not None:
             return self._client
         if self.port is not None:
-            client = Client(port=int(self.port), token=self.token)
+            client = Client(port=int(self.port))
         elif self.run_id:
-            client = Client(run_root=self.config.run_root, run_id=self.run_id,
-                            token=self.token)
+            client = Client(run_root=self.config.run_root, run_id=self.run_id)
         else:
             raise PrereqNotReady(
                 "no run for target %s under %s; retry: python -m ctl install --target %s"

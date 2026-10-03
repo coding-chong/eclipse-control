@@ -432,7 +432,7 @@ def _client_for(config: Config, target: Target, run_id: Optional[str],
         # photograph).  Without a run id there is nowhere to write, so the client
         # stays as it was -- `Client.port()` short-circuits on the explicit port, so
         # binding these two fields cannot change which socket is used.
-        return Client(port=int(port), token=config.token,
+        return Client(port=int(port),
                       run_root=config.run_root if run_id else None,
                       run_id=run_id or None, retry=retry), (run_id or "")
     rid = run_id or latest_run_id(config.run_root, target.name)
@@ -441,7 +441,7 @@ def _client_for(config: Config, target: Target, run_id: Optional[str],
             "no run for target %s under %s; retry: python -m ctl install --target %s"
             % (target.name, config.run_root, target.name))
     endpoint = discover_endpoint(config.run_root, rid)
-    return Client(port=endpoint["port"], token=config.token,
+    return Client(port=endpoint["port"],
                   run_root=config.run_root, run_id=rid, retry=retry), rid
 
 
@@ -1241,7 +1241,7 @@ def _cmd_shell(args) -> int:
                 "%r is not a bridge method (Gogo console forwarding is not wired in this round); "
                 'retry: python -m ctl shell -c "sys.ping"' % text)
         if args.run_id and not args.port:
-            client = Client(run_root=config.run_root, run_id=args.run_id, token=config.token)
+            client = Client(run_root=config.run_root, run_id=args.run_id)
             rid = args.run_id
         else:
             client, rid = _client_for(config, target, args.run_id, args.port)
@@ -1446,7 +1446,7 @@ def _cmd_verify(args) -> int:
         raise UsageError("verify needs --case, --group or --all; retry: python -m ctl verify --case read.ping")
 
     selection_runner = Runner(config, names[0], getattr(args, "run_id", None),
-                              getattr(args, "port", None), config.token)
+                              getattr(args, "port", None))
     cases = selection_runner.select(args.case, args.group, args.all_)
     if not cases:
         raise PrereqNotReady(
@@ -1463,7 +1463,7 @@ def _cmd_verify(args) -> int:
     failed = env_not_ready = 0
     for name in names:
         runner = Runner(config, name, getattr(args, "run_id", None),
-                        getattr(args, "port", None), config.token,
+                        getattr(args, "port", None),
                         screen_guard=screen_guard)
         try:
             results = runner.run(cases)

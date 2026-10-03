@@ -101,7 +101,6 @@ echo 'print("done")' | python -m ctl run --target gs32 --run-id <id> --stop
 | `targets` | 每台 IDE 的事实：安装根 / JRE 级别 / 源级 / 启动器 / 厂商标识 / 探针视图（**准确字段名与别名见 [`DEVELOPING.md`](DEVELOPING.md) §九**） |
 | `run_root` | 运行目录根（默认 `~/.eclipse-ctl/runs`） |
 | `keep_runs` | 保留最近几次 run（超出可**回收**） |
-| `token` | 可选；启用后握手带 token |
 
 > `java_target` 决定 `-source/-target`：它必须**≤ 目标 JRE 的级别**，否则编出来的 class 在那台 JRE 上装载不了。
 

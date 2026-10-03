@@ -31,7 +31,6 @@
 - `method` 与 `arg` 以**单个空格**分隔；`arg` 内部可含空格（整行剩余部分即 `arg`）。
 - 约定：`sys.ping` / `sys.env` 无参数；`ui.tree` 取一个深度整数；`cmd.runp` 的 `arg` 形如
   `<commandId> <paramId>=<value> [<paramId>=<value> ...]`。
-- 唯一例外是鉴权首行 `auth <token>`（见 §5），它不出现在普通请求流里。
 
 ### 2.2 响应
 
@@ -245,15 +244,14 @@ END
 
 ## 5. 鉴权
 
-- 桥**只绑 `127.0.0.1`**，局域网不可达（`design-project.md` §15.4 安全基线 1）。
-- `token` **可选**：配置里 `token` 非空即启用校验。启用后，客户端在**连接后的第一行**发送：
+**本工具不提供鉴权。** 桥**只绑 `127.0.0.1`**（`design-project.md` §15.4 安全基线 1），局域网不可达；
+本机上的任何进程/用户都能连 —— 这是**残余风险**，其条件写在 `SECURITY-REVIEW.md`
+SR-2026-10-01-01 的「条件」字段里（多用户共享机器不得使用本工具）。
 
-  ```
-  auth <token>
-  ```
-
-  其它任何请求之前必须先过这一行。`token` 为空（默认）则**不校验**，直接发普通请求。
-- `token` 不通过 ⇒ `ERR badrequest <message>`，随后连接关闭；客户端不得在该连接上重试。
+> **原 `token` 可选启用 / 首行 `auth <token>` 握手：该项不存在，已删（2026-10-03）。**
+> 配置键 `token`、环境变量 `ECLIPSE_CTL_TOKEN`、握手首行、`endpoint.json` 的 `token` 字段
+> 一并移除；桥侧**从未实现**该握手，需求条目本身也不是用户口径（AI 自造，见 `prd.md` R10′.9）。
+> 客户端不发送任何鉴权行，连接后**直接发普通请求**。
 
 ---
 
@@ -269,7 +267,6 @@ END
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `port` | int | 本次运行的桥端口（连接 `127.0.0.1:<port>`） |
-| `token` | string? | 启用鉴权时的 token；**可选字段**，未启用则省略 |
 | `pid` | int | IDE 进程 pid（用于清场与截图寻窗） |
 | `configuration` | string | 本次运行使用的 Equinox 运行配置区绝对路径（桥的常驻落点） |
 | `started_at` | string | 启动时刻（ISO-8601） |
@@ -407,7 +404,7 @@ ERR <code> <message>; retry: <一条可复跑的完整命令>
 ```
 
 - `retry:` 之后的命令**必须**是能直接复制执行的完整命令（含 `python -m ctl` 与全部参数）。
-  只有**可变部分**用 `<token>` 占位（`<name>` `<run_id>` `<target>` `<detail>` `<path>`），
+  只有**可变部分**用 `<value>` 占位（`<name>` `<run_id>` `<target>` `<detail>` `<path>`），
   使用者把占位符替换成实际值后即可执行。
 - 该串**必须**能在 `TROUBLESHOOTING.md` 里 grep 命中**同一行**。
 - 出错时的诊断**只走 stderr**；stdout 在 `--json` 下必须仍是纯机读

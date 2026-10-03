@@ -41,7 +41,6 @@ _SCALAR_KEYS = (
     "run_root",
     "keep_runs",
     "copy",
-    "token",
     "allow_dangerous",
 )
 
@@ -267,7 +266,6 @@ class Config:
     run_root: str = DEFAULT_RUN_ROOT
     keep_runs: int = DEFAULT_KEEP_RUNS
     copy: bool = False
-    token: str = ""
     allow_dangerous: bool = False
     port: Optional[int] = None
     targets: Dict[str, Target] = field(default_factory=builtin_targets)
@@ -304,7 +302,6 @@ def _apply_env(config: Dict[str, Any], provenance: Dict[str, str]) -> None:
         "run_root": "RUN_ROOT",
         "keep_runs": "KEEP_RUNS",
         "copy": "COPY",
-        "token": "TOKEN",
         "allow_dangerous": "ALLOW_DANGEROUS",
         "port": "PORT",
     }
@@ -340,7 +337,6 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
         "run_root": DEFAULT_RUN_ROOT,
         "keep_runs": DEFAULT_KEEP_RUNS,
         "copy": False,
-        "token": "",
         "allow_dangerous": False,
         "port": None,
     }
@@ -360,7 +356,7 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
         if not isinstance(file_data, dict):
             raise CtlError("badrequest", "config file must contain a JSON object: %s" % path)
 
-    for key in ("default_target", "run_root", "keep_runs", "copy", "token",
+    for key in ("default_target", "run_root", "keep_runs", "copy",
                 "allow_dangerous", "port"):
         if key in file_data and file_data[key] is not None:
             effective[key] = file_data[key]
@@ -375,7 +371,7 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
     _apply_env(effective, provenance)
 
     # -- layer 1: CLI flags ------------------------------------------------ #
-    for key in ("default_target", "run_root", "keep_runs", "copy", "token",
+    for key in ("default_target", "run_root", "keep_runs", "copy",
                 "allow_dangerous", "port"):
         if key in flags:
             effective[key] = flags[key]
@@ -398,7 +394,6 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
         run_root=effective["run_root"],
         keep_runs=effective["keep_runs"],
         copy=effective["copy"],
-        token=effective["token"],
         allow_dangerous=effective["allow_dangerous"],
         port=effective["port"],
         targets=targets,
@@ -433,7 +428,6 @@ def save(config: Config, path: Optional[str] = None) -> str:
         "run_root": config.run_root,
         "keep_runs": config.keep_runs,
         "copy": config.copy,
-        "token": config.token,
         "allow_dangerous": config.allow_dangerous,
         "targets": config.user_targets,
     }

@@ -236,6 +236,20 @@
   （**不允许自动重试**）。依据：`org.eclipse.ui.window.fullscreenmode` 是开关型命令，
   连点两次**回到原状** —— 幂等性取决于**被调命令**，不是方法。
 
+### Removed
+
+- **`token` 可选启用 / 连接后首行 `auth <token>`：凭空来的特性，已删（2026-10-03）**。
+  它不是用户需求：需求条目由 AI 自写进 `prd.md`（**流程仓** `2d535e9`，2026-10-01），客户端那半
+  `auth <token>` 同期由 AI 自写（**本仓** `6fd6e3e`），**桥侧从未实现**该握手 ⇒ 现在整体移除，而不是补实现。
+  移除面：`Config.token` 与配置键 / 环境变量 `ECLIPSE_CTL_TOKEN`（`ctl/targets.py`）·
+  `Client` / `talk` / `from_run` / `Runner` / `wait_for_bridge` / `wait_for_workbench` /
+  `ShadowConfig` 的 `token` 形参 · `endpoint.json` 的 `token` 字段（`ctl/client.py`）·
+  `protocol.md` §5（改为「本工具不提供鉴权」）· `SECURITY-REVIEW.md`（原条目改为 **该项不存在，已删**）·
+  `README.md` 配置表里的 `token` 行。
+  复核：`grep -rn 'token\|auth' ctl/ bridge/src/ protocol.md SECURITY-REVIEW.md` 不再命中原功能面；
+  `python -m compileall -q ctl` rc=0；`python -m unittest discover -s tests -t .` 25 条全绿；
+  `python -m ctl --help` / `python -m ctl status --help` 正常。
+
 ## [0.1.0] - 2026-10-01
 
 首个版本。`eclipse-ctl` 立项收口：把「往 Eclipse 系 IDE 进程热注入薄桥，从外部读界面 / 发命令」
@@ -253,7 +267,7 @@
 - **写操作幂等标记**：`protocol.md` §7 方法表新增 `idempotent` 列（供 dry-run / 审批闸 / 重试策略使用）。
 - **端口可配**：`-Dctl.port` > 环境变量 `CTL_PORT` > 默认 `8777`。
 - **端口发现**：每次运行写 `<run_root>/<run_id>/endpoint.json`
-  （`port` / `token?` / `pid` / `configuration` / `started_at`）。
+  （`port` / `pid` / `configuration` / `started_at`）。
 - **边界清单**：`boundaries.md` —— 能做 / 不能做 / 未验证三节，粒度到方法级，每条带出处；
   「未验证」条目各带验证入口。
 - **故障排查表**：`TROUBLESHOOTING.md` —— 覆盖 `design-obs-ux.md` §14.5 全部症状行，
