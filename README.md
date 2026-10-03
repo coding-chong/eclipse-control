@@ -104,6 +104,41 @@ echo 'print("done")' | python -m ctl run --target gs32 --run-id <id> --stop
 
 > `java_target` 决定 `-source/-target`：它必须**≤ 目标 JRE 的级别**，否则编出来的 class 在那台 JRE 上装载不了。
 
+## target 清单（内置两个）
+
+内置矩阵是 `ctl/targets.py` 的 `_BUILTIN`（`ctl/targets.py:196-234`）。两个 target 的
+**平台版本 / JRE / 厂商标识 / 端口 / 安装根**逐项如下（**同一份脚本、同一套方法面**，差异只在值上）：
+
+| target | 平台版本 | JRE（`java_target`） | 厂商标识 | 端口 | 启动器 | 产品 id |
+|---|---|---|---|---|---|---|
+| `gs32` | Eclipse 4.30.0 | 23.0.2（17） | `com.gs` | **8777** | `GS32.exe` | `com.gs.ui.Studio` |
+| `ccs12` | Eclipse 4.23.0 | 11.0.13（11） | `com.ti` | **8778** | `ccstudio.exe` | `org.eclipse.platform.ide` |
+
+| target | 安装根 |
+|---|---|
+| `gs32` | `D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2` |
+| `ccs12` | `D:/ti/ccs1281/ccs/eclipse` |
+
+实测对拍（`python -m ctl targets list`，rc=0；逐格与上表一致）：
+
+```
+NAME     ECLIPSE    JRE    JAVA   PRODUCT                  PORT   INSTALL_DIR
+ccs12    4.23.0     11.0.13 11     org.eclipse.platform.ide 8778   D:/ti/ccs1281/ccs/eclipse
+gs32     4.30.0     23.0.2 17     com.gs.ui.Studio         8777   D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2
+```
+
+三条非直觉的差异（都有出处，逐条可 `grep`）：
+
+- **端口是每个 target 的固定值，不是「从 8777 起取首个空闲」**：`gs32` = 8777、`ccs12` = 8778
+  （`ctl/targets.py:203-204` / `ctl/targets.py:216-217`）。端口被占**即拒**，不会自动漂到别处（`protocol.md` §6）。
+- **探针视图按 vendor 命名，后缀拼接不通用**：`gs32` = `com.gs.memory.view`（`ctl/targets.py:208`），
+  `ccs12` = `com.ti.ccstudio.project.ui.views.MemoryAllocationView`（`ctl/targets.py:232`）——
+  `com.ti` 下**没有** `.memory.view`。
+- **`ccs12` 那棵树里没有 JDT 批编译器**，内置矩阵让它**借用 `gs32` 树里的那份**
+  （`ctl/targets.py:225-226`）；`--doctor` 会把「本树找不到」这一条报成 FAIL。
+
+加自定义 target 用 `python -m ctl targets add`；字段名与别名见 [`DEVELOPING.md`](DEVELOPING.md) §九。
+
 ## 目录
 
 | 路径 | 内容 |
