@@ -2,8 +2,14 @@
 
 **用途**：桥「起了但不回话」（`recv 超时`）时的标准处置流程。**不许先猜、不许问用户**——先把画面抓下来自己看。
 
-**填占位符**：`<RUN_ID>` 任取（如 `d1`）；`<RUN_ROOT>` 内置默认 `<user.home>/.eclipse-ctl/runs`。
+**填占位符**：`<RUN_ID>` 任取（如 `d1`）；`<RUN_ROOT>` 内置默认 `<user.home>/.eclipse-ctl/runs`；
+`<pid>` = 该 run 的 IDE 进程号，**从 `<RUN_ROOT>/<RUN_ID>/endpoint.json` 的 `pid` 字段取**。
 以下命令在**仓库根目录**执行（`tools/` 是相对路径）。
+
+> **窗口工具一律带 `-ProcId <pid>`**：`shot-window-pw` / `win-close` / `win-click-button` 的 `-ProcId`
+> **默认 0 = 任意进程**，标题不唯一时会拍到 / 点到**别的实例**（实测两个进程同叫 `ws - GS32_Studio`）。
+> 纪律出处：任务侧 `research/facts-runtime.md` §13「拍窗前先 `endpoint.json` 取 pid，用 `-ProcId` 指定」。
+> （处置的那个模态框与主窗**同属该 IDE 进程**，所以照旧用同一个 `-ProcId <pid>`。）
 
 ## 1. 前置：起实例
 
@@ -35,7 +41,7 @@ exit 1
 ## 3. 先截图（**这一步不能省**）
 
 ```bash
-pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<RUN_ROOT>/<RUN_ID>/shots/hung.png"
+pwsh -NoProfile -File tools/shot-window-pw.ps1 -ProcId <pid> -TitleLike "GS32_Studio" -Out "<RUN_ROOT>/<RUN_ID>/shots/hung.png"
 ```
 
 ```text
@@ -49,7 +55,7 @@ saved <RUN_ROOT>/<RUN_ID>/shots/hung.png  rect=...,... (PrintWindow, DPI-aware)
 
 ```bash
 pwsh -NoProfile -File tools/win-enum.ps1 -TitleLike ""
-pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Reset Perspective" -ListOnly
+pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <pid> -TitleLike "Reset Perspective" -ListOnly
 ```
 
 ```text
@@ -63,13 +69,13 @@ hwnd=0x1F070E class=Button text="&No"
 **默认：只关窗**（等同点右上角 X，不替用户做不可逆决定）：
 
 ```bash
-pwsh -NoProfile -File tools/win-close.ps1 -TitleLike "Reset Perspective"
+pwsh -NoProfile -File tools/win-close.ps1 -ProcId <pid> -TitleLike "Reset Perspective"
 ```
 
 **只有用例显式声明了按钮时才按下它**（点按钮 = 替用户做决定）：
 
 ```bash
-pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Reset Perspective" -Text "&No"
+pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <pid> -TitleLike "Reset Perspective" -Text "&No"
 ```
 
 > `ctl act click-button --title "Reset Perspective" --text "&No" --yes` 是同一动作的 CLI 形式

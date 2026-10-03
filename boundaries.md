@@ -370,7 +370,7 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 ## 3. 未验证
 
 > 本节每条的形态：**不是**「能做」也不是「不能做」，**禁止当结论用**。
-> **例外（转指条）**：**已实测闭合**的原条目（`U1` / `U4` / `U5` / `U6` / `U11`）在这里只留**指针**，
+> **例外（转指条）**：**已实测闭合**的原条目（`U1` / `U4` / `U5` / `U6` / `U10` / `U11`）在这里只留**指针**，
 > 内容与证据在 §1 / §2 —— 不要让一条已验证的结论继续挂在「未验证」区。
 
 ### U1（**已闭合 2026-10-01 → 见 §1 的 A10**）
@@ -387,10 +387,17 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
   （`fixture` **不是** target —— 实测 `python -m ctl verify --group input --target fixture` ⇒ `ERR notfound no such target: fixture`，rc=1；`python -m ctl targets list` 只有 `gs32` / `ccs12`。该组用例自带夹具、`requires_bridge=False`，`--target` 只用来挑**借哪套工具链**）。
 - **证据**：`prd.md` §6.5（含「不投入是用户口径的决定，不是实验结论」）；`design-project.md` §18.2 第 2 行；出处 `09-30-gs32-no-gui-audit/research/ocu-coordinate-click.md §1`。
 
-### U3 元素寻址输入原语的**泛化**
-- **未验证**：`BM_CLICK` 按控件文本点 `Button` 已实测可行，但此前**只验证过「解除模态框」这一个用例**；作为通用原语（任意控件 / 菜单 / 工具栏 / 树节点 / 按键 / 文本输入）**未验**。文本输入与按键「完全未验」（桥内 `Display.post` 与外部消息注入两条路都没试过）。
-- **验证入口**：`python -m ctl verify --group input --target gs32`（夹具断言 ③ 按键、④ 文本输入；`input` 组用例自带夹具、`requires_bridge=False`，**不需要 `install`**，但 `--target` 仍须是**真实 target**）；菜单/工具栏/树节点按 `implement.md` P6.4 各自给结论，**能走命令框架的一律优先走命令**。
-- **证据**：`prd.md` §6.7、§6.8（含 prior art：真按键合成走 `Display.post` 且**要求目标是前台窗口，否则拒绝**；文本输入更稳的是直接改编辑器 document——出处 `routes/eclipse-mcp-vogella.md:62-64`）。
+### U3 元素寻址输入原语的**泛化**（**作用域必须分开读：夹具 vs 真 IDE**）
+- **夹具侧：已实测 ✅（2026-10-01，§A6 原语表）** —— `BM_CLICK` 点 `Button`、`WM_KEYDOWN` 按键、`WM_SETTEXT` 文本输入**三条都通**；
+  `Tree` 按树内坐标可行；元素寻址**不可行**的两类（`MenuItem` 根本不是窗口、`ToolItem` 无独立 HWND）改走**命令框架**。
+  原写「作为通用原语……**未验**；文本输入与按键『完全未验』」**已作废** —— 那是**真 IDE** 侧的口径，夹具侧已实测（勿混读）。
+- **真 IDE 侧：仍缺（见 `prd.md` §6.7）** —— 工作台**主窗**全量子窗枚举实测 `Button` = 0、`Edit` = 0（§A6b-2），
+  ⇒ 点按钮 / 按键 / 文本输入在**主窗**上**没有可寻址目标**；它们对真 IDE 的真实适用面是**对话框**（`#32770`，那里有真 `Button`）。
+  真 IDE 上的端到端「动作 → 回读差」四元组**尚未记录**（夹具侧 6 条见 §A6，勿混读）。
+- **验证入口**：夹具侧 `python -m ctl verify --group input --target gs32`（断言 ③ 按键、④ 文本输入；`input` 组用例自带夹具、
+  `requires_bridge=False`，**不需要 `install`**，但 `--target` 仍须是**真实 target**）；真 IDE 侧见 `implement.md` P6.6 与 `prd.md` §6.7。
+- **证据**：§A6 原语表与 §A6b-2；`research/p6-input-fixture-2026-10-01.md` §2（六条断言首次实测）与 §7（夹具 v2 五类控件）；
+  `prd.md` §6.7、§6.8（含 prior art：真按键合成走 `Display.post` 且**要求目标是前台窗口，否则拒绝**；文本输入更稳的是直接改编辑器 document —— 出处 `routes/eclipse-mcp-vogella.md:62-64`）。
 
 ### U4（**已闭合 2026-10-01 → 见 §1 的 A10**）
 - 原条目：运行配置区隔离（`-configuration`）是否生效 —— 生效前**不得**宣称「源安装目录零触碰」。
@@ -429,10 +436,18 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 - **验证入口**：`jdb -attach <host>:<port>` 对已带 `-agentlib:jdwp=<opts>` 起的实例（调研实测该路可达 suspend / 列线程 / 求值）。
 - **证据**：`prd.md` §6.9；`design.md` §11 取舍表「JDI / JDWP | 不投入本轮（D6）」。
 
-### U10 输入是否占用 UI 线程（F11 是**归类判断**，不是实测）
-- **未验证**：桥的 `syncExec` 与「任何占用 UI 线程者」互斥——**外部输入（点击/按键）是否也算占用同一线程，未验**。从未观察到「点击导致桥停摆」。
-- **验证入口**：`implement.md` P6.6——桥**正常服务期间**用 `tools/win-click-button.ps1`（`BM_CLICK`）点主窗一个**无害按钮**，同时在**另一条连接**上量 `sys.ping` 往返与 `ui.parts` 是否被拖慢。**不得**再用「重发 `resetPerspective`」当输入场景（那是**命令**弹框，不是输入）。
-- **证据**：`prd.md` F11 与 §6.10；`design.md` §18.1（F7 的机制直接落在 Input 域上）。
+### U10（**已闭合 2026-10-04 → 见 §1 的 A6c**）
+- 原条目：桥的 `syncExec` 与「任何占用 UI 线程者」互斥——**外部输入（点击/按键）是否也算占用同一线程，未验**。
+  从未观察到「点击导致桥停摆」。
+- **已在真实例上验证闭合**（2026-10-04，run `gs32-p66b`）：合成输入与桥的 `asyncExec` **确实共用同一个 UI 线程**
+  （同步 `SendMessage` 往返 = 「UI 线程处理这一次点击」的耗时）；是否被观测到则取决于**输入造成的 UI 线程工作量**
+  （空闲单击微秒级 ⇒ 不可观测；输入积压 ⇒ `ui.*` 排队而 `sys.ping` 不受影响）。
+  内容移至 §1「A6c 输入与桥的相互影响（F11 / P6.6）」；此处只留指针，避免「未验证」区里挂着一条已验证的条目。
+- **注**：原「验证入口」已作废 —— 它要求「用 `BM_CLICK` 点主窗一个无害按钮」，而实测真 IDE 主窗里
+  **`Button` = 0、`Edit` = 0**（§A6b-2），该目标不存在；实际改用 §A6c 的**坐标消息打到显式声明的 `SWT_Window0` 子控件**。
+- **证据**：§1「A6c」的实测原文与「已执行配方」；任务侧 `research/batch2-2026-10-04.md` §3（子项 2.2）；
+  探针 `research/probes/p66-coord-target.ps1`（`-Sync` / `-Burst`）与 `p66-contention.py`；
+  `prd.md` F11 与 §6.10（同处**已同步为已实测**）。
 
 ### U11（**已闭合 2026-10-02 → 见 §1 的 A9b**）
 - 原条目：`getDefinedCommandIds()` 只含**有 `<command>` 声明**的 id，结构性漏掉「有 handler 无声明」者

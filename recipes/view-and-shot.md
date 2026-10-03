@@ -1,8 +1,13 @@
 # view-and-shot — 打开一个厂商视图，用回读差判定，并自动截图存档
 
 **填占位符**：`<RUN_ID>` 任取（如 `vs1`）；`<RUN_ROOT>` 内置默认 `<user.home>/.eclipse-ctl/runs`
-（若照 `design-obs-ux.md` §14.6 的示例配置，则为 `D:/tmp/eclipse-ctl`）。
+（若照 `design-obs-ux.md` §14.6 的示例配置，则为 `D:/tmp/eclipse-ctl`）；
+`<pid>` = 该 run 的 IDE 进程号，**从 `<RUN_ROOT>/<RUN_ID>/endpoint.json` 的 `pid` 字段取**。
 以下命令一律在**仓库根目录**执行（脚本路径 `tools/` 是相对仓库根的）。
+
+> **拍窗必带 `-ProcId <pid>`**：`shot-window-pw.ps1` 的 `-ProcId` **默认 0 = 任意进程**，
+> 标题不唯一时会拍到**别的实例**（实测两个进程同叫 `ws - GS32_Studio`）。纪律出处：
+> 任务侧 `research/facts-runtime.md` §13「拍窗前先 `endpoint.json` 取 pid，用 `-ProcId` 指定」。
 
 ## 1. 前置：环境就绪 + 起实例
 
@@ -59,7 +64,7 @@ added = ['com.gs.memory.view']
 ## 5. 自动截图存档（观测：图是辅证，回读是主判据）
 
 ```bash
-pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<RUN_ROOT>/<RUN_ID>/shots/view-and-shot.png"
+pwsh -NoProfile -File tools/shot-window-pw.ps1 -ProcId <pid> -TitleLike "GS32_Studio" -Out "<RUN_ROOT>/<RUN_ID>/shots/view-and-shot.png"
 ```
 
 ```text
