@@ -39,6 +39,7 @@ from .targets import Config, load as load_config
 RUN_RETRY = "retry: python -m ctl run --target gs32 < script.py"
 
 _CLICK_TOOL = os.path.join(REPO_ROOT, "tools", "win-click-button.ps1")
+_SEND_TOOL = os.path.join(REPO_ROOT, "tools", "win-send-input.ps1")
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +161,14 @@ def _make_namespace(client: Client, state: _DoorState) -> Dict[str, Any]:
                          title: Optional[str] = None, yes: bool = False) -> str:
         return _click_button(client, text, case, title, yes)
 
+    def act_send_keys(key: str, title: Optional[str] = None, class_: str = "Edit",
+                      index: Optional[int] = None, yes: bool = False) -> str:
+        return _send_input(client, "send-keys", title, class_, index, key, None, yes)
+
+    def act_set_text(text: str, title: Optional[str] = None, class_: str = "Edit",
+                     index: Optional[int] = None, yes: bool = False) -> str:
+        return _send_input(client, "set-text", title, class_, index, None, text, yes)
+
     def log(msg: Any) -> None:
         print(str(msg), file=sys.stderr, flush=True)
 
@@ -177,6 +186,8 @@ def _make_namespace(client: Client, state: _DoorState) -> Dict[str, Any]:
         "close_view": close_view,
         "shadow": shadow,
         "act_click_button": act_click_button,
+        "act_send_keys": act_send_keys,
+        "act_set_text": act_set_text,
         "log": log,
         "__name__": "__ctl_run__",
     }
@@ -262,6 +273,71 @@ def _click_button(client: Client, text: str, case: Optional[bool],
     code, output = _tool(base + ["-Text", text])
     if code != 0:
         raise CtlError("unhandled", "click-button failed: %s; %s" % (output.strip(), RUN_RETRY))
+    return output.rstrip()
+
+
+def _send_input(client: Client, action: str, title: Optional[str], class_: str,
+                index: Optional[int], key: Optional[str], text: Optional[str],
+                yes: bool) -> str:
+    """Send a key or set a control's text through the run's own process.
+
+    The library form of ``ctl act send-keys`` / ``ctl act set-text``: keys go out
+    as ``WM_KEYDOWN``/``WM_KEYUP`` and text as ``WM_SETTEXT`` to the addressed
+    child's own HWND (`design-project.md` §18.3).  The class must resolve to
+    exactly one visible child unless ``index`` pins one -- the same rule
+    ``act_click_button`` applies to a label, checked **before** anything is typed
+    so an ambiguous field is never silently written.
+    """
+    if not os.path.isfile(_SEND_TOOL):
+        raise PrereqNotReady("missing tool: %s; %s" % (_SEND_TOOL, RUN_RETRY))
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        raise PrereqNotReady("pwsh not found (PowerShell 5.1 is not supported); %s" % RUN_RETRY)
+    try:
+        pid = int(discover_endpoint(client.run_root, client.run_id).get("pid") or 0)
+    except (CtlError, TypeError, ValueError):
+        pid = 0
+    if not pid:
+        raise PrereqNotReady(
+            "run %s records no pid, so the IDE window cannot be addressed; %s"
+            % (client.run_id or "<none>", RUN_RETRY))
+    window = title if title else _window_title(client)
+    if action == "send-keys":
+        if not key:
+            raise UsageError("send-keys needs key=... (RETURN / TAB / F5 / A ...); %s" % RUN_RETRY)
+        request = ("send-keys title=%r pid=%d class=%s index=%s key=%s"
+                   % (window, pid, class_, index, key))
+        extra = ["-Action", "key", "-Key", key]
+    else:
+        if text is None:
+            raise UsageError("set-text needs text=...; %s" % RUN_RETRY)
+        request = ("set-text title=%r pid=%d class=%s index=%s payload=%r"
+                   % (window, pid, class_, index, text))
+        extra = ["-Action", "text", "-Payload", text]
+    idx = -1 if index is None else int(index)
+    base = [pwsh, "-NoProfile", "-NonInteractive", "-File", _SEND_TOOL,
+            "-TitleLike", window, "-ProcId", str(pid)]
+    # Enumerate first (no side effect) so ambiguity fails closed before typing.
+    code, listing = _tool(base + ["-Class", class_, "-Index", str(idx), "-ListOnly"])
+    if code != 0:
+        raise NotFoundError("no visible window matching %r in pid %d (pass title=...); %s"
+                            % (window, pid, RUN_RETRY))
+    matches = [line.strip() for line in listing.splitlines()
+               if ("class=%s " % class_) in line]
+    if not matches:
+        raise NotFoundError("no visible child of class %r in pid %d; %s"
+                            % (class_, pid, RUN_RETRY))
+    if idx < 0 and len(matches) > 1:
+        raise UsageError("ambiguous: %d visible children of class %r (addressing must be "
+                         "unique; pass index=); %s" % (len(matches), class_, RUN_RETRY))
+    if idx >= len(matches):
+        raise UsageError("index %d out of range (%d match(es)); %s"
+                         % (idx, len(matches), RUN_RETRY))
+    if not yes:
+        return "DRY-RUN %s" % request
+    code, output = _tool(base + ["-Class", class_, "-Index", str(idx)] + extra)
+    if code != 0:
+        raise CtlError("unhandled", "%s failed: %s; %s" % (action, output.strip(), RUN_RETRY))
     return output.rstrip()
 
 

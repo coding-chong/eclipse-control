@@ -59,6 +59,8 @@ python -m ctl run --target gs32 < job.py
 | `cmd(id, yes=False, **params)` | 走命令框架；**默认 dry-run**，真发要 `yes=True` |
 | `open_file(path, yes=False)` / `close_view(id, yes=False)` | 打开文件 / 关视图；同样默认 dry-run |
 | `act_click_button(text, case=None, title=None, yes=False)` | 元素寻址点按钮；默认 dry-run |
+| `act_send_keys(key, title=None, class_="Edit", index=None, yes=False)` | 元素寻址按键（`WM_KEYDOWN/UP`）；默认 dry-run |
+| `act_set_text(text, title=None, class_="Edit", index=None, yes=False)` | 元素寻址写文本（`WM_SETTEXT`）；默认 dry-run |
 | `shadow(seq=None)` | 影子留档清单（**留档，不是判据**） |
 | `log(msg)` | 往 stderr 打诊断 |
 | `client` | 底层连接对象（其余名字都闭包在它上面） |
