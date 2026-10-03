@@ -313,7 +313,8 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 
 ### U2 坐标注入 / SWT 上的合成输入 —— **未证实**
 - **未验证**：审计 3 次 `app_post` 全无变化，且审计原文明确「**不能**据此判定方法无效」；用户口径**决定不投入**（**不是**「已证伪」）。本条按缺口保留为「未验证」。
-- **验证入口**：`design-project.md` §18.4 最小 SWT 夹具的 6 条断言，其中 **②**（坐标点同一位置）与 **⑥**（坐标点空白处必须无变化）即为把本条结掉的断言；构建/运行照 `design-project.md` §18.6，用例入口 `python -m ctl verify --group input --target fixture`。
+- **验证入口**：`design-project.md` §18.4 最小 SWT 夹具的 6 条断言，其中 **②**（坐标点同一位置）与 **⑥**（坐标点空白处必须无变化）即为把本条结掉的断言；构建/运行照 `design-project.md` §18.6，用例入口 `python -m ctl verify --group input --target gs32`
+  （`fixture` **不是** target —— 实测 `python -m ctl verify --group input --target fixture` ⇒ `ERR notfound no such target: fixture`，rc=1；`python -m ctl targets list` 只有 `gs32` / `ccs12`。该组用例自带夹具、`requires_bridge=False`，`--target` 只用来挑**借哪套工具链**）。
 - **证据**：`prd.md` §6.5（含「不投入是用户口径的决定，不是实验结论」）；`design-project.md` §18.2 第 2 行；出处 `09-30-gs32-no-gui-audit/research/ocu-coordinate-click.md §1`。
 
 ### U3 元素寻址输入原语的**泛化**
@@ -342,7 +343,7 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 
 ### U7 深层控件树
 - **未验证**：CCS 12 上 `ui.tree 5` 只展开到 `Composite`，更深层读取未解决。
-- **验证入口**：`python -m ctl tree --depth <N>` 逐步加大 N，直到出现目标控件（用例须显式给 depth，`design.md` §12 风险表「深层树读不到」）。
+- **验证入口**：`python -m ctl tree <N>` 逐步加大 N，直到出现目标控件（`depth` 是**位置参数**、不是 `--depth` —— 实测 `python -m ctl tree --depth 3` ⇒ `ERR badrequest unrecognized arguments: --depth`，rc=1；`python -m ctl tree 3` 则进入连接阶段）。用例须显式给 depth（`design.md` §12 风险表「深层树读不到」）。
 - **证据**：`prd.md` §6.4；`design.md` §12 风险表同项。
 
 ### U8 e4 应用模型层寻址
