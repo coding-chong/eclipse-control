@@ -1,6 +1,11 @@
 param(
     [Parameter(Mandatory = $true)][string]$TitleLike,
     [string]$Text = '',
+    # -1 = "the target must be unambiguous": text addressing must resolve to exactly
+    # one visible Button (design-project.md section 18.3).  >= 0 pins the n-th match
+    # -- of `-Text` when given, otherwise of every visible Button -- which is the
+    # same session-scoped ordinal rule win-send-input.ps1 applies to `--class`.
+    [int]$Index = -1,
     [switch]$ListOnly,
     # 0 = match any process.  Set it whenever more than one instance of the IDE can
     # be on screen: two workbenches each showing "Reset Perspective" are otherwise
@@ -90,23 +95,30 @@ if ($d -eq [IntPtr]::Zero) { Write-Output "no visible window matching '$TitleLik
 Write-Output ("dialog hwnd=0x{0:X}" -f [int64]$d)
 Write-Output "-- child windows --"
 [Btn]::Children() | ForEach-Object { Write-Output ("  " + $_) }
-if (-not $ListOnly -and $Text -ne '') {
+if (-not $ListOnly -and ($Text -ne '' -or $Index -ge 0)) {
     Write-Output "-- click --"
-    # design-project.md section 18.3: text addressing must resolve to exactly one
+    # design-project.md section 18.3: addressing must resolve to exactly one
     # control.  Zero matches used to print a note and still `exit 0` (a silent
     # success, which is what A14 forbids); several matches used to click the first
     # one (a silent pick, which is how two same-labelled Buttons get confused).
+    # An explicit -Index is the documented escape hatch for "several matches".
     $hits = [Btn]::MatchButtons($Text)
     if ($hits.Count -eq 0) {
         Write-Output "ERR no visible Button matching '$Text'"
         exit 1
     }
-    if ($hits.Count -gt 1) {
-        Write-Output ("ERR ambiguous: {0} visible Buttons match '{1}' (text addressing must be unique)" -f $hits.Count, $Text)
+    if ($Index -ge 0) {
+        if ($Index -ge $hits.Count) {
+            Write-Output ("ERR -Index {0} out of range ({1} match(es))" -f $Index, $hits.Count)
+            exit 1
+        }
+    } elseif ($hits.Count -gt 1) {
+        Write-Output ("ERR ambiguous: {0} visible Buttons match '{1}' (text addressing must be unique; pass -Index)" -f $hits.Count, $Text)
         $hits | ForEach-Object { Write-Output ("  candidate hwnd=0x{0:X} class=Button text=""{1}""" -f ([int64]$_), [Btn]::TextOf($_)) }
         exit 1
     }
-    [Btn]::Click($hits[0])
-    Write-Output ("  BM_CLICK sent to hwnd=0x{0:X} text=""{1}""" -f ([int64]$hits[0]), [Btn]::TextOf($hits[0]))
+    $target = if ($Index -ge 0) { $hits[$Index] } else { $hits[0] }
+    [Btn]::Click($target)
+    Write-Output ("  BM_CLICK sent to hwnd=0x{0:X} text=""{1}""" -f ([int64]$target), [Btn]::TextOf($target))
 }
 exit 0

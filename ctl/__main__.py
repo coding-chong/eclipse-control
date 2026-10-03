@@ -304,8 +304,11 @@ def build_parser() -> CtlParser:
     p_act.add_argument("act_action", choices=["click-button", "send-keys", "set-text"])
     p_act.add_argument("--title", required=True)
     p_act.add_argument("--text")
-    p_act.add_argument("--index", type=int)
-    p_act.add_argument("--path")
+    p_act.add_argument("--index", type=int,
+                       help="ordinal of the match to drive (0-based); required when the "
+                            "text/class addressing resolves to more than one control "
+                            "(only stable within one session)")
+    p_act.add_argument("--path", help="not supported: see boundaries.md N11")
     p_act.add_argument("--key", help="key name for send-keys (RETURN / TAB / ESCAPE / F5 / A / 1 ...)")
     p_act.add_argument("--class", dest="class_", default="Edit",
                        help="target child window class for send-keys / set-text (default: Edit)")
@@ -1634,7 +1637,7 @@ def _tool_script(name: str) -> str:
 
 #: One re-runnable command per error (`A12`), the way `run.py` carries one.
 ACT_RETRY = ('retry: python -m ctl act click-button --run-id <run_id> '
-             '--title "<title>" --text "<button>"')
+             '--title "<title>" [--text "<button>"] [--index <n>]')
 
 
 def _act_argv(pwsh: str, script: str, flags: Sequence[str], pid: int) -> List[str]:
@@ -1690,13 +1693,33 @@ def _cmd_act(args) -> int:
     raise UsageError("unknown act action: %s; retry: python -m ctl --help" % args.act_action)
 
 
+#: One ``tools/win-click-button.ps1 -ListOnly`` child line, with the visibility and
+#: the ``text="…"`` field captured.  Three ways the raw line would lie about what
+#: the tool clicks: its own markup (``Button`` / ``rect``) counts as a hit; an
+#: invisible Button is not clickable (the tool filters on ``IsWindowVisible``); and
+#: the addressable label is the ``text="…"`` field alone.  Any of the three would
+#: desynchronise the ordinal computed here from the one the tool derives from the
+#: same window (`design-project.md` §18.3).
+_ACT_BUTTON_LINE = re.compile(r'\s*hwnd=0x[0-9A-Fa-f]+ class=Button vis=(True|False) text="(.*?)" rect=')
+
+
+def _act_button_label(line: str) -> Optional[str]:
+    """The label of a *visible* Button line, or ``None`` for anything else."""
+    match = _ACT_BUTTON_LINE.match(line)
+    if match is None or match.group(1) != "True":
+        return None
+    return match.group(2)
+
+
 def _act_click_button(args) -> int:
-    if args.index is not None or args.path:
+    if args.path:
         raise UsageError(
-            "--index/--path are not supported by tools/win-click-button.ps1 (text addressing only); "
-            'retry: python -m ctl act click-button --title "<title>" --text "<button>"')
-    if not args.text:
-        raise UsageError("click-button needs --text <button label>; retry: python -m ctl --help")
+            "--path is not supported by the `act` layer (it addresses the Win32 child windows by "
+            'text, or by ordinal with --index; see boundaries.md N11); retry: python -m ctl act click-button '
+            '--title "<title>" [--text "<button>"] [--index <n>]')
+    if not args.text and args.index is None:
+        raise UsageError('click-button needs --text <button label> or --index <n>; '
+                         'retry: python -m ctl --help')
     script = _tool_script("win-click-button.ps1")
     if not os.path.isfile(script):
         raise PrereqNotReady("missing tool: %s; retry: python -m ctl --help" % script)
@@ -1709,30 +1732,44 @@ def _act_click_button(args) -> int:
     pid = _act_pid(args)
     base = _act_argv(pwsh, script, ["-TitleLike", args.title], pid)
 
-    # First enumerate (no click) so ambiguous text addressing fails closed.
+    # First enumerate (no click) so ambiguous addressing fails closed.  Text must
+    # resolve to exactly one Button *unless* `--index` pins one -- the ordinal is
+    # taken over the same set the tool's `-Text` filter selects, in the same
+    # `EnumChildWindows` order (`design-project.md` section 18.3: the ordinal is
+    # only stable within one session, hence never an automatic pick).
     code, listing = _run(base + ["-ListOnly"])
     if code != 0:
         raise NotFoundError("no visible window matching %r in pid %d; retry: python -m ctl --help"
                             % (args.title, pid))
+    needle = (args.text or "").lower()
     matches = []
     for line in listing.splitlines():
-        if "class=Button" in line and args.text.lower() in line.lower():
+        label = _act_button_label(line)
+        if label is not None and needle in label.lower():
             matches.append(line.strip())
     if not matches:
         raise NotFoundError(
             'no Button containing %r in pid %d; retry: python -m ctl act click-button '
             '--title "%s" --text "%s"' % (args.text, pid, args.title, args.text))
-    if len(matches) > 1:
-        raise UsageError("ambiguous: %d Buttons contain %r (text addressing must be unique); "
+    if args.index is not None:
+        if args.index < 0 or args.index >= len(matches):
+            raise UsageError("--index %d out of range (%d Button(s) matched); retry: python -m ctl --help"
+                             % (args.index, len(matches)))
+    elif len(matches) > 1:
+        raise UsageError("ambiguous: %d Buttons contain %r (text addressing must be unique; pass --index); "
                          "retry: python -m ctl --help" % (len(matches), args.text))
     # `design-project.md` §16.2: dry-run covers `act *` too -- pressing a button
     # decides for the user, so it must not happen without an explicit --yes.
     if not args.yes:
-        return _dry_run(args, "click-button title=%r text=%r pid=%d" % (args.title, args.text, pid))
-    code, output = _run(base + ["-Text", args.text])
+        return _dry_run(args, "click-button title=%r text=%r index=%s pid=%d"
+                        % (args.title, args.text, -1 if args.index is None else args.index, pid))
+    extra = (["-Text", args.text] if args.text else []) + \
+            (["-Index", str(args.index)] if args.index is not None else [])
+    code, output = _run(base + extra)
     if args.json:
-        _emit_json({"title": args.title, "text": args.text, "matched": matches, "rc": code,
-                    "output": output})
+        _emit_json({"title": args.title, "text": args.text,
+                    "index": -1 if args.index is None else args.index,
+                    "matched": matches, "rc": code, "output": output})
     else:
         print(output.rstrip())
     return 0 if code == 0 else 1
@@ -1752,8 +1789,9 @@ def _act_send_input(args) -> int:
         raise PrereqNotReady("missing tool: %s; retry: python -m ctl --help" % script)
     if args.path:
         raise UsageError(
-            "--path is not supported by tools/win-send-input.ps1 (class + index addressing only); "
-            'retry: python -m ctl act %s --title "<title>" --class <class>' % action)
+            "--path is not supported by the `act` layer (class + ordinal addressing only; "
+            'see boundaries.md N11); retry: python -m ctl act %s --title "<title>" --class <class>'
+            % action)
     pwsh = shutil.which("pwsh") or shutil.which("powershell")
     if not pwsh:
         raise PrereqNotReady("pwsh not found; retry: python -m ctl --help")
