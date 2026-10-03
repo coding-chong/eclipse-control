@@ -82,11 +82,12 @@
   **寻址纪律**（`design-project.md` §18.3）：**命中 0 或 >1 一律失败**（fail closed），不允许「挑第一个」——
   否则同名 `&Save`/`&OK` 会**静默点错**。三个 `act` 动作**都不带 `--yes` 只打印 `DRY-RUN`**（§16.2 的 `act *` 口径）。
 
-  **CLI 入口**：`act click-button`（文本寻址）/ `act send-keys --key <名>` / `act set-text --text <载荷>`
+  **CLI 入口**：`act click-button`（文本寻址，或 `--index` 序位）/ `act send-keys --key <名>` / `act set-text --text <载荷>`
   （后两者按 `--class`（缺省 `Edit`）+ 可选 `--index` 寻址）。命令面定义见 `design-obs-ux.md` §14.3。
 
-  **已知差距**（如实）：`act click-button` **只支持文本寻址**，`--index`/`--path` 显式拒绝（见 N11）；
-  **路径（下标路径）**这一档仍未实现。
+  **寻址档位现状（2026-10-04）**：三个动作**都支持「文本/类名 + 序位（`--index`）」** ——
+  `--index` 是「命中 >1」时**唯一**的显式解药（不给就 fail closed）。**「路径（`--path`）」已裁决不做**（见 N11）：
+  它不是本层的寻址形态（`act` 打的是 **Win32 子窗**，不是 §18.3 引文里那个**SWT 控件树**的下标路径）。
 
   **已修（2026-10-02）**：下层 `tools/win-click-button.ps1` 曾**违反上面那条寻址纪律** ——
   「命中 0」只打印 `no visible Button matching` 而 **`exit 0`**（静默成功），
@@ -96,6 +97,11 @@
 - **证据**：原语表七行逐条实测 —— `research/p6-input-fixture-2026-10-01.md` §2（六条断言首次实测）、
   §5（下层工具三态）、§7（夹具 v2 五类控件）；下层工具 fail-closed 三态另有 `facts-runtime.md` §12
   （唯一命中 `rc=0` ／ 0 命中 `rc=1` ／ >1 命中 `rc=1` + 候选）。**在真 IDE 主窗上的适用面见 §A6b-2。**
+- **`--index` 的端到端证据（2026-10-04，`implement.md` P6.3）**：对**真模态 `#32770`**（Abort/Retry/Ignore 三个真
+  `Button`，由一次性测试进程持有）逐个跑通 —— 文本唯一 ⇒ `rc=0` 且**点到 Abort**（Harness 退出码 `3`）；
+  文本 0 命中 ⇒ `rc=1` **不点**；文本 >1 不给 `--index` ⇒ `rc=1` + 3 条候选**不点**；
+  `--text "(" --index 1` ⇒ `rc=0` 且**点到 Retry**（退出码 `4`）；`--index 2`（不给文本）⇒ 点到 **Ignore**（`5`）；
+  `--index 9` ⇒ `rc=1 out of range`。**退出码 3/4/5 分别指认了被按下的那一个按钮** ——「动作 → 回读差」闭环。
 
 ### A6b 控件类别的元素寻址结论（P6.4）
 
@@ -239,6 +245,56 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
   教训同 `measurement-hygiene.md` §13.4：**按签名字段定位，不按启发式**。
 - **证据**：`research/facts-baseline.md` §3（桥侧 `cmd.list` 原文）；`ctl/__main__.py:_fetch_command_ids`。
 
+### A10 环境隔离：**一份安装树跑多实例**，且**源树零触碰**（原 §3 的 U1 / U4，2026-10-01 实测闭合）
+- **能做**：起进程时给 `-configuration <run_root>/<run_id>/configuration`（+ `-data <run_root>/<run_id>/ws`）**生效** ——
+  Equinox 建的是**「链接配置」(linked configuration)**：运行区 `config.ini` **全文只有 3 行**，
+  `osgi.sharedConfiguration.area` **指回源树**；运行区仍被真用（`org.eclipse.osgi/.manager/` 会建出来）。
+- **能做的第二半**：同一 `source_dir` **可同起两实例** —— 顺序（8877 / 8878）各自 `sys.ping` 通；
+  **真并行**（两实例同时在驻）各自 `ui.parts` 返回 **9** 行视图，且**互相探对方端口也通**。
+- **源树零触碰**：一次完整启动（Gogo 就绪 → `install` → `start` → 探活 → 优雅停机）之后，对
+  `<source_dir>/configuration/` 递归清单（相对路径 + 大小 + `mtime_ns`）取 SHA-256，**前后完全一致**
+  （`59e7ec61733f4e1c` / **232** files；两实例各一次、**共 4 次比对全一致**）。新装 bundle 的存储落在
+  `<run>/configuration/org.eclipse.osgi/<bid>/<gen>/bundleFile`，**源树区没有对应目录**。
+- **⇒ 不回退「每实例一份副本」**（`design-project.md` §16.1 的回退分支本次**未被触发**）；
+  **⇒「同时只能用一个实例」是旧产物限制**（端口写死 / 配置区互锁 / 单线程 accept 三者都已改），**不是桥的固有性质**。
+- **⚠️ 两条会把判定带偏的坑（实测踩到）**：
+  ① `<run>/configuration/config.ini` 里**永远没有 `eclipse.product`** —— 拿「新 config.ini 有没有产品值」判隔离**必得假阴性**
+     （原 P0.4b 判据 1 就是这样，已按实测改写）；
+  ② **陈旧 jar 会把「端口没生效」伪装成「隔离失败」**：旧 `livebridge_3.0.0.jar` 类文件里只有字面量 `8777`、
+     没有 `ctl.port`，用它跑隔离实验时桥仍监听 `8777` ⇒ 判任何隔离/端口结论前**先确认 jar 与源码一致**。
+- **证据**：任务侧 `research/p04b/README.md` §1（判定原文 `C1=True  C2a=True  C2b=True  C3=True  => 生效`）
+  与**原始产物** `research/p04b/p04b-full.json` / `p04b-pair.json`；`research/facts-runtime.md` §7.1。
+- **复跑**（在两个脚本所在目录即任务 `research/` 下跑；脚本自带起停与指纹）：
+  ```bash
+  python p04b/p04b-probe.py --stage full --jar <repo>/bridge/dist/eclipse-ctl.bridge_<ver>.jar \
+    --log --report p04b/p04b-full.json
+  python p04b/p04b-pair.py  --jar <repo>/bridge/dist/eclipse-ctl.bridge_<ver>.jar \
+    --report p04b/p04b-pair.json
+  ```
+
+### A11 `cmd.list` 空前缀 = **全量导出**（原 §3 的 U5，2026-10-01/02 实测闭合）
+- **能做**：`cmd.list` 空前缀**全量**返回命令 id，并如实报 `total` / `matched(prefix=)` / `returned` / `truncated`；
+  **只在显式 `--limit <n>` 时**才截断（`ui.viewids` 同改）。旧产物的 `if (n <= 300)` 硬截断**已去掉**。
+- **两侧实测原文**：
+  ```
+  definedCommandIds total=666 matched(prefix=)=666 returned=666 truncated=false      ← GS32
+  definedCommandIds total=807 matched(prefix=)=807 returned=807 truncated=false      ← CCS 12
+  ```
+  ⇒ `returned == total` 且**远大于**旧产物的 300（GS32 666 / CCS 807）。
+- **客户端同源产物**：`ctl commands export [--full] --json` 的载荷带 `total` / `returned` / `truncated` 三字段
+  （`handler_only` 另列，见 §A9b）。
+- **⚠️ 两个解析陷阱（实测已修）**：① `total=` **不在行首**（它是 `definedCommandIds total=666 …` 的第二个 token），
+  按行首匹配则 `truncated` **恒 `False`**；② id 块必须**按两行签名行**框定（头 `ICommandService …` / 尾 `definedCommandIds …`），
+  旧的「含点」启发式会把 CCS 的 `redo` / `undo`（Eclipse 遗留短 id）**静默吞掉**（客户端 805 vs 桥 807，且**只在一侧显形**）。
+- **证据**：任务侧 `research/p0-gate.md:48`（`total=666 returned=666 truncated=False commands=666`）、
+  `research/p1-gate.md:64`、`research/realflow-scenario-2026-10-02.md:897`（CCS `807/807`）；
+  契约见 `protocol.md` §8。
+- **复跑**（需活实例；`--json` 输出可直接 `json.load`）：
+  ```bash
+  python -m ctl commands export --full --json --run-id <id> \
+    | python -c "import json,sys; d=json.load(sys.stdin); print(d['total'], d['returned'], d['truncated'])"
+  ```
+
 ---
 
 ## 2. 不能做
@@ -283,33 +339,40 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 - **不能做**：指望桥自己「先空跑一遍」。dry-run 只能落在**客户端**，且**只作用于会改 IDE 状态的方法**（`cmd.run` / `cmd.runp` / `ui.open` / `ui.close` / `act *`）；只读方法默认真发，dry-run 也不阻止建立连接。不带 `--yes` 时 CLI 的行为是**打印 `DRY-RUN <line>` 到 stdout 并以退出码 0 结束**——**桥侧零请求**。
 - **证据**：`design-project.md` §16.2（含审计修正：「否则 `ctl parts` 会变成空操作」）；`--yes` 只挂在 `cmd` / `open` / `close` / `act` 四个写子命令上。
 
-### N11 `ctl act click-button` 当前只支持**文本**寻址
-- **不能做**：用 `--index` / `--path` 寻址。这两个参数**存在但会显式拒绝**（底层 `tools/win-click-button.ps1` 只做 `--text` 文本匹配）。
-- **证据**：`design-project.md` §18.3 的「寻址稳定性契约」把**路径（下标）列为首选**、文本列次选 —— 但
-  **`act click-button` 只落到「文本」这一档**，`--index`/`--path` 参数存在却被显式拒绝（实测
-  `ctl act click-button --index 0` 报错）。**范围限定**：这是 `click-button` 一条的差距；
-  同族新增的 `act send-keys` / `act set-text` **已支持「类名 + 序位」寻址**（`--class` / `--index`）。
-  本条的**剩余**差距是「路径（下标路径）」这一档仍未实现。这条是**设计 ↔ 实现的差距**，不写成「已证伪」。
+### N11 `--path`（SWT 式「下标路径」）**已裁决不做**；`--index` **已实现**（2026-10-04）
+- **不能做**：用 `--path <下标路径>` 寻址。参数**仍在 parser 里但会显式拒绝**，报
+  `--path is not supported by the \`act\` layer …; see boundaries.md N11`（`click-button` 与 `send-keys`/`set-text` 两侧）。
+- **为什么不做（裁决，不是「没空做」）**：`design-project.md` §18.3 把「路径（下标）」列为首选，出处是调研里
+  **SWT 控件树**的下标路径（`routes/eclipse-mcp-vogella.md:58`，`0/i2` 那种，由**IDE 进程内**读 SWT 对象模型得到）。
+  而 `act` 层是**进程外**的：它通过 `EnumChildWindows` 打 **Win32 子窗**，两者**不是同一棵树** ——
+  §A6b-2 实测工作台主窗的 Win32 子窗里有 **52 个 `SWT_Window0`**（SWT 的 `Composite`/`Canvas` 共享同一窗口类），
+  即某一个 SWT 控件的「下标路径」在 Win32 侧无从计算，而 Win32 同级序位**没有任何稳定性契约**
+  （`EnumChildWindows`/`GetWindow(GW_HWNDNEXT)` 的顺序是实现细节）。要**诚实**地支持 §18.3 那个语义，
+  只能在**桥里**新增一个「SWT 控件路径 → 目标」的读方法（协议面变更）—— 那是另一件事，不在 `act` 这一档。
+  ⇒ 在 `act` 层**硬造**一个 Win32 版 `--path` 就是「名字与理由都换了的新 flag」，故**不做**。
+- **改做**：`--index`（**「文本 / 类名」命中 >1 时的显式序位**）—— 与 `send-keys` / `set-text` 的 `--class`+`--index` 同一条契约，
+  已在 `click-button` 上**实现并端到端实测**（§A6 末条：文本唯一 / 0 命中 / >1 不给 index / >1 给 index，
+  分别得到「点到 Abort(3)」「不点」「不点」「点到 Retry(4)」）。**原位序只在同一会话内稳定**，故**永不自动挑**。
+- **证据**：产品侧 `ctl/__main__.py:_act_click_button`（`--path` 拒绝 + `--index` 分支）、
+  `tools/win-click-button.ps1` 的 `-Index`、`tests/unit/test_act_addressing.py`（11 例，含「工具自身的 markup 不算命中」
+  与「不可见 `Button` 不可寻址」两条回归）；任务侧 `research/` 的 P6.3 实测记录与 `design-project.md` §18.3 的原文出处。
+- **本条的旧表述**（「`--index`/`--path` 都未实现，差别只是 index 也缺」）**已作废** —— 那时 `--index` 确实未实现。
 
 ---
 
 ## 3. 未验证
 
 > 本节每条的形态：**不是**「能做」也不是「不能做」，**禁止当结论用**。
+> **例外（转指条）**：**已实测闭合**的原条目（`U1` / `U4` / `U5` / `U6` / `U11`）在这里只留**指针**，
+> 内容与证据在 §1 / §2 —— 不要让一条已验证的结论继续挂在「未验证」区。
 
-### U1 「同时只能用一个实例」是**旧产物限制**，不是桥的固有性质
-- **未验证**：现行三册设计文档里**没有这句话的逐字出处**；可核到的只是三个可能成因——① 旧产物端口写死 `8777`；② Equinox **除工作区外还锁 configuration 区**，同一安装目录的两个实例会互相干扰；③ 旧 accept 循环单线程串行 `handle(c)`。三条成因各自的修法（端口可配 / 运行配置区隔离 / 每连接一线程）都是**设计决定**，其效果**尚未验证**。
-- **验证入口**（三项全满足才算「一份安装树能跑多实例」，判定程序见 `implement.md` P0.4b）：
-  ```bash
-  python -m ctl install --target gs32  --run-id A --port 8877
-  python -m ctl install --target ccs12 --run-id B --port 8878
-  python -m ctl shell --run-id A -c "ui.parts"
-  python -m ctl shell --run-id B -c "ui.parts"
-  ```
-  ① 启动后 `<run_root>/<run_id>/configuration/config.ini` 存在且 `eclipse.product` 为该产品值；
-  ② 控制台 `install file:<jar>` + `start` 后桥日志落在该配置区，**且跑前/跑后对 `<source_dir>/configuration/` 递归清单取哈希必须不变**；
-  ③ 同一 `source_dir` 同起第二实例（不同 `-configuration` / `-data` / `--port`），两边 `sys.ping` + `ui.parts` 都通。
-- **证据**：端口写死 → `implement.md` P0.4a（旧写法 `Integer.getInteger("livebridge.port", 8777)`）；配置区互锁 → `design-project.md` §16.1；单线程 accept → `design.md` §4 现状表（`research/facts-baseline.md` §6 机制①）。
+### U1（**已闭合 2026-10-01 → 见 §1 的 A10**）
+- 原条目：「同时只能用一个实例」是**旧产物限制**，不是桥的固有性质 —— 三个可能成因（端口写死 `8777` /
+  Equinox 配置区互锁 / 单线程 accept）已各自改掉，但效果当时未验。
+- **已闭合**：一份安装树**可同起两实例**（顺序 + **真并行**都跑过），两实例交叉探活通；
+  **不做**副本回退。详见 §1「A10 环境隔离」。
+- **证据**：§1「A10」的三项实测（`C1/C2a/C2b/C3 = True`，4 次递归清单 SHA-256 同值）；
+  本条目**不再是「未验证」结论**，只作旧编号的转指。
 
 ### U2 坐标注入 / SWT 上的合成输入 —— **未证实**
 - **未验证**：审计 3 次 `app_post` 全无变化，且审计原文明确「**不能**据此判定方法无效」；用户口径**决定不投入**（**不是**「已证伪」）。本条按缺口保留为「未验证」。
@@ -322,24 +385,27 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 - **验证入口**：`python -m ctl verify --group input --target gs32`（夹具断言 ③ 按键、④ 文本输入；`input` 组用例自带夹具、`requires_bridge=False`，**不需要 `install`**，但 `--target` 仍须是**真实 target**）；菜单/工具栏/树节点按 `implement.md` P6.4 各自给结论，**能走命令框架的一律优先走命令**。
 - **证据**：`prd.md` §6.7、§6.8（含 prior art：真按键合成走 `Display.post` 且**要求目标是前台窗口，否则拒绝**；文本输入更稳的是直接改编辑器 document——出处 `routes/eclipse-mcp-vogella.md:62-64`）。
 
-### U4 运行配置区隔离（`-configuration`）是否生效
-- **未验证**：默认方案是「传 `-configuration <run_root>/<run_id>/configuration`，一份源安装树跑多实例、不碰源树」；生效前**不得**宣称「源安装目录零触碰」。
-- **验证入口**：`implement.md` P0.4b 三项判据（同 U1 的 ①②③）；不生效则回退 `--copy`（`design-project.md` §16.1 回退列）。
-- **证据**：`design.md` §8「**待 P0.4b 实测确认**」；`research/facts-baseline.md` §1 的「候选做法，`P0.4b` 待实测」限定词（证据库 `route-comparison.md:78` 记为「未验」）。
+### U4（**已闭合 2026-10-01 → 见 §1 的 A10**）
+- 原条目：运行配置区隔离（`-configuration`）是否生效 —— 生效前**不得**宣称「源安装目录零触碰」。
+- **已闭合**：**生效**（Equinox「链接配置」）；源树 `configuration/` 递归清单 SHA-256 前后同值（232 files）；
+  桥的新装存储落在运行区、源树区无对应目录 ⇒ **不回退 `--copy`**。
+- **证据**：§1「A10」；任务侧 `research/p04b/README.md` §2（链接配置的两个连带后果）。
+  **注意**：`p2/` 的落位**有时序**（启动早期查是 `false`、停机后是 `true`）⇒ **不要拿它当实时判据**。
 
-### U5 `cmd.list` 的全量导出
-- **未验证（修正已在源码落地，运行期未验）**：修正后的契约是「空前缀 = 全量导出」且必须带 `total` / `returned` / `truncated`（见 `protocol.md` §8）。桥源码已去掉默认 300 上限、改为**只在显式 `--limit <n>` 时**截断，并如实报 `total` / `matched` / `returned` / `truncated`；`ui.viewids` 同改。**但这一行为尚无运行期实测**（本文件写作时未在真实例上跑过），旧产物的 `total=666` 只列 300 的陷阱仍须在验收时逐条比对。
-- **验证入口**：
-  ```bash
-  python -m ctl commands --json | python -c "import json,sys; d=json.load(sys.stdin); print(d['total'], d['returned'], d['truncated'])"
-  ```
-  必须 `returned == total >= 666` 且 `truncated == False`。
-- **证据**：`research/facts-baseline.md` §3 陷阱段与 §11.2 第 1 行（「现产物 `cmd.list` 空前缀也只吐前 300 条」，源码硬截断 `if (n <= 300)`）；`design.md` §6 `cmd.list` 行；`design-project.md` §16.5「命令表全量导出：`cmd.list` 空前缀 = 全量」；修正实现见桥的 `cmd.list` / `ui.viewids` 处理（默认无上限 + 三字段）。
+### U5（**已闭合 2026-10-01/02 → 见 §1 的 A11**）
+- 原条目：`cmd.list` 的全量导出（当时「修正已在源码落地，运行期未验」）。
+- **已闭合**：两侧真跑过 —— GS32 `total=666 returned=666 truncated=false`、CCS `807/807`，`returned == total`。
+- **证据**：§1「A11」；任务侧 `research/facts-baseline.md` §3（桥侧 `cmd.list` 原文）。
+  **旧验证入口已废**：`python -m ctl commands --json` 现在**不是合法命令**（`commands` 需 `export`/`find`）——
+  改成 `python -m ctl commands export --full --json --run-id <id>`（见 §A11 的复跑段）。
 
-### U6 并发行为
-- **未验证**：除「单连接串行」外的并发行为未测——多连接同时发、长请求期间的第二请求，都未验。且按 `design.md` §4，N=8 的线程池不区分 UI 与非 UI；若 8 条 UI 请求都被模态框堵住，`sys.ping` 只会拿到 `ERR busy`（审计已点出这会动摇 G3 的判据）。
-- **验证入口**：`implement.md` 门禁 G3 的**两档并发探针**（1 个 UI 卡死 / N 个 UI 卡死时 `sys.ping` 仍通），用例 `python -m ctl verify --group resilience`。
-- **证据**：`prd.md` §6.1；`research/audit-round3-2026-10-01.md`（`design.md:98 与 implement.md 门禁 G3` 条目）。
+### U6（**已闭合 2026-10-01 → 见 §2 的 N16 与 §3 的 A13**）
+- 原条目：除「单连接串行」外的并发行为未测（多连接同时发、长请求期间的第二请求）。
+- **已闭合**：P3.5 **两档并发探针 13/13** —— 档 1（一条连接卡住，另连接 `sys.ping` 0.01 s / `ui.parts` 0.02 s /
+  `ui.tree` 0.00 s 全通，同刻模态框仍在屏）；档 2（连接槽边界：`1..8` 全功能 / `9..12` 保留槽只答
+  `sys.ping`/`sys.env`/`sys.help` / `≥13` 拒）。
+- **落点**：「不能做」半在 §2 的 **N16**（连接槽是单点容量）；「模态框不传染」在 §3 的 **A13**。
+- **证据**：任务侧 `research/p3-gate.md` §1（含两种 `ERR busy` 的原文与 `rejectBusy` 的 RST 缺陷修复）。
 
 ### U7 深层控件树
 - **未验证**：CCS 12 上 `ui.tree 5` 只展开到 `Composite`，更深层读取未解决。

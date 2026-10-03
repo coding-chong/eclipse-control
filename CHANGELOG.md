@@ -32,6 +32,14 @@
   （优先级：命令行 > 环境变量 > 配置文件 > 默认）。
 - **`ui.shells` 之外，窗口选题改由类名白名单定身份**：`pid` ∧ `class ∈ {SWT_Window0, #32770}` ∧
   `vis=True` ∧ 标题非辅助窗；**没有合法候选就 `rc=1` 且不写盘**（fail closed）。
+- **`ctl act click-button --index <n>`：元素寻址的「序位」档**（2026-10-04）。文本命中 **>1** 时不再只有
+  「报错」一条路 —— 显式给 **0 基序位**即可选中其中一个（与 `send-keys` / `set-text` 的 `--class`+`--index`
+  同一条契约）；**不给 `--index` 时仍 fail closed**（0 命中与 >1 命中都 `exit 1`）。底层
+  `tools/win-click-button.ps1` 增 `-Index`（`-Text` 为空时 = 全体可见 `Button` 的序位）。真实端到端实测
+  （真模态 `#32770` 的 Abort / Retry / Ignore）：`--text "A"` → 点到 **Abort**；`--text "(" --index 1` →
+  点到 **Retry**；`--index 2` → 点到 **Ignore** —— **被点的按钮由退出码 3 / 4 / 5 指认**（「动作 → 回读差」闭环）。
+  `--path`（SWT 式下标路径）**已裁决不做**：`act` 层打的是**进程外 Win32 子窗**，算不出 SWT 控件树的路径，
+  参数保留但**显式拒绝**（理由与处置见 `boundaries.md` N11）。
 
 ### Fixed
 
@@ -70,6 +78,15 @@
   实测三态（同机）：唯一命中 `rc=0` 且标题 `ctl-fixture`→`GO 1`；
   `-Text '&NoSuchButton'` → `rc=1`；`-Text '('`（消息框 3 个 Button 全含）→ `rc=1` + 三条候选。
   CLI 层本来就是这个契约，本次是**下层工具对齐上层**，不改 CLI 行为。
+- **CLI 侧按「整行」过滤按钮**（2026-10-04，加 `--index` 时发现）：`_act_click_button` 用
+  `"class=Button" in line and text in line` 判命中，于是**工具自己的标记**（`Button` / `rect=`）也算命中 ——
+  既**凭空制造歧义**，又让 CLI 算出的序位与工具在同一窗口上算出的**不一致**（实测 `--text "o"`：CLI 数到 3、
+  工具只认 2 ⇒ 可能把 `--index` 校验放过去、到下层的 `-Index` 才炸）。改为只认 `text="…"` 字段、
+  且只认 `vis=True`（工具本来就不点不可见子窗）；回归 `tests/unit/test_act_addressing.py`（11 例，含这两条）。
+- **`TROUBLESHOOTING.md` §7 的 `--index/--path …` 行指向一条**已不存在**的报错串**，且同表另有 1 行指向
+  `no free port in [`（`pick_port` 死代码删除后该串已从代码里消失）：前者改成现在真实的
+  `--path is not supported by the `act` layer` 并补 `--index … out of range` 一行；后者**删行**。
+  同表里因本轮改动而漂移的 `ctl/__main__.py:*` 行号一并重指（**改代码就得跟着改引文**）。
 
 ### Changed
 

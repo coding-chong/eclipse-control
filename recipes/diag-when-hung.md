@@ -73,7 +73,7 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "Reset Perspective" 
 ```
 
 > `ctl act click-button --title "Reset Perspective" --text "&No" --yes` 是同一动作的 CLI 形式
-> （当前只支持 `--text` 文本寻址，`--index` / `--path` 未支持，见 `boundaries.md` N11）。
+> （寻址 = `--text` 文本（须唯一）或 `--index` 序位；`--path` 已裁决不做，见 `boundaries.md` N11）。
 > 两条路都**不用鼠标、不需前台**。
 
 ## 6. 探活 + **回读差复查**（最后一步，也是判据所在）

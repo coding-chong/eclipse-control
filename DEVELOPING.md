@@ -132,14 +132,16 @@ python -m ctl act click-button --title "Reset Perspective" --text "&No" --yes   
 
 **只用标准库（R12′.1）** —— 没有 `pytest` 依赖，仓里也没有别的测试框架。
 
-| 层 | 回答什么 | 复跑命令 | 实测（2026-10-03） |
+| 层 | 回答什么 | 复跑命令 | 实测（2026-10-04） |
 |---|---|---|---|
-| 单元 | 四层配置的**优先级**（flag > env > file > 默认） | `python -m unittest discover -s tests/unit -t . -q` | 18 tests / `rc=0` |
+| 单元 | 四层配置的**优先级**（flag > env > file > 默认）、窗口寻址的 pid 契约、`act` 寻址契约、`run` 写助手、控制台黑名单 | `python -m unittest discover -s tests/unit -t . -q` | 46 tests / `rc=0` |
 | 契约 | 冻结的 **8 个错误码**：常量 ↔ 异常映射 ↔ `protocol.md` 三者不漂移 | `python -m unittest discover -s tests/contract -t . -q` | 7 tests / `rc=0` |
 | 验收 | 真实例上的端到端行为（需要活实例） | `python -m ctl verify --case read.ping --target gs32 --run-id <id>` | 见 §一 |
 
-两层的合集：`python -m unittest discover -s tests -t . -q` → **25 tests / `rc=0`**
-（= 单元 18 + 契约 7；18 = `test_config_precedence.py` 7 + `test_command_id_framing.py` 8 + `test_console_blacklist.py` 3）。
+两层的合集：`python -m unittest discover -s tests -t . -q` → **53 tests / `rc=0`**
+（= 单元 46 + 契约 7；46 = `test_window_pid_contract.py` 13 + `test_act_addressing.py` 11 +
+`test_command_id_framing.py` 8 + `test_config_precedence.py` 7 + `test_run_write_helpers.py` 4 + `test_console_blacklist.py` 3）。
+**计数由各文件 `def test_` 直接数** —— 别照抄这里的数字，改了测试就复算一次。
 
 > 契约层**实测咬出过一个真问题**，值得记着：最初把「未知错误码要保留原文」这条断言写在 `CtlError` 上，
 > **实测失败** —— 该承诺实际是在 `ctl/client.py:parse_status` 兑现的（那才是"看见一个外来码"的地方），
