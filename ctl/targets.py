@@ -189,22 +189,6 @@ def _find_ecj(install_dir: str) -> Optional[str]:
     return hits[-1] if hits else None
 
 
-def read_product_id(install_dir: str) -> Optional[str]:
-    """Read `eclipse.product` from the installation's `configuration/config.ini`."""
-    ini = os.path.join(install_dir, "configuration", "config.ini")
-    if not os.path.isfile(ini):
-        return None
-    try:
-        with open(ini, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.strip()
-                if line.startswith("eclipse.product="):
-                    return line.split("=", 1)[1].strip()
-    except OSError:
-        return None
-    return None
-
-
 # --------------------------------------------------------------------------- #
 # Built-in matrix (measured values, facts-baseline.md §1)
 # --------------------------------------------------------------------------- #

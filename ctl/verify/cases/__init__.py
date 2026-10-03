@@ -17,9 +17,8 @@ entry point in a separate JVM with its own scratch workspace.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict
 
-from ..runner import Case
 from .errors_bad_param import CASE as ERRORS_BAD_PARAM
 from .errors_bad_runp_param import CASE as ERRORS_BAD_RUNP_PARAM
 from .errors_console_absent import CASE as ERRORS_CONSOLE_ABSENT
@@ -79,17 +78,6 @@ ALL_CASES = [
     # only one that leaves a scratch project tree behind for `post` to remove.
     REALFLOW_BUILD_ARTIFACT,
 ]
-
-
-def by_name(name: str) -> Optional[Case]:
-    for case in ALL_CASES:
-        if case.name == name:
-            return case
-    return None
-
-
-def by_group(group: str) -> List[Case]:
-    return [case for case in ALL_CASES if case.group == group]
 
 
 def registry() -> Dict[str, str]:

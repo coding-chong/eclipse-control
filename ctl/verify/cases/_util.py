@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from ..runner import Skip  # re-exported so cases only import from here
 
 __all__ = ["Skip", "search", "searchall", "kv", "verdict", "view_rows",
-           "simple_ids", "int_or_none", "parts_counts", "view_ids", "editor_rows",
+           "int_or_none", "parts_counts", "view_ids", "editor_rows",
            "visible_shells", "main_shell", "dialog_lines", "parse_appeared",
            "applied_verdict"]
 
@@ -37,14 +37,6 @@ def kv(line: str) -> Dict[str, str]:
     return out
 
 
-def kv_line(text: str, needle: str) -> Dict[str, str]:
-    """``kv()`` of the first line containing ``needle``."""
-    for line in (text or "").splitlines():
-        if needle in line:
-            return kv(line)
-    return {}
-
-
 def view_rows(text: str) -> List[Tuple[str, str]]:
     """``[(id, title_or_label), ...]`` from ``view id=... title=|label="..."`` rows."""
     return re.findall(r'^\s*view id=(\S+) (?:title|label)="([^"]*)"', text, re.M)
@@ -53,11 +45,6 @@ def view_rows(text: str) -> List[Tuple[str, str]]:
 def persp_rows(text: str) -> List[Tuple[str, str]]:
     """``[(id, label), ...]`` from ``persp id=... label="..."`` rows."""
     return re.findall(r'^\s*persp id=(\S+) label="([^"]*)"', text, re.M)
-
-
-def simple_ids(text: str) -> List[str]:
-    """Bare ``  <id>`` rows (cmd.list and ui.viewids style, no spaces)."""
-    return re.findall(r"^\s{2}(\S+)\s*$", text, re.M)
 
 
 def int_or_none(value: Optional[str]) -> Optional[int]:

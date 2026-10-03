@@ -33,10 +33,7 @@ from .errors import CtlError, DANGEROUS_COMMANDS, DANGEROUS_FLAG_TOKENS
 #: 提示符是 `g!` 而不是 Equinox 默认的 `osgi>`**；两个都得认，否则 `install` 会一直等到
 #: 超时并报 "console prompt never appeared"（旧产物踩过这个坑）。
 #: 匹配规则：行首（可有空白）处的 `g!` 或 `osgi>`。
-PROMPT = "osgi>"
 PROMPT_RE = re.compile(r"(?:^|[\r\n])[^\S\r\n]*(?:g!|osgi>)[^\S\r\n]")
-
-_CONSOLE_ARGS = ("-data", "%WS%", "-console", "-nosplash", "-nl", "en_US")
 
 
 def command_is_dangerous(line: str) -> bool:

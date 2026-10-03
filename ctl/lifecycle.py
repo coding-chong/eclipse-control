@@ -172,15 +172,6 @@ def is_port_free(port: int, host: str = "127.0.0.1") -> bool:
             return False
 
 
-def pick_port(start: int, host: str = "127.0.0.1", span: int = 50) -> int:
-    """First free port at or after ``start`` (`design-obs-ux.md` §14.3)."""
-    for port in range(int(start), int(start) + span):
-        if is_port_free(port, host):
-            return port
-    raise PrereqNotReady(
-        "no free port in [%d, %d); retry: python -m ctl doctor --target gs32" % (start, start + span))
-
-
 def _run(cmd: Sequence[str], timeout: float = 20.0) -> Tuple[int, str]:
     try:
         proc = subprocess.run(list(cmd), capture_output=True, timeout=timeout)

@@ -38,7 +38,7 @@
 - **`install` 用固定端口且不判占用 ⇒ 与活实例「共用」端口，`--stop` 再按端口误杀别人**（2026-10-03 实测踩到）：
   `effective_port = port or target.port` 直接取目标配置的固定端口，**没有任何占用判定**；而 `is_port_free()`
   只做 `bind()` 试探 —— Windows 上对端 Java `ServerSocket` 默认可 `SO_REUSEADDR`，**判不准**
-  （`pick_port()` 那条「首个空闲端口」还是**死代码**，全仓零调用点）。
+  （`pick_port()` 那条「首个空闲端口」当时就是**死代码**，全仓零调用点，**本次已删除**）。
   实测代价：`install --target ccs12 --run-id rfv3-ccs` 与另一个 run 的实例（`ccs12-p42`）同占 8778，
   客户端连到**别人的桥**；收工时 `ensure_clean()` 的规则是 `victims[pid] = "listening on port %d"`
   ⇒ **按端口收、不按 run**，把不属于本次 run 的 pid 一并停掉。
