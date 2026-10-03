@@ -434,7 +434,7 @@ def _client_for(config: Config, target: Target, run_id: Optional[str],
         # binding these two fields cannot change which socket is used.
         return Client(port=int(port), token=config.token,
                       run_root=config.run_root if run_id else None,
-                      run_id=run_id or None), (run_id or "")
+                      run_id=run_id or None, retry=retry), (run_id or "")
     rid = run_id or latest_run_id(config.run_root, target.name)
     if not rid:
         raise EndpointNotFound(
@@ -1120,7 +1120,9 @@ def _cmd_gc(args) -> int:
         _emit_json({"run_root": config.run_root, "keep": keep, "dry_run": dry_run,
                     "removed": result["removed"], "skipped_live": result["skipped_live"],
                     "failed": result["failed"]})
-        return 0
+        # Same exit-code contract as the human path: "nothing to remove" and
+        # "could not remove" must not look alike (measurement-hygiene 13.6).
+        return 1 if result["failed"] else 0
     print("run_root %s (keep %d)%s"
           % (config.run_root, keep, "  [dry-run: nothing deleted, pass --yes to delete]" if dry_run else ""))
     for name in result["removed"]:
@@ -1436,7 +1438,7 @@ def _cmd_shadow(args) -> int:
 # --------------------------------------------------------------------------- #
 
 def _cmd_verify(args) -> int:
-    from .verify.runner import Runner
+    from .verify.runner import GROUPS, Runner
 
     config = _load_config(args)
     names = _target_names(args, config)

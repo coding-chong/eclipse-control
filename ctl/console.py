@@ -48,10 +48,14 @@ def command_is_dangerous(line: str) -> bool:
     text = (line or "").strip()
     if not text:
         return False
-    head = text.split()[0]
-    if head in DANGEROUS_COMMANDS:
+    tokens = text.split()
+    if tokens[0] in DANGEROUS_COMMANDS:
         return True
-    return any(text.startswith(flag) or (" " + flag) in (" " + text) for flag in DANGEROUS_FLAG_TOKENS)
+    # Match the flag on whitespace-normalized text.  The raw form let
+    # `threads  -t` (double space) and `threads\t-t` (tab) through, because
+    # neither `startswith` nor the " " + flag substring test saw them.
+    normalized = " ".join(tokens)
+    return any((" " + flag) in (" " + normalized) for flag in DANGEROUS_FLAG_TOKENS)
 
 
 class DangerousCommandRefused(CtlError):

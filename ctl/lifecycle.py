@@ -653,9 +653,15 @@ def install(config: Config, target_name: Optional[str] = None, run_id: Optional[
         holders = list_port_listeners(effective_port)
         if holders:
             mine = set()
+            conf_norm = paths.configuration.replace("\\", "/")
+            ws_norm = paths.workspace.replace("\\", "/")
             for row in list_processes():
                 cmdline = (row["cmdline"] or "").replace("\\", "/")
-                if paths.configuration.replace("\\", "/") in cmdline:
+                # The same two run-unique markers as `_cmd_doctor`: the Eclipse
+                # launcher's child JVM may keep `-data` but not `-configuration`,
+                # so matching only one would misread this run's own bridge as
+                # foreign (fail-closed direction, but a false refusal).
+                if conf_norm in cmdline or ws_norm in cmdline:
                     mine.add(int(row["pid"]))
             foreign = [pid for pid in holders if pid not in mine]
             if foreign:
