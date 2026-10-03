@@ -2,681 +2,685 @@
 
 > **本文件由 `commands.json` 生成，不要手改。** 重新生成：
 > ```bash
-> python -m ctl commands --json --run-id <id> > commands.json
-> python -m ctl commands --run-id <id> >> COMMANDS.md   # 或照本文件头重跑生成脚本
+> python -m ctl commands export --json --full --run-id <id> > commands.json
+> python tools/make-commands-md.py
 > ```
 
-| target | run_id | total | returned | truncated |
-|---|---|---|---|---|
-| gs32 | e2c | 666 | 666 | False |
+| target | run_id | total | returned | truncated | handler_only |
+|---|---|---|---|---|---|
+| gs32 | gs32-parity | 666 | 666 | False | 1 |
 
-共 **666** 条。
+`handler_only` —— **不在** `getDefinedCommandIds()` 里（桥按 plugin.xml 尽力扫出来的，见 `boundaries.md` 的 A8 条）：
 
-## 命令 id
+- `com.gs.chipsetting.commands.opthandler`
 
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.CEditor.BreakpointRulerActions/org.eclipse.cdt.debug.ui.CEditor.RulerTobbleBreakpointAction`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.internal.ui.actions.AddEventBreakpointActionDelegate`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.internal.ui.actions.ShowFullPathsAction`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.ui.addFunctionBreakpoint`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.ui.addLineBreakpoint`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.ui.addWatchpoint`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.debugActionSet/org.eclipse.cdt.debug.ui.actions.MoveToLine`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.debugActionSet/org.eclipse.cdt.debug.ui.actions.ResumeAtLine`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.debugActionSet/org.eclipse.cdt.debug.ui.actions.ToggleInstructionStepMode`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.debugView.menu/org.eclipse.cdt.debug.internal.ui.actions.ShowFullPathsAction`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.debugview.toolbar/org.eclipse.cdt.debug.internal.ui.actions.ToggleInstructionStepModeActionDelegate`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.disassembly.toolbar/org.eclipse.pinclone.disassembly.clone`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.disassembly.toolbar/org.eclipse.pinclone.disassembly.pinDebugContext`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.expression.toolbar/org.eclipse.pinclone.expression.clone`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.expression.toolbar/org.eclipse.pinclone.expression.pinDebugContext`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.register.toolbar/org.eclipse.pinclone.register.clone`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.register.toolbar/org.eclipse.pinclone.register.pinDebugContext`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.variable.toolbar/org.eclipse.pinclone.variable.clone`
-- `AUTOGEN:::org.eclipse.cdt.debug.ui.variable.toolbar/org.eclipse.pinclone.variable.pinDebugContext`
-- `AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.breakpoints.update.Refresh/org.eclipse.cdt.dsf.debug.ui.breakpoints.viewmodel.update.actions.refresh`
-- `AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.debugview.update.Refresh/org.eclipse.cdt.dsf.debug.ui.debugview.viewmodel.update.actions.refresh`
-- `AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.expressions.update.Refresh/org.eclipse.cdt.dsf.debug.ui.expressions.viewmodel.update.actions.refresh`
-- `AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.registers.update.Refresh/org.eclipse.cdt.dsf.debug.ui.registers.viewmodel.update.actions.refresh`
-- `AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.variables.update.Refresh/org.eclipse.cdt.dsf.debug.ui.variables.viewmodel.update.actions.refresh`
-- `AUTOGEN:::org.eclipse.cdt.dsf.gdb.ui.debugsources.view.refresh/org.eclipse.cdt.dsf.gdb.ui.debugsources.view.refresh`
-- `AUTOGEN:::org.eclipse.cdt.make.ui.makeTargetActionSet/org.eclipse.cdt.make.ui.actions.buildLastTargetAction`
-- `AUTOGEN:::org.eclipse.cdt.make.ui.makeTargetActionSet/org.eclipse.cdt.make.ui.makeTargetAction`
-- `AUTOGEN:::org.eclipse.cdt.make.ui.updateActionSet/org.eclipse.cdt.make.ui.UpdateMakeAction`
-- `AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewFileDropDown`
-- `AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewFolderDropDown`
-- `AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewProjectDropDown`
-- `AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewTypeDropDown`
-- `AUTOGEN:::org.eclipse.cdt.ui.SearchActionSet/org.eclipse.cdt.ui.actions.OpenCSearchPage`
-- `AUTOGEN:::org.eclipse.cdt.ui.buildConfigActionSet/org.eclipse.cdt.ui.buildActiveConfigToolbarAction`
-- `AUTOGEN:::org.eclipse.cdt.ui.buildConfigActionSet/org.eclipse.cdt.ui.buildConfigToolbarAction`
-- `AUTOGEN:::org.eclipse.cdt.ui.editor.asm.AsmEditor.BreakpointRulerActions/org.eclipse.cdt.debug.ui.CEditor.RulerTobbleBreakpointAction`
-- `AUTOGEN:::org.eclipse.debug.ui.PulldownActions/org.eclipse.debug.ui.debugview.pulldown.ViewManagementAction`
-- `AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.clearDefaultBreakpointGroup`
-- `AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.groupByAction`
-- `AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.linkWithDebugView`
-- `AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.removeAll`
-- `AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.setDefaultBreakpointGroup`
-- `AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.sortByAction`
-- `AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.workingSets`
-- `AUTOGEN:::org.eclipse.debug.ui.debugview.toolbar/org.eclipse.debug.ui.debugview.toolbar.collapseAll`
-- `AUTOGEN:::org.eclipse.debug.ui.debugview.toolbar/org.eclipse.debug.ui.debugview.toolbar.removeAllTerminated`
-- `AUTOGEN:::org.eclipse.debug.ui.expressionsView.toolbar/org.eclipse.debug.ui.expresssionsView.toolbar.AddWatchExpression`
-- `AUTOGEN:::org.eclipse.debug.ui.expressionsView.toolbar/org.eclipse.debug.ui.expresssionsView.toolbar.removeAll`
-- `AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.DebugDropDownAction`
-- `AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.DebugHistoryMenuAction`
-- `AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.DebugWithConfigurationAction`
-- `AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.RunDropDownAction`
-- `AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.RunHistoryMenuAction`
-- `AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.RunWithConfigurationAction`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.NewMemoryViewAction`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.PinMemoryBlockAction`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.linkrenderingpanes`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.memoryViewPreferencesAction`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.switchMemoryBlock`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.tablerendering.preferencesaction`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.togglemonitors`
-- `AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.togglesplitpane`
-- `AUTOGEN:::org.eclipse.debug.ui.profileActionSet/org.eclipse.debug.internal.ui.actions.ProfileDropDownAction`
-- `AUTOGEN:::org.eclipse.debug.ui.profileActionSet/org.eclipse.debug.internal.ui.actions.ProfileHistoryMenuAction`
-- `AUTOGEN:::org.eclipse.debug.ui.profileActionSet/org.eclipse.debug.internal.ui.actions.ProfileWithConfigurationAction`
-- `AUTOGEN:::org.eclipse.egit.ui.SearchActionSet/org.eclipse.egit.ui.actions.OpenCommitSearchPage`
-- `AUTOGEN:::org.eclipse.search.searchActionSet/org.eclipse.search.OpenSearchDialogPage`
-- `AUTOGEN:::org.eclipse.team.ui.actionSet/org.eclipse.team.ui.ConfigureProject`
-- `AUTOGEN:::org.eclipse.team.ui.actionSet/org.eclipse.team.ui.synchronizeAll`
-- `AUTOGEN:::org.eclipse.ui.cheatsheets.actionSet/org.eclipse.ui.cheatsheets.actions.CheatSheetHelpMenuAction`
-- `AUTOGEN:::org.eclipse.ui.externaltools.ExternalToolsSet/org.eclipse.ui.externaltools.ExternalToolMenuDelegateMenu`
-- `AUTOGEN:::org.eclipse.ui.texteditor.ruler.actions/org.eclipse.cdt.internal.ui.text.correction.CSelectRulerAction`
-- `AUTOGEN:::org.eclipse.ui.texteditor.ruler.actions/org.eclipse.ui.texteditor.BookmarkRulerAction`
-- `AUTOGEN:::org.eclipse.ui.texteditor.ruler.actions/org.eclipse.ui.texteditor.SelectRulerAction`
-- `AnsiConsole.command.copy_with_escapes`
-- `AnsiConsole.command.copy_without_escapes`
-- `AnsiConsole.command.enable_disable`
-- `com.googlecode.cppcheclipse.commands.ClearMarkersCommand`
-- `com.googlecode.cppcheclipse.commands.RunCommand`
-- `com.gs.sdk.checkproject`
-- `com.gs.sdk.command.gsprojectcreate`
-- `com.gs.sdk.command.gsprojectimport`
-- `com.gs.sdk.editor.activate`
-- `com.gs.sdk.sendtoLive`
-- `com.gs.sdk.version`
-- `com.gs.ui.intro.openFile`
-- `org.eclipse.cdt.codan.commands.runCodanCommand`
-- `org.eclipse.cdt.debug.command.breakpointProperties`
-- `org.eclipse.cdt.debug.ui.command.StepIntoSelection`
-- `org.eclipse.cdt.debug.ui.command.addRegisterGroup`
-- `org.eclipse.cdt.debug.ui.command.castToArray`
-- `org.eclipse.cdt.debug.ui.command.castToType`
-- `org.eclipse.cdt.debug.ui.command.connect`
-- `org.eclipse.cdt.debug.ui.command.debugNewExecutable`
-- `org.eclipse.cdt.debug.ui.command.editRegisterGroup`
-- `org.eclipse.cdt.debug.ui.command.groupDebugContexts`
-- `org.eclipse.cdt.debug.ui.command.loadAllSymbols`
-- `org.eclipse.cdt.debug.ui.command.loadSymbols`
-- `org.eclipse.cdt.debug.ui.command.removeRegisterGroups`
-- `org.eclipse.cdt.debug.ui.command.restoreDefaultType`
-- `org.eclipse.cdt.debug.ui.command.restoreRegisterGroups`
-- `org.eclipse.cdt.debug.ui.command.resumeWithoutSignal`
-- `org.eclipse.cdt.debug.ui.command.reverseResume`
-- `org.eclipse.cdt.debug.ui.command.reverseStepInto`
-- `org.eclipse.cdt.debug.ui.command.reverseStepOver`
-- `org.eclipse.cdt.debug.ui.command.reverseToggle`
-- `org.eclipse.cdt.debug.ui.command.saveTraceData`
-- `org.eclipse.cdt.debug.ui.command.startTracing`
-- `org.eclipse.cdt.debug.ui.command.stopTracing`
-- `org.eclipse.cdt.debug.ui.command.uncall`
-- `org.eclipse.cdt.debug.ui.command.ungroupDebugContexts`
-- `org.eclipse.cdt.debug.ui.commands.viewMemory`
-- `org.eclipse.cdt.debug.ui.memory.memorybrowser.jumpToMemory`
-- `org.eclipse.cdt.dsf.debug.ui.disassembly.commands.gotoAddress`
-- `org.eclipse.cdt.dsf.debug.ui.disassembly.commands.gotoPC`
-- `org.eclipse.cdt.dsf.debug.ui.disassembly.commands.rulerToggleBreakpoint`
-- `org.eclipse.cdt.dsf.debug.ui.refreshAll`
-- `org.eclipse.cdt.dsf.gdb.ui.command.osview.connect`
-- `org.eclipse.cdt.dsf.gdb.ui.command.selectNextTraceRecord`
-- `org.eclipse.cdt.dsf.gdb.ui.command.selectPreviousTraceRecord`
-- `org.eclipse.cdt.dsf.ui.addLocalsExpression`
-- `org.eclipse.cdt.dsf.ui.addRegistersExpression`
-- `org.eclipse.cdt.make.ui.edit.text.makefile.opendecl`
-- `org.eclipse.cdt.make.ui.edit.text.makefile.toggle.comment`
-- `org.eclipse.cdt.make.ui.targetBuildCommand`
-- `org.eclipse.cdt.make.ui.targetBuildLastCommand`
-- `org.eclipse.cdt.make.ui.targetCreateCommand`
-- `org.eclipse.cdt.managedbuilder.ui.buildAllConfigurations`
-- `org.eclipse.cdt.managedbuilder.ui.buildFiles`
-- `org.eclipse.cdt.managedbuilder.ui.cleanAllConfigurations`
-- `org.eclipse.cdt.managedbuilder.ui.cleanFiles`
-- `org.eclipse.cdt.managedbuilder.ui.convertTarget`
-- `org.eclipse.cdt.managedbuilder.ui.rebuildConfigurations`
-- `org.eclipse.cdt.ui.deleteConfigsCommand`
-- `org.eclipse.cdt.ui.edit.open.call.hierarchy`
-- `org.eclipse.cdt.ui.edit.open.include.browser`
-- `org.eclipse.cdt.ui.edit.open.outline`
-- `org.eclipse.cdt.ui.edit.open.quick.macro.explorer`
-- `org.eclipse.cdt.ui.edit.open.quick.type.hierarchy`
-- `org.eclipse.cdt.ui.edit.open.type.hierarchy`
-- `org.eclipse.cdt.ui.edit.opencview`
-- `org.eclipse.cdt.ui.edit.opendecl`
-- `org.eclipse.cdt.ui.edit.text.c.add.block.comment`
-- `org.eclipse.cdt.ui.edit.text.c.add.include`
-- `org.eclipse.cdt.ui.edit.text.c.align.const`
-- `org.eclipse.cdt.ui.edit.text.c.comment`
-- `org.eclipse.cdt.ui.edit.text.c.copy.qualified.name`
-- `org.eclipse.cdt.ui.edit.text.c.find.word`
-- `org.eclipse.cdt.ui.edit.text.c.format`
-- `org.eclipse.cdt.ui.edit.text.c.goto.matching.bracket`
-- `org.eclipse.cdt.ui.edit.text.c.goto.next.bookmark`
-- `org.eclipse.cdt.ui.edit.text.c.goto.next.member`
-- `org.eclipse.cdt.ui.edit.text.c.goto.prev.member`
-- `org.eclipse.cdt.ui.edit.text.c.indent`
-- `org.eclipse.cdt.ui.edit.text.c.organize.includes`
-- `org.eclipse.cdt.ui.edit.text.c.remove.block.comment`
-- `org.eclipse.cdt.ui.edit.text.c.select.enclosing`
-- `org.eclipse.cdt.ui.edit.text.c.select.last`
-- `org.eclipse.cdt.ui.edit.text.c.select.next`
-- `org.eclipse.cdt.ui.edit.text.c.select.previous`
-- `org.eclipse.cdt.ui.edit.text.c.sort.lines`
-- `org.eclipse.cdt.ui.edit.text.c.source.quickMenu`
-- `org.eclipse.cdt.ui.edit.text.c.surround.with.quickMenu`
-- `org.eclipse.cdt.ui.edit.text.c.toggle.comment`
-- `org.eclipse.cdt.ui.edit.text.c.toggle.source.header`
-- `org.eclipse.cdt.ui.edit.text.c.toggleMarkOccurrences`
-- `org.eclipse.cdt.ui.edit.text.c.uncomment`
-- `org.eclipse.cdt.ui.edit.text.rename.element`
-- `org.eclipse.cdt.ui.excludeCommand`
-- `org.eclipse.cdt.ui.hover.backwardMacroExpansion`
-- `org.eclipse.cdt.ui.hover.forwardMacroExpansion`
-- `org.eclipse.cdt.ui.menu.createParserLog`
-- `org.eclipse.cdt.ui.menu.findUnresolvedIncludes`
-- `org.eclipse.cdt.ui.menu.freshenAllFiles`
-- `org.eclipse.cdt.ui.menu.manage.configs.command`
-- `org.eclipse.cdt.ui.menu.rebuildIndex`
-- `org.eclipse.cdt.ui.menu.updateUnresolvedIncludes`
-- `org.eclipse.cdt.ui.menu.updateWithModifiedFiles`
-- `org.eclipse.cdt.ui.menu.wsselection.command`
-- `org.eclipse.cdt.ui.navigate.open.element.in.call.hierarchy`
-- `org.eclipse.cdt.ui.navigate.open.type.in.hierarchy`
-- `org.eclipse.cdt.ui.navigate.opentype`
-- `org.eclipse.cdt.ui.refactor.extract.constant`
-- `org.eclipse.cdt.ui.refactor.extract.function`
-- `org.eclipse.cdt.ui.refactor.extract.local.variable`
-- `org.eclipse.cdt.ui.refactor.getters.and.setters`
-- `org.eclipse.cdt.ui.refactor.hide.method`
-- `org.eclipse.cdt.ui.refactor.implement.method`
-- `org.eclipse.cdt.ui.refactor.override.methods`
-- `org.eclipse.cdt.ui.refactor.toggle.function`
-- `org.eclipse.cdt.ui.refactoring.command.ExtractConstant`
-- `org.eclipse.cdt.ui.refactoring.command.ExtractLocalVariable`
-- `org.eclipse.cdt.ui.search.finddecl`
-- `org.eclipse.cdt.ui.search.finddecl.project`
-- `org.eclipse.cdt.ui.search.finddecl.workingset`
-- `org.eclipse.cdt.ui.search.findrefs`
-- `org.eclipse.cdt.ui.search.findrefs.project`
-- `org.eclipse.cdt.ui.search.findrefs.workingset`
-- `org.eclipse.cdt.ui.specific_content_assist.command`
-- `org.eclipse.compare.compareWithOther`
-- `org.eclipse.compare.copyAllLeftToRight`
-- `org.eclipse.compare.copyAllRightToLeft`
-- `org.eclipse.compare.copyLeftToRight`
-- `org.eclipse.compare.copyRightToLeft`
-- `org.eclipse.compare.ignoreWhiteSpace`
-- `org.eclipse.compare.selectNextChange`
-- `org.eclipse.compare.selectPreviousChange`
-- `org.eclipse.compare.switchLeftAndRight`
-- `org.eclipse.debug.ui.DebugPerspective`
-- `org.eclipse.debug.ui.actions.WatchCommand`
-- `org.eclipse.debug.ui.command.gotoaddress`
-- `org.eclipse.debug.ui.command.nextpage`
-- `org.eclipse.debug.ui.command.prevpage`
-- `org.eclipse.debug.ui.commands.DebugLast`
-- `org.eclipse.debug.ui.commands.Disconnect`
-- `org.eclipse.debug.ui.commands.DropToFrame`
-- `org.eclipse.debug.ui.commands.OpenDebugConfigurations`
-- `org.eclipse.debug.ui.commands.OpenProfileConfigurations`
-- `org.eclipse.debug.ui.commands.OpenRunConfigurations`
-- `org.eclipse.debug.ui.commands.ProfileLast`
-- `org.eclipse.debug.ui.commands.RemoveAllBreakpoints`
-- `org.eclipse.debug.ui.commands.Restart`
-- `org.eclipse.debug.ui.commands.Resume`
-- `org.eclipse.debug.ui.commands.RunLast`
-- `org.eclipse.debug.ui.commands.RunToLine`
-- `org.eclipse.debug.ui.commands.SkipAllBreakpoints`
-- `org.eclipse.debug.ui.commands.StepInto`
-- `org.eclipse.debug.ui.commands.StepOver`
-- `org.eclipse.debug.ui.commands.StepReturn`
-- `org.eclipse.debug.ui.commands.Suspend`
-- `org.eclipse.debug.ui.commands.Terminate`
-- `org.eclipse.debug.ui.commands.TerminateAll`
-- `org.eclipse.debug.ui.commands.TerminateAndRelaunch`
-- `org.eclipse.debug.ui.commands.ToggleBreakpoint`
-- `org.eclipse.debug.ui.commands.ToggleLineBreakpoint`
-- `org.eclipse.debug.ui.commands.ToggleMethodBreakpoint`
-- `org.eclipse.debug.ui.commands.ToggleStepFilters`
-- `org.eclipse.debug.ui.commands.ToggleWatchpoint`
-- `org.eclipse.debug.ui.commands.addMemoryMonitor`
-- `org.eclipse.debug.ui.commands.closeRendering`
-- `org.eclipse.debug.ui.commands.console.clear`
-- `org.eclipse.debug.ui.commands.eof`
-- `org.eclipse.debug.ui.commands.newRendering`
-- `org.eclipse.debug.ui.commands.nextMemoryBlock`
-- `org.eclipse.debug.ui.commands.toggleMemoryMonitorsPane`
-- `org.eclipse.e4.ui.importer.configureProject`
-- `org.eclipse.e4.ui.importer.openDirectory`
-- `org.eclipse.egit.gitflow.ui.command.compareWithDevelop`
-- `org.eclipse.egit.gitflow.ui.command.developCheckout`
-- `org.eclipse.egit.gitflow.ui.command.featureCheckout`
-- `org.eclipse.egit.gitflow.ui.command.featureFinish`
-- `org.eclipse.egit.gitflow.ui.command.featurePublish`
-- `org.eclipse.egit.gitflow.ui.command.featureRebase`
-- `org.eclipse.egit.gitflow.ui.command.featureStart`
-- `org.eclipse.egit.gitflow.ui.command.featureTrack`
-- `org.eclipse.egit.gitflow.ui.command.hotfixFinish`
-- `org.eclipse.egit.gitflow.ui.command.hotfixPublish`
-- `org.eclipse.egit.gitflow.ui.command.hotfixStart`
-- `org.eclipse.egit.gitflow.ui.command.init`
-- `org.eclipse.egit.gitflow.ui.command.releaseFinish`
-- `org.eclipse.egit.gitflow.ui.command.releasePublish`
-- `org.eclipse.egit.gitflow.ui.command.releaseStart`
-- `org.eclipse.egit.gitflow.ui.command.replaceWithDevelop`
-- `org.eclipse.egit.ui.AbortRebase`
-- `org.eclipse.egit.ui.CheckoutCommand`
-- `org.eclipse.egit.ui.CompareWithEachOther`
-- `org.eclipse.egit.ui.ContinueRebase`
-- `org.eclipse.egit.ui.FetchGerritChange`
-- `org.eclipse.egit.ui.FetchGitHubPR`
-- `org.eclipse.egit.ui.FetchGitLabMergeRequest`
-- `org.eclipse.egit.ui.FetchGiteaPullRequest`
-- `org.eclipse.egit.ui.ImportChangedProjectsCommandId`
-- `org.eclipse.egit.ui.PushHeadToGerrit`
-- `org.eclipse.egit.ui.RebaseCurrent`
-- `org.eclipse.egit.ui.RebaseInteractiveCurrent`
-- `org.eclipse.egit.ui.RepositoriesCreateGroup`
-- `org.eclipse.egit.ui.RepositoriesLinkWithSelection`
-- `org.eclipse.egit.ui.RepositoriesToggleBranchCommit`
-- `org.eclipse.egit.ui.RepositoriesToggleBranchHierarchy`
-- `org.eclipse.egit.ui.RepositoriesViewAddRepository`
-- `org.eclipse.egit.ui.RepositoriesViewChangeCredentials`
-- `org.eclipse.egit.ui.RepositoriesViewClearCredentials`
-- `org.eclipse.egit.ui.RepositoriesViewClone`
-- `org.eclipse.egit.ui.RepositoriesViewCollapseWorkingTree`
-- `org.eclipse.egit.ui.RepositoriesViewConfigureBranch`
-- `org.eclipse.egit.ui.RepositoriesViewConfigureFetch`
-- `org.eclipse.egit.ui.RepositoriesViewConfigureGerritRemote`
-- `org.eclipse.egit.ui.RepositoriesViewConfigurePush`
-- `org.eclipse.egit.ui.RepositoriesViewCopyPath`
-- `org.eclipse.egit.ui.RepositoriesViewCreateBranch`
-- `org.eclipse.egit.ui.RepositoriesViewCreateRepository`
-- `org.eclipse.egit.ui.RepositoriesViewDelete`
-- `org.eclipse.egit.ui.RepositoriesViewImportProjects`
-- `org.eclipse.egit.ui.RepositoriesViewNewRemote`
-- `org.eclipse.egit.ui.RepositoriesViewOpen`
-- `org.eclipse.egit.ui.RepositoriesViewOpenInEditor`
-- `org.eclipse.egit.ui.RepositoriesViewRemove`
-- `org.eclipse.egit.ui.RepositoriesViewRemoveRemote`
-- `org.eclipse.egit.ui.RepositoriesViewShowInSystemExplorer`
-- `org.eclipse.egit.ui.SkipRebase`
-- `org.eclipse.egit.ui.command.configureTrace`
-- `org.eclipse.egit.ui.command.shareProject`
-- `org.eclipse.egit.ui.commit.DiffEditorQuickOutlineCommand`
-- `org.eclipse.egit.ui.commit.Edit`
-- `org.eclipse.egit.ui.commit.Reword`
-- `org.eclipse.egit.ui.commit.Squash`
-- `org.eclipse.egit.ui.commit.UnifiedDiffCommand`
-- `org.eclipse.egit.ui.history.CompareVersions`
-- `org.eclipse.egit.ui.history.CompareVersionsInTree`
-- `org.eclipse.egit.ui.history.CompareWithWorkingTree`
-- `org.eclipse.egit.ui.history.CreatePatch`
-- `org.eclipse.egit.ui.history.DeleteBranch`
-- `org.eclipse.egit.ui.history.DeleteTag`
-- `org.eclipse.egit.ui.history.Edit`
-- `org.eclipse.egit.ui.history.Merge`
-- `org.eclipse.egit.ui.history.OpenInCommitViewerCommand`
-- `org.eclipse.egit.ui.history.OpenInTextEditorCommand`
-- `org.eclipse.egit.ui.history.PushCommit`
-- `org.eclipse.egit.ui.history.Reset`
-- `org.eclipse.egit.ui.history.ResetQuickdiffBaseline`
-- `org.eclipse.egit.ui.history.Reword`
-- `org.eclipse.egit.ui.history.SetQuickdiffBaseline`
-- `org.eclipse.egit.ui.history.ShowBlame`
-- `org.eclipse.egit.ui.history.ShowVersions`
-- `org.eclipse.egit.ui.history.Squash`
-- `org.eclipse.egit.ui.internal.merge.ToggleCurrentChangesCommand`
-- `org.eclipse.egit.ui.internal.reflog.CopyCommand`
-- `org.eclipse.egit.ui.team.AddToIndex`
-- `org.eclipse.egit.ui.team.ApplyPatch`
-- `org.eclipse.egit.ui.team.AssumeUnchanged`
-- `org.eclipse.egit.ui.team.Branch`
-- `org.eclipse.egit.ui.team.CherryPick`
-- `org.eclipse.egit.ui.team.Commit`
-- `org.eclipse.egit.ui.team.CompareIndexWithHead`
-- `org.eclipse.egit.ui.team.CompareWithCommit`
-- `org.eclipse.egit.ui.team.CompareWithHead`
-- `org.eclipse.egit.ui.team.CompareWithIndex`
-- `org.eclipse.egit.ui.team.CompareWithPrevious`
-- `org.eclipse.egit.ui.team.CompareWithRef`
-- `org.eclipse.egit.ui.team.ConfigureFetch`
-- `org.eclipse.egit.ui.team.ConfigurePush`
-- `org.eclipse.egit.ui.team.CreatePatch`
-- `org.eclipse.egit.ui.team.DeleteBranch`
-- `org.eclipse.egit.ui.team.Discard`
-- `org.eclipse.egit.ui.team.Disconnect`
-- `org.eclipse.egit.ui.team.Fetch`
-- `org.eclipse.egit.ui.team.GarbageCollect`
-- `org.eclipse.egit.ui.team.Ignore`
-- `org.eclipse.egit.ui.team.InstallLfsLocal`
-- `org.eclipse.egit.ui.team.Merge`
-- `org.eclipse.egit.ui.team.MergeTool`
-- `org.eclipse.egit.ui.team.NoAssumeUnchanged`
-- `org.eclipse.egit.ui.team.OpenCommit`
-- `org.eclipse.egit.ui.team.Pull`
-- `org.eclipse.egit.ui.team.PullWithOptions`
-- `org.eclipse.egit.ui.team.Push`
-- `org.eclipse.egit.ui.team.PushBranch`
-- `org.eclipse.egit.ui.team.PushTags`
-- `org.eclipse.egit.ui.team.Rebase`
-- `org.eclipse.egit.ui.team.RemoveFromIndex`
-- `org.eclipse.egit.ui.team.RenameBranch`
-- `org.eclipse.egit.ui.team.ReplaceWithCommit`
-- `org.eclipse.egit.ui.team.ReplaceWithHead`
-- `org.eclipse.egit.ui.team.ReplaceWithOurs`
-- `org.eclipse.egit.ui.team.ReplaceWithPrevious`
-- `org.eclipse.egit.ui.team.ReplaceWithRef`
-- `org.eclipse.egit.ui.team.ReplaceWithTheirs`
-- `org.eclipse.egit.ui.team.Reset`
-- `org.eclipse.egit.ui.team.Revert`
-- `org.eclipse.egit.ui.team.ShowBlame`
-- `org.eclipse.egit.ui.team.ShowHistory`
-- `org.eclipse.egit.ui.team.ShowRepositoriesView`
-- `org.eclipse.egit.ui.team.SimpleFetch`
-- `org.eclipse.egit.ui.team.SimplePush`
-- `org.eclipse.egit.ui.team.Synchronize`
-- `org.eclipse.egit.ui.team.Tag`
-- `org.eclipse.egit.ui.team.Untrack`
-- `org.eclipse.egit.ui.team.clean`
-- `org.eclipse.egit.ui.team.stash.apply`
-- `org.eclipse.egit.ui.team.stash.create`
-- `org.eclipse.egit.ui.team.stash.drop`
-- `org.eclipse.egit.ui.team.submodule.add`
-- `org.eclipse.egit.ui.team.submodule.sync`
-- `org.eclipse.egit.ui.team.submodule.update`
-- `org.eclipse.embedcdt.debug.gdbjtag.restart.ui.commands.Restart`
-- `org.eclipse.equinox.p2.ui.sdk.install`
-- `org.eclipse.equinox.p2.ui.sdk.installationDetails`
-- `org.eclipse.equinox.p2.ui.sdk.update`
-- `org.eclipse.help.ui.closeTray`
-- `org.eclipse.help.ui.ignoreMissingPlaceholders`
-- `org.eclipse.help.ui.indexcommand`
-- `org.eclipse.jdt.ui.edit.text.java.correction.assist.proposals`
-- `org.eclipse.launchbar.ui.command.buildActive`
-- `org.eclipse.launchbar.ui.command.configureActiveLaunch`
-- `org.eclipse.launchbar.ui.command.launchActive`
-- `org.eclipse.launchbar.ui.command.openLaunchSelector`
-- `org.eclipse.launchbar.ui.command.stop`
-- `org.eclipse.ltk.ui.refactoring.commands.deleteResources`
-- `org.eclipse.ltk.ui.refactoring.commands.moveResources`
-- `org.eclipse.ltk.ui.refactoring.commands.renameResource`
-- `org.eclipse.quickdiff.toggle`
-- `org.eclipse.remote.ui.command.closeConnection`
-- `org.eclipse.remote.ui.command.deleteConnection`
-- `org.eclipse.remote.ui.command.newConnection`
-- `org.eclipse.remote.ui.command.openConnection`
-- `org.eclipse.search.ui.openFileSearchPage`
-- `org.eclipse.search.ui.openSearchDialog`
-- `org.eclipse.search.ui.performTextSearchFile`
-- `org.eclipse.search.ui.performTextSearchProject`
-- `org.eclipse.search.ui.performTextSearchWorkingSet`
-- `org.eclipse.search.ui.performTextSearchWorkspace`
-- `org.eclipse.team.ui.TeamSynchronizingPerspective`
-- `org.eclipse.team.ui.applyPatch`
-- `org.eclipse.team.ui.synchronizeAll`
-- `org.eclipse.team.ui.synchronizeLast`
-- `org.eclipse.text.quicksearch.commands.quicksearchCommand`
-- `org.eclipse.tm.terminal.command1`
-- `org.eclipse.tm.terminal.connector.local.command.launch`
-- `org.eclipse.tm.terminal.copy`
-- `org.eclipse.tm.terminal.maximize`
-- `org.eclipse.tm.terminal.paste`
-- `org.eclipse.tm.terminal.quickaccess`
-- `org.eclipse.tm.terminal.view.ui.command.disconnect`
-- `org.eclipse.tm.terminal.view.ui.command.launch`
-- `org.eclipse.tm.terminal.view.ui.command.launchToolbar`
-- `org.eclipse.tm.terminal.view.ui.command.newview`
-- `org.eclipse.ui.ToggleCoolbarAction`
-- `org.eclipse.ui.activeContextInfo`
-- `org.eclipse.ui.browser.openBrowser`
-- `org.eclipse.ui.browser.openBundleResource`
-- `org.eclipse.ui.cheatsheets.openCheatSheet`
-- `org.eclipse.ui.cheatsheets.openCheatSheetURL`
-- `org.eclipse.ui.dialogs.openInputDialog`
-- `org.eclipse.ui.dialogs.openMessageDialog`
-- `org.eclipse.ui.edit.addBookmark`
-- `org.eclipse.ui.edit.addTask`
-- `org.eclipse.ui.edit.copy`
-- `org.eclipse.ui.edit.cut`
-- `org.eclipse.ui.edit.delete`
-- `org.eclipse.ui.edit.findIncremental`
-- `org.eclipse.ui.edit.findIncrementalReverse`
-- `org.eclipse.ui.edit.findNext`
-- `org.eclipse.ui.edit.findPrevious`
-- `org.eclipse.ui.edit.findReplace`
-- `org.eclipse.ui.edit.move`
-- `org.eclipse.ui.edit.paste`
-- `org.eclipse.ui.edit.redo`
-- `org.eclipse.ui.edit.rename`
-- `org.eclipse.ui.edit.revertToSaved`
-- `org.eclipse.ui.edit.selectAll`
-- `org.eclipse.ui.edit.text.clear.mark`
-- `org.eclipse.ui.edit.text.contentAssist.contextInformation`
-- `org.eclipse.ui.edit.text.contentAssist.proposals`
-- `org.eclipse.ui.edit.text.copyLineDown`
-- `org.eclipse.ui.edit.text.copyLineUp`
-- `org.eclipse.ui.edit.text.cut.line`
-- `org.eclipse.ui.edit.text.cut.line.to.beginning`
-- `org.eclipse.ui.edit.text.cut.line.to.end`
-- `org.eclipse.ui.edit.text.delete.line`
-- `org.eclipse.ui.edit.text.delete.line.to.beginning`
-- `org.eclipse.ui.edit.text.delete.line.to.end`
-- `org.eclipse.ui.edit.text.deleteNext`
-- `org.eclipse.ui.edit.text.deleteNextWord`
-- `org.eclipse.ui.edit.text.deletePrevious`
-- `org.eclipse.ui.edit.text.deletePreviousWord`
-- `org.eclipse.ui.edit.text.delimiter.unix`
-- `org.eclipse.ui.edit.text.delimiter.windows`
-- `org.eclipse.ui.edit.text.folding.collapse`
-- `org.eclipse.ui.edit.text.folding.collapse_all`
-- `org.eclipse.ui.edit.text.folding.expand`
-- `org.eclipse.ui.edit.text.folding.expand_all`
-- `org.eclipse.ui.edit.text.folding.restore`
-- `org.eclipse.ui.edit.text.folding.toggle`
-- `org.eclipse.ui.edit.text.goto.columnNext`
-- `org.eclipse.ui.edit.text.goto.columnPrevious`
-- `org.eclipse.ui.edit.text.goto.line`
-- `org.eclipse.ui.edit.text.goto.lineDown`
-- `org.eclipse.ui.edit.text.goto.lineEnd`
-- `org.eclipse.ui.edit.text.goto.lineStart`
-- `org.eclipse.ui.edit.text.goto.lineUp`
-- `org.eclipse.ui.edit.text.goto.pageDown`
-- `org.eclipse.ui.edit.text.goto.pageUp`
-- `org.eclipse.ui.edit.text.goto.textEnd`
-- `org.eclipse.ui.edit.text.goto.textStart`
-- `org.eclipse.ui.edit.text.goto.windowEnd`
-- `org.eclipse.ui.edit.text.goto.windowStart`
-- `org.eclipse.ui.edit.text.goto.wordNext`
-- `org.eclipse.ui.edit.text.goto.wordPrevious`
-- `org.eclipse.ui.edit.text.gotoLastEditPosition`
-- `org.eclipse.ui.edit.text.gotoNextEditPosition`
-- `org.eclipse.ui.edit.text.hippieCompletion`
-- `org.eclipse.ui.edit.text.join.lines`
-- `org.eclipse.ui.edit.text.lowerCase`
-- `org.eclipse.ui.edit.text.moveLineDown`
-- `org.eclipse.ui.edit.text.moveLineUp`
-- `org.eclipse.ui.edit.text.open.hyperlink`
-- `org.eclipse.ui.edit.text.openLocalFile`
-- `org.eclipse.ui.edit.text.recenter`
-- `org.eclipse.ui.edit.text.removeTrailingWhitespace`
-- `org.eclipse.ui.edit.text.scroll.lineDown`
-- `org.eclipse.ui.edit.text.scroll.lineUp`
-- `org.eclipse.ui.edit.text.select.addAllMatchesToMultiSelection`
-- `org.eclipse.ui.edit.text.select.columnNext`
-- `org.eclipse.ui.edit.text.select.columnPrevious`
-- `org.eclipse.ui.edit.text.select.lineDown`
-- `org.eclipse.ui.edit.text.select.lineEnd`
-- `org.eclipse.ui.edit.text.select.lineStart`
-- `org.eclipse.ui.edit.text.select.lineUp`
-- `org.eclipse.ui.edit.text.select.multiCaretDown`
-- `org.eclipse.ui.edit.text.select.multiCaretUp`
-- `org.eclipse.ui.edit.text.select.pageDown`
-- `org.eclipse.ui.edit.text.select.pageUp`
-- `org.eclipse.ui.edit.text.select.selectMultiSelectionDown`
-- `org.eclipse.ui.edit.text.select.selectMultiSelectionUp`
-- `org.eclipse.ui.edit.text.select.stopMultiSelection`
-- `org.eclipse.ui.edit.text.select.textEnd`
-- `org.eclipse.ui.edit.text.select.textStart`
-- `org.eclipse.ui.edit.text.select.windowEnd`
-- `org.eclipse.ui.edit.text.select.windowStart`
-- `org.eclipse.ui.edit.text.select.wordNext`
-- `org.eclipse.ui.edit.text.select.wordPrevious`
-- `org.eclipse.ui.edit.text.set.mark`
-- `org.eclipse.ui.edit.text.shiftLeft`
-- `org.eclipse.ui.edit.text.shiftRight`
-- `org.eclipse.ui.edit.text.showChangeRulerInformation`
-- `org.eclipse.ui.edit.text.showInformation`
-- `org.eclipse.ui.edit.text.showRulerAnnotationInformation`
-- `org.eclipse.ui.edit.text.showRulerContextMenu`
-- `org.eclipse.ui.edit.text.smartEnter`
-- `org.eclipse.ui.edit.text.smartEnterInverse`
-- `org.eclipse.ui.edit.text.swap.mark`
-- `org.eclipse.ui.edit.text.toMultiSelection`
-- `org.eclipse.ui.edit.text.toggleBlockSelectionMode`
-- `org.eclipse.ui.edit.text.toggleInsertMode`
-- `org.eclipse.ui.edit.text.toggleOverwrite`
-- `org.eclipse.ui.edit.text.toggleShowSelectedElementOnly`
-- `org.eclipse.ui.edit.text.toggleShowWhitespaceCharacters`
-- `org.eclipse.ui.edit.text.toggleWordWrap`
-- `org.eclipse.ui.edit.text.upperCase`
-- `org.eclipse.ui.edit.text.zoomIn`
-- `org.eclipse.ui.edit.text.zoomOut`
-- `org.eclipse.ui.edit.undo`
-- `org.eclipse.ui.editors.lineNumberToggle`
-- `org.eclipse.ui.editors.quickdiff.revert`
-- `org.eclipse.ui.editors.quickdiff.revertLine`
-- `org.eclipse.ui.editors.revisions.author.toggle`
-- `org.eclipse.ui.editors.revisions.id.toggle`
-- `org.eclipse.ui.editors.revisions.rendering.cycle`
-- `org.eclipse.ui.externalTools.commands.OpenExternalToolsConfigurations`
-- `org.eclipse.ui.externaltools.ExternalToolMenuDelegateToolbar`
-- `org.eclipse.ui.file.close`
-- `org.eclipse.ui.file.closeAll`
-- `org.eclipse.ui.file.closeAllSaved`
-- `org.eclipse.ui.file.closeOthers`
-- `org.eclipse.ui.file.closePart`
-- `org.eclipse.ui.file.exit`
-- `org.eclipse.ui.file.export`
-- `org.eclipse.ui.file.import`
-- `org.eclipse.ui.file.newQuickMenu`
-- `org.eclipse.ui.file.openWorkspace`
-- `org.eclipse.ui.file.print`
-- `org.eclipse.ui.file.properties`
-- `org.eclipse.ui.file.refresh`
-- `org.eclipse.ui.file.restartWorkbench`
-- `org.eclipse.ui.file.revert`
-- `org.eclipse.ui.file.save`
-- `org.eclipse.ui.file.saveAll`
-- `org.eclipse.ui.file.saveAs`
-- `org.eclipse.ui.genericeditor.findReferences`
-- `org.eclipse.ui.genericeditor.gotoMatchingBracket`
-- `org.eclipse.ui.genericeditor.togglehighlight`
-- `org.eclipse.ui.help.aboutAction`
-- `org.eclipse.ui.help.displayHelp`
-- `org.eclipse.ui.help.dynamicHelp`
-- `org.eclipse.ui.help.helpContents`
-- `org.eclipse.ui.help.helpSearch`
-- `org.eclipse.ui.help.installationDialog`
-- `org.eclipse.ui.help.quickStartAction`
-- `org.eclipse.ui.help.tipsAndTricksAction`
-- `org.eclipse.ui.ide.OpenMarkersView`
-- `org.eclipse.ui.ide.configureColumns`
-- `org.eclipse.ui.ide.configureFilters`
-- `org.eclipse.ui.ide.copyBuildIdCommand`
-- `org.eclipse.ui.ide.copyConfigCommand`
-- `org.eclipse.ui.ide.deleteCompleted`
-- `org.eclipse.ui.ide.markCompleted`
-- `org.eclipse.ui.ide.markers.copyDescription`
-- `org.eclipse.ui.ide.markers.copyMarkerResourceQualifiedName`
-- `org.eclipse.ui.ide.showInSystemExplorer`
-- `org.eclipse.ui.navigate.addToWorkingSet`
-- `org.eclipse.ui.navigate.back`
-- `org.eclipse.ui.navigate.backwardHistory`
-- `org.eclipse.ui.navigate.collapseAll`
-- `org.eclipse.ui.navigate.expandAll`
-- `org.eclipse.ui.navigate.forward`
-- `org.eclipse.ui.navigate.forwardHistory`
-- `org.eclipse.ui.navigate.goInto`
-- `org.eclipse.ui.navigate.goToResource`
-- `org.eclipse.ui.navigate.linkWithEditor`
-- `org.eclipse.ui.navigate.next`
-- `org.eclipse.ui.navigate.nextSubTab`
-- `org.eclipse.ui.navigate.nextTab`
-- `org.eclipse.ui.navigate.openResource`
-- `org.eclipse.ui.navigate.previous`
-- `org.eclipse.ui.navigate.previousSubTab`
-- `org.eclipse.ui.navigate.previousTab`
-- `org.eclipse.ui.navigate.removeFromWorkingSet`
-- `org.eclipse.ui.navigate.selectWorkingSets`
-- `org.eclipse.ui.navigate.showIn`
-- `org.eclipse.ui.navigate.showInQuickMenu`
-- `org.eclipse.ui.navigate.showResourceByPath`
-- `org.eclipse.ui.navigate.up`
-- `org.eclipse.ui.navigator.resources.nested.changeProjectPresentation`
-- `org.eclipse.ui.newWizard`
-- `org.eclipse.ui.part.nextPage`
-- `org.eclipse.ui.part.previousPage`
-- `org.eclipse.ui.perspectives.showPerspective`
-- `org.eclipse.ui.project.buildAll`
-- `org.eclipse.ui.project.buildAutomatically`
-- `org.eclipse.ui.project.buildLast`
-- `org.eclipse.ui.project.buildProject`
-- `org.eclipse.ui.project.cleanAction`
-- `org.eclipse.ui.project.closeProject`
-- `org.eclipse.ui.project.closeUnrelatedProjects`
-- `org.eclipse.ui.project.openProject`
-- `org.eclipse.ui.project.properties`
-- `org.eclipse.ui.project.rebuildAll`
-- `org.eclipse.ui.project.rebuildProject`
-- `org.eclipse.ui.toggleShowKeys`
-- `org.eclipse.ui.views.properties.NewPropertySheetCommand`
-- `org.eclipse.ui.views.showView`
-- `org.eclipse.ui.window.activateEditor`
-- `org.eclipse.ui.window.closeAllPerspectives`
-- `org.eclipse.ui.window.closePerspective`
-- `org.eclipse.ui.window.customizePerspective`
-- `org.eclipse.ui.window.fullscreenmode`
-- `org.eclipse.ui.window.hideShowEditors`
-- `org.eclipse.ui.window.hidetrimbars`
-- `org.eclipse.ui.window.lockToolBar`
-- `org.eclipse.ui.window.maximizePart`
-- `org.eclipse.ui.window.minimizePart`
-- `org.eclipse.ui.window.newEditor`
-- `org.eclipse.ui.window.newWindow`
-- `org.eclipse.ui.window.nextEditor`
-- `org.eclipse.ui.window.nextPerspective`
-- `org.eclipse.ui.window.nextView`
-- `org.eclipse.ui.window.openEditorDropDown`
-- `org.eclipse.ui.window.pinEditor`
-- `org.eclipse.ui.window.preferences`
-- `org.eclipse.ui.window.previousEditor`
-- `org.eclipse.ui.window.previousPerspective`
-- `org.eclipse.ui.window.previousView`
-- `org.eclipse.ui.window.quickAccess`
-- `org.eclipse.ui.window.resetPerspective`
-- `org.eclipse.ui.window.savePerspective`
-- `org.eclipse.ui.window.showContextMenu`
-- `org.eclipse.ui.window.showKeyAssist`
-- `org.eclipse.ui.window.showSystemMenu`
-- `org.eclipse.ui.window.showViewMenu`
-- `org.eclipse.ui.window.splitEditor`
-- `org.eclipse.ui.window.spy`
-- `org.eclipse.ui.window.switchToEditor`
-- `org.eclipse.ui.window.togglestatusbar`
-- `org.hpec.ide.command.ProjectEditor`
-- `org.hpec.ide.command.SDKConfig`
-- `org.hpec.ide.command.test`
+## 全量 666 条（6 字段）
+
+| id | name | category | parameters | handled | vendor |
+|---|---|---|---|---|---|
+| AUTOGEN:::org.eclipse.cdt.debug.ui.CEditor.BreakpointRulerActions/org.eclipse.cdt.debug.ui.CEditor.RulerTobbleBreakpointAction | %Dummy.label | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.internal.ui.actions.AddEventBreakpointActionDelegate | Add Event Breakpoint (C/C++)... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.internal.ui.actions.ShowFullPathsAction | Show Full Paths | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.ui.addFunctionBreakpoint | Add Function Breakpoint (C/C++)... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.ui.addLineBreakpoint | Add Line Breakpoint (C/C++)... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.breakpointView.menu/org.eclipse.cdt.debug.ui.addWatchpoint | Add Watchpoint (C/C++)... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.debugActionSet/org.eclipse.cdt.debug.ui.actions.MoveToLine | Move to Line (C/C++) | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.debugActionSet/org.eclipse.cdt.debug.ui.actions.ResumeAtLine | Resume at Line (C/C++) | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.debugActionSet/org.eclipse.cdt.debug.ui.actions.ToggleInstructionStepMode | Instruction Stepping Mode | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.debugView.menu/org.eclipse.cdt.debug.internal.ui.actions.ShowFullPathsAction | Show Full Paths | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.debugview.toolbar/org.eclipse.cdt.debug.internal.ui.actions.ToggleInstructionStepModeActionDelegate | Instruction Stepping Mode | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.disassembly.toolbar/org.eclipse.pinclone.disassembly.clone | Open New View | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.disassembly.toolbar/org.eclipse.pinclone.disassembly.pinDebugContext | Pin to Debug Context | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.expression.toolbar/org.eclipse.pinclone.expression.clone | Open New View | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.expression.toolbar/org.eclipse.pinclone.expression.pinDebugContext | Pin to Debug Context | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.register.toolbar/org.eclipse.pinclone.register.clone | Open New View | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.register.toolbar/org.eclipse.pinclone.register.pinDebugContext | Pin to Debug Context | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.variable.toolbar/org.eclipse.pinclone.variable.clone | Open New View | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.debug.ui.variable.toolbar/org.eclipse.pinclone.variable.pinDebugContext | Pin to Debug Context | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.breakpoints.update.Refresh/org.eclipse.cdt.dsf.debug.ui.breakpoints.viewmodel.update.actions.refresh | Refresh | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.debugview.update.Refresh/org.eclipse.cdt.dsf.debug.ui.debugview.viewmodel.update.actions.refresh | Refresh | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.expressions.update.Refresh/org.eclipse.cdt.dsf.debug.ui.expressions.viewmodel.update.actions.refresh | Refresh | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.registers.update.Refresh/org.eclipse.cdt.dsf.debug.ui.registers.viewmodel.update.actions.refresh | Refresh | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.dsf.debug.ui.viewmodel.variables.update.Refresh/org.eclipse.cdt.dsf.debug.ui.variables.viewmodel.update.actions.refresh | Refresh | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.dsf.gdb.ui.debugsources.view.refresh/org.eclipse.cdt.dsf.gdb.ui.debugsources.view.refresh | Refresh | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.make.ui.makeTargetActionSet/org.eclipse.cdt.make.ui.actions.buildLastTargetAction | Rebuild Last Target | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.make.ui.makeTargetActionSet/org.eclipse.cdt.make.ui.makeTargetAction | Build... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.make.ui.updateActionSet/org.eclipse.cdt.make.ui.UpdateMakeAction | Update Old Make Project... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewFileDropDown | Source File... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewFolderDropDown | Source Folder... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewProjectDropDown | Project... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.CElementCreationActionSet/org.eclipse.cdt.ui.actions.NewTypeDropDown | Class... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.SearchActionSet/org.eclipse.cdt.ui.actions.OpenCSearchPage | C/C++... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.buildConfigActionSet/org.eclipse.cdt.ui.buildActiveConfigToolbarAction | Build Active Configuration | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.buildConfigActionSet/org.eclipse.cdt.ui.buildConfigToolbarAction | Active Build Configuration | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.cdt.ui.editor.asm.AsmEditor.BreakpointRulerActions/org.eclipse.cdt.debug.ui.CEditor.RulerTobbleBreakpointAction | %Dummy.label | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.PulldownActions/org.eclipse.debug.ui.debugview.pulldown.ViewManagementAction | View Management... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.clearDefaultBreakpointGroup | Deselect Default Working Set | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.groupByAction | Group By | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.linkWithDebugView | Link with Debug View | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.removeAll | Remove All | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.setDefaultBreakpointGroup | Select Default Working Set... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.sortByAction | Sort By | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.breakpointsview.toolbar/org.eclipse.debug.ui.breakpointsView.toolbar.workingSets | Working Sets... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.debugview.toolbar/org.eclipse.debug.ui.debugview.toolbar.collapseAll | Collapse All | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.debugview.toolbar/org.eclipse.debug.ui.debugview.toolbar.removeAllTerminated | Remove All Terminated | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.expressionsView.toolbar/org.eclipse.debug.ui.expresssionsView.toolbar.AddWatchExpression | Add Watch Expression... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.expressionsView.toolbar/org.eclipse.debug.ui.expresssionsView.toolbar.removeAll | Remove All | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.DebugDropDownAction | Debug | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.DebugHistoryMenuAction | Debug History | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.DebugWithConfigurationAction | Debug As | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.RunDropDownAction | Run | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.RunHistoryMenuAction | Run History | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.launchActionSet/org.eclipse.debug.internal.ui.actions.RunWithConfigurationAction | Run As | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.NewMemoryViewAction | New Memory View | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.PinMemoryBlockAction | Pin Memory Monitor | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.linkrenderingpanes | Link Memory Rendering Panes | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.memoryViewPreferencesAction | Preferences... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.switchMemoryBlock | Switch Memory Monitor | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.tablerendering.preferencesaction | Table Renderings Preferences... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.togglemonitors | Toggle Memory Monitors Pane | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.memoryView.toolbar/org.eclipse.debug.ui.togglesplitpane | Toggle Split Pane | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.profileActionSet/org.eclipse.debug.internal.ui.actions.ProfileDropDownAction | Profile | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.profileActionSet/org.eclipse.debug.internal.ui.actions.ProfileHistoryMenuAction | Profile History | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.debug.ui.profileActionSet/org.eclipse.debug.internal.ui.actions.ProfileWithConfigurationAction | Profile As | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.egit.ui.SearchActionSet/org.eclipse.egit.ui.actions.OpenCommitSearchPage | Git... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.search.searchActionSet/org.eclipse.search.OpenSearchDialogPage | Search... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.team.ui.actionSet/org.eclipse.team.ui.ConfigureProject | Share Project... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.team.ui.actionSet/org.eclipse.team.ui.synchronizeAll | Synchronize... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.ui.cheatsheets.actionSet/org.eclipse.ui.cheatsheets.actions.CheatSheetHelpMenuAction | Cheat Sheets... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.ui.externaltools.ExternalToolsSet/org.eclipse.ui.externaltools.ExternalToolMenuDelegateMenu | External Tools | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | autogen |
+| AUTOGEN:::org.eclipse.ui.texteditor.ruler.actions/org.eclipse.cdt.internal.ui.text.correction.CSelectRulerAction | dummy | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.ui.texteditor.ruler.actions/org.eclipse.ui.texteditor.BookmarkRulerAction | Text Editor Bookmark Ruler Action | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AUTOGEN:::org.eclipse.ui.texteditor.ruler.actions/org.eclipse.ui.texteditor.SelectRulerAction | Text Editor Ruler Single-Click | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | autogen |
+| AnsiConsole.command.copy_with_escapes | Copy Text With ANSI Escapes | AnsiConsole.command.categoryid | null (command declares none) | true | AnsiConsole.command |
+| AnsiConsole.command.copy_without_escapes | Copy Text Without ANSI Escapes | AnsiConsole.command.categoryid | null (command declares none) | true | AnsiConsole.command |
+| AnsiConsole.command.enable_disable | Enable / Disable ANSI Support | AnsiConsole.command.categoryid | null (command declares none) | true | AnsiConsole.command |
+| com.googlecode.cppcheclipse.commands.ClearMarkersCommand | Clear cppcheck Markers | com.googlecode.cppcheclipse.Category | null (command declares none) | true | com.googlecode |
+| com.googlecode.cppcheclipse.commands.RunCommand | Run cppcheck | com.googlecode.cppcheclipse.Category | null (command declares none) | true | com.googlecode |
+| com.gs.sdk.checkproject | Check Project | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | com.gs |
+| com.gs.sdk.command.gsprojectcreate | GS32 Project Create | org.eclipse.ui.category.file | null (command declares none) | true | com.gs |
+| com.gs.sdk.command.gsprojectimport | GS32 Project Import | org.eclipse.ui.category.file | null (command declares none) | true | com.gs |
+| com.gs.sdk.editor.activate | Switch to Editor | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | com.gs |
+| com.gs.sdk.sendtoLive | Add to Liveview | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | com.gs |
+| com.gs.sdk.version | IDE Version | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | com.gs |
+| com.gs.ui.intro.openFile | Open File | org.eclipse.core.commands.categories.autogenerated | 1 | true | com.gs |
+| org.eclipse.cdt.codan.commands.runCodanCommand | Run Code Analysis | org.eclipse.cdt.codan.ui.commands.category | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.command.breakpointProperties | C/C++ Breakpoint Properties | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.StepIntoSelection | Step Into Selection | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.addRegisterGroup | Add RegisterGroup | org.eclipse.cdt.debug.ui.category.registerGrouping | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.castToArray | Cast To Type... | org.eclipse.cdt.debug.ui.category.casting | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.castToType | Cast To Type... | org.eclipse.cdt.debug.ui.category.casting | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.connect | Connect | org.eclipse.cdt.debug.ui.category.debugViewLayout | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.debugNewExecutable | Debug New Executable | org.eclipse.cdt.debug.ui.category.debugViewLayout | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.editRegisterGroup | Edit Register Group | org.eclipse.cdt.debug.ui.category.registerGrouping | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.groupDebugContexts | Group | org.eclipse.cdt.debug.ui.category.debugViewLayout | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.loadAllSymbols | Load Symbols For All | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.loadSymbols | Load Symbols | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.removeRegisterGroups | Remove Register Groups | org.eclipse.cdt.debug.ui.category.registerGrouping | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.restoreDefaultType | Restore Original Type | org.eclipse.cdt.debug.ui.category.casting | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.restoreRegisterGroups | Restore Default Register Groups | org.eclipse.cdt.debug.ui.category.registerGrouping | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.resumeWithoutSignal | Resume Without Signal | org.eclipse.cdt.debug.ui.category.runControl | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.reverseResume | Reverse Resume | org.eclipse.cdt.debug.ui.category.reverseDebugging | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.reverseStepInto | Reverse Step Into | org.eclipse.cdt.debug.ui.category.reverseDebugging | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.reverseStepOver | Reverse Step Over | org.eclipse.cdt.debug.ui.category.reverseDebugging | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.reverseToggle | Reverse Toggle | org.eclipse.cdt.debug.ui.category.reverseDebugging | 1 | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.saveTraceData | Save Trace Data  | org.eclipse.cdt.debug.ui.category.tracing | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.startTracing | Start Tracing  | org.eclipse.cdt.debug.ui.category.tracing | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.stopTracing | Stop Tracing  | org.eclipse.cdt.debug.ui.category.tracing | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.uncall | Uncall | org.eclipse.cdt.debug.ui.category.reverseDebugging | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.command.ungroupDebugContexts | Ungroup | org.eclipse.cdt.debug.ui.category.debugViewLayout | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.debug.ui.commands.viewMemory | View Memory | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.debug.ui.memory.memorybrowser.jumpToMemory | Jump to Memory | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.dsf.debug.ui.disassembly.commands.gotoAddress | Go to Address... | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.dsf.debug.ui.disassembly.commands.gotoPC | Go to Program Counter | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.dsf.debug.ui.disassembly.commands.rulerToggleBreakpoint | Toggle Breakpoint | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.dsf.debug.ui.refreshAll | Refresh Debug Views | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.dsf.gdb.ui.command.osview.connect | Connect | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.dsf.gdb.ui.command.selectNextTraceRecord | Next Trace Record | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.dsf.gdb.ui.command.selectPreviousTraceRecord | Previous Trace Record | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.dsf.ui.addLocalsExpression | Add Expression Group > Local Variables | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.dsf.ui.addRegistersExpression | Add Expression Group > Registers | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.make.ui.edit.text.makefile.opendecl | Open declaration | org.eclipse.cdt.make.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.make.ui.edit.text.makefile.toggle.comment | Toggle Comment | org.eclipse.cdt.make.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.make.ui.targetBuildCommand | Build Target Build | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.make.ui.targetBuildLastCommand | Rebuild Last Target | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.make.ui.targetCreateCommand | Create Build Target | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.managedbuilder.ui.buildAllConfigurations | Build All Configurations | org.eclipse.cdt.managedbuilder.ui.category.build | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.managedbuilder.ui.buildFiles | Build Selected File(s) | org.eclipse.cdt.managedbuilder.ui.category.build | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.managedbuilder.ui.cleanAllConfigurations | Clean All Configurations | org.eclipse.cdt.managedbuilder.ui.category.build | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.managedbuilder.ui.cleanFiles | Clean Selected File(s) | org.eclipse.cdt.managedbuilder.ui.category.build | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.managedbuilder.ui.convertTarget | Convert To | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.managedbuilder.ui.rebuildConfigurations | Build Selected Configurations | org.eclipse.cdt.managedbuilder.ui.category.build | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.deleteConfigsCommand | Reset to Default | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.edit.open.call.hierarchy | Open Call Hierarchy | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.open.include.browser | Open Include Browser | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.open.outline | Show outline | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.open.quick.macro.explorer | Explore Macro Expansion | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.open.quick.type.hierarchy | Quick Type Hierarchy | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.open.type.hierarchy | Open Type Hierarchy | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.opencview | Show in C/C++ Project view | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.opendecl | Open Declaration | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.add.block.comment | Add Block Comment | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.add.include | Add Include | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.align.const | Align const qualifiers | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.comment | Comment | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.copy.qualified.name | Copy Qualified Name | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.find.word | Find Word | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.format | Format | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.goto.matching.bracket | Go to Matching Bracket | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.goto.next.bookmark | Next Bookmark | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.goto.next.member | Go to Next Member | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.goto.prev.member | Go to Previous Member | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.indent | Indent Line | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.organize.includes | Organize Includes | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.remove.block.comment | Remove Block Comment | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.select.enclosing | Select Enclosing C/C++ Element | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.select.last | Restore Last C/C++ Selection | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.select.next | Select Next C/C++ Element | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.select.previous | Select Previous C/C++ Element | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.sort.lines | Sort Lines | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.source.quickMenu | Show Source Quick Menu | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.surround.with.quickMenu | Surround With Quick Menu | org.eclipse.cdt.ui.category.source | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.toggle.comment | Toggle Comment | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.toggle.source.header | Toggle Source/Header | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.toggleMarkOccurrences | Toggle Mark Occurrences | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.c.uncomment | Uncomment | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.edit.text.rename.element | Rename - Refactoring  | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.excludeCommand | Exclude from Build | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.hover.backwardMacroExpansion | Back | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.hover.forwardMacroExpansion | Forward | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.menu.createParserLog | Create Parser Log File | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.menu.findUnresolvedIncludes | Search for Unresolved Includes | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.menu.freshenAllFiles | Freshen All Files in Index | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.menu.manage.configs.command | Manage Build Configurations | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.menu.rebuildIndex | Rebuild Index | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.menu.updateUnresolvedIncludes | Re-resolve Unresolved Includes | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.menu.updateWithModifiedFiles | Update Index with Modified Files | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.menu.wsselection.command | Manage Working Sets | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.navigate.open.element.in.call.hierarchy | Open Element in Call Hierarchy | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.navigate.open.type.in.hierarchy | Open Type in Hierarchy | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.navigate.opentype | Open Element | org.eclipse.cdt.ui.category.source | null (command declares none) | true | org.eclipse |
+| org.eclipse.cdt.ui.refactor.extract.constant | Extract Constant - Refactoring  | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactor.extract.function | Extract Function - Refactoring  | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactor.extract.local.variable | Extract Local Variable - Refactoring  | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactor.getters.and.setters | Generate Getters and Setters... | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactor.hide.method | Hide Member Function... | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactor.implement.method | Implement Method - Source Generation  | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactor.override.methods | Override Methods... | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactor.toggle.function | Toggle Function - Refactoring  | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactoring.command.ExtractConstant | Extract Constant... | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.refactoring.command.ExtractLocalVariable | Extract Local Variable... | org.eclipse.cdt.ui.category.refactoring | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.search.finddecl | Declaration | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.search.finddecl.project | Declaration in Project | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.search.finddecl.workingset | Declaration in Working Set | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.search.findrefs | References | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.search.findrefs.project | References in Project | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.search.findrefs.workingset | References in Working Set | org.eclipse.cdt.ui.category.source | null (command declares none) | false | org.eclipse |
+| org.eclipse.cdt.ui.specific_content_assist.command | C/C++ Content Assist | org.eclipse.ui.category.edit | 1 | true | org.eclipse |
+| org.eclipse.compare.compareWithOther | Compare With Other Resource | org.eclipse.compare.ui.category.compare | null (command declares none) | true | org.eclipse |
+| org.eclipse.compare.copyAllLeftToRight | Copy All from Left to Right | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.compare.copyAllRightToLeft | Copy All from Right to Left | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.compare.copyLeftToRight | Copy from Left to Right | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.compare.copyRightToLeft | Copy from Right to Left | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.compare.ignoreWhiteSpace | Ignore White Space | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.compare.selectNextChange | Select Next Change | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.compare.selectPreviousChange | Select Previous Change | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.compare.switchLeftAndRight | Swap Left and Right View | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.DebugPerspective | Debug | org.eclipse.ui.category.perspectives | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.actions.WatchCommand | Watch | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.command.gotoaddress | Go to Address | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.command.nextpage | Next Page of Memory | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.command.prevpage | Previous Page of Memory | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.DebugLast | Debug | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.Disconnect | Disconnect | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.DropToFrame | Drop to Frame | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.OpenDebugConfigurations | Debug... | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.OpenProfileConfigurations | Profile... | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.OpenRunConfigurations | Run... | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.ProfileLast | Profile | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.RemoveAllBreakpoints | Remove All Breakpoints | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.Restart | Restart | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.Resume | Resume | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.RunLast | Run | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.RunToLine | Run to Line | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.SkipAllBreakpoints | Skip All Breakpoints | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.StepInto | Step Into | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.StepOver | Step Over | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.StepReturn | Step Return | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.Suspend | Suspend | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.Terminate | Terminate | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.TerminateAll | Terminate/Disconnect All | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.TerminateAndRelaunch | Terminate and Relaunch | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.ToggleBreakpoint | Toggle Breakpoint | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.ToggleLineBreakpoint | Toggle Line Breakpoint | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.ToggleMethodBreakpoint | Toggle Method Breakpoint | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.ToggleStepFilters | Use Step Filters | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.ToggleWatchpoint | Toggle Watchpoint | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.debug.ui.commands.addMemoryMonitor | Add Memory Block | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.closeRendering | Close Rendering | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.console.clear | Clear Console | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.eof | EOF | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.newRendering | New Rendering | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.nextMemoryBlock | Next Memory Monitor | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.debug.ui.commands.toggleMemoryMonitorsPane | Toggle Memory Monitors Pane | org.eclipse.debug.ui.category.run | null (command declares none) | false | org.eclipse |
+| org.eclipse.e4.ui.importer.configureProject | Configure and Detect Nested Projects... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.e4.ui.importer.openDirectory | Open Projects from File System... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.compareWithDevelop | Compare with develop branch | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.developCheckout | Check Out Develop | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.featureCheckout | Check Out Feature | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.featureFinish | Finish Feature | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.featurePublish | Publish Feature | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.featureRebase | Rebase Feature | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.featureStart | Start Feature | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.featureTrack | Track Feature | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.hotfixFinish | Finish Hotfix | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.hotfixPublish | Publish Hotfix | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.hotfixStart | Start Hotfix | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.init | Init Gitflow... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.releaseFinish | Finish Release | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.releasePublish | Publish Release | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.releaseStart | Start Release | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.gitflow.ui.command.replaceWithDevelop | Replace with develop branch | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.AbortRebase | Abort Rebase | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.CheckoutCommand | Check Out | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.CompareWithEachOther | Compare with Each Other | org.eclipse.compare.ui.category.compare | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.ContinueRebase | Continue Rebase | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.FetchGerritChange | Fetch From Gerrit | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.FetchGitHubPR | Fetch GitHub Pull Request | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.FetchGitLabMergeRequest | Fetch GitLab Merge Request | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.FetchGiteaPullRequest | Fetch Gitea Pull Request | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.ImportChangedProjectsCommandId | Import Changed Projects | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.PushHeadToGerrit | Push Current Head to Gerrit | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.RebaseCurrent | Rebase | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RebaseInteractiveCurrent | Interactive Rebase | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesCreateGroup | Create a Repository Group | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesLinkWithSelection | Toggle "Link with Editor and Selection" (Git Repositories View) | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesToggleBranchCommit | Toggle Latest Branch Commit | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesToggleBranchHierarchy | Toggle Branch Representation | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewAddRepository | Add a Git Repository... | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewChangeCredentials | Change Credentials | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewClearCredentials | Clear Credentials | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewClone | Clone a Git Repository... | org.eclipse.egit.ui.commandCategory | 1 | true | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewCollapseWorkingTree | Collapse Working Tree | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewConfigureBranch | Configure Branch | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewConfigureFetch | Configure Fetch... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewConfigureGerritRemote | Gerrit Configuration... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewConfigurePush | Configure Push... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewCopyPath | Copy Path to Clipboard | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewCreateBranch | Create Branch... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewCreateRepository | Create a Git Repository... | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewDelete | Delete Repository | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewImportProjects | Import Projects... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewNewRemote | Create Remote... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewOpen | Open | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewOpenInEditor | Open in Editor | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewRemove | Remove Repository | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewRemoveRemote | Delete Remote | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.RepositoriesViewShowInSystemExplorer | Show In System Explorer | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.SkipRebase | Skip commit and continue | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.command.configureTrace | Configure Git Debug Trace | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.command.shareProject | Share with Git | org.eclipse.core.commands.categories.autogenerated | 1 | true | org.eclipse |
+| org.eclipse.egit.ui.commit.DiffEditorQuickOutlineCommand | Quick Outline | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.commit.Edit | Edit Commit | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.commit.Reword | Reword Commit | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.commit.Squash | Squash Commits | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.commit.UnifiedDiffCommand | Show Unified Diff | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.CompareVersions | Compare with Each Other | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.CompareVersionsInTree | Compare in Tree | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.CompareWithWorkingTree | Compare with Working Tree | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.CreatePatch | Create Patch... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.DeleteBranch | Delete Branch | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.DeleteTag | &Delete Tag | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.Edit | Edit Commit | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.Merge | Merge | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.OpenInCommitViewerCommand | Open in Commit Viewer | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.OpenInTextEditorCommand | Open in Text Editor | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.PushCommit | Push Commit... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.Reset | Reset... | org.eclipse.core.commands.categories.autogenerated | 1 | false | org.eclipse |
+| org.eclipse.egit.ui.history.ResetQuickdiffBaseline | Reset quickdiff baseline | org.eclipse.core.commands.categories.autogenerated | 1 | false | org.eclipse |
+| org.eclipse.egit.ui.history.Reword | Reword Commit | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.SetQuickdiffBaseline | Set quickdiff baseline | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.ShowBlame | Show Revision Information | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.history.ShowVersions | Open this Version | org.eclipse.core.commands.categories.autogenerated | 1 | false | org.eclipse |
+| org.eclipse.egit.ui.history.Squash | Squash Commits | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.internal.merge.ToggleCurrentChangesCommand | Ignore Changes from Ancestor to Current Version | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.internal.reflog.CopyCommand | Copy Commit Id | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.AddToIndex | Add to Index | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.ApplyPatch | Apply Patch | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.AssumeUnchanged | Assume Unchanged | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.Branch | Branch | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.CherryPick | Cherry Pick | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Commit | Commit... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.CompareIndexWithHead | Compare File in Index with HEAD Revision | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.CompareWithCommit | Compare with Commit... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.CompareWithHead | Compare with HEAD Revision | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.CompareWithIndex | Compare with Index | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.CompareWithPrevious | Compare with Previous Revision | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.CompareWithRef | Compare with Branch, Tag or Reference... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ConfigureFetch | Configure Upstream Fetch | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.ConfigurePush | Configure Upstream Push | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.CreatePatch | Create Patch... | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.DeleteBranch | Delete Branch | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.Discard | Replace with File in Index | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Disconnect | Disconnect | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Fetch | Fetch | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.GarbageCollect | Collect Garbage | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Ignore | Ignore | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.InstallLfsLocal | Enable LFS locally | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Merge | Merge | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.MergeTool | Merge Tool | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.NoAssumeUnchanged | No Assume Unchanged | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.OpenCommit | Open Git Commit | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Pull | Pull | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.PullWithOptions | Pull... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Push | Push... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.PushBranch | Push Branch... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.PushTags | Push Tags... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Rebase | Rebase on | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.RemoveFromIndex | Remove from Index | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.RenameBranch | Rename Branch... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ReplaceWithCommit | Replace with commit | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ReplaceWithHead | Replace with HEAD revision | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ReplaceWithOurs | Replace Conflicting Files with Our Revision | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ReplaceWithPrevious | Replace with Previous Revision | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ReplaceWithRef | Replace with branch, tag, or reference | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ReplaceWithTheirs | Replace Conflicting Files with Their Revision | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Reset | Reset... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Revert | Revert Commit | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ShowBlame | Show Revision Information | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ShowHistory | Show in History | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.ShowRepositoriesView | Show Git Repositories View | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.SimpleFetch | Fetch from Upstream | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.SimplePush | Push to Upstream | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Synchronize | Synchronize | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Tag | Create Tag... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.Untrack | Untrack | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.clean | Clean... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.stash.apply | Apply Stashed Changes | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.stash.create | Stash Changes... | org.eclipse.egit.ui.commandCategory | null (command declares none) | true | org.eclipse |
+| org.eclipse.egit.ui.team.stash.drop | Delete Stashed Commit... | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.submodule.add | Add Submodule | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.submodule.sync | Sync Submodule | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.egit.ui.team.submodule.update | Update Submodule | org.eclipse.egit.ui.commandCategory | null (command declares none) | false | org.eclipse |
+| org.eclipse.embedcdt.debug.gdbjtag.restart.ui.commands.Restart | Restart | org.eclipse.embedcdt.debug.gdbjtag.restart.ui.category | null (command declares none) | true | org.eclipse |
+| org.eclipse.equinox.p2.ui.sdk.install | Install New Software... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.equinox.p2.ui.sdk.installationDetails | Installation Details | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.equinox.p2.ui.sdk.update | Check for Updates | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.help.ui.closeTray | Close User Assistance Tray | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.help.ui.ignoreMissingPlaceholders | Do not warn of missing documentation | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.help.ui.indexcommand | Index | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.jdt.ui.edit.text.java.correction.assist.proposals | Quick Fix | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.launchbar.ui.command.buildActive | Build Active Launch Configuration | org.eclipse.launchbar.ui.category.launchBar | null (command declares none) | true | org.eclipse |
+| org.eclipse.launchbar.ui.command.configureActiveLaunch | Edit Active Launch Configuration | org.eclipse.launchbar.ui.category.launchBar | null (command declares none) | true | org.eclipse |
+| org.eclipse.launchbar.ui.command.launchActive | Launch Active Launch Configuration | org.eclipse.launchbar.ui.category.launchBar | null (command declares none) | true | org.eclipse |
+| org.eclipse.launchbar.ui.command.openLaunchSelector | Open Launch Bar Config Selector | org.eclipse.launchbar.ui.category.launchBar | null (command declares none) | true | org.eclipse |
+| org.eclipse.launchbar.ui.command.stop | Stop | org.eclipse.launchbar.ui.category.launchBar | null (command declares none) | true | org.eclipse |
+| org.eclipse.ltk.ui.refactoring.commands.deleteResources | Delete Resources | org.eclipse.ltk.ui.category.refactoring | null (command declares none) | true | org.eclipse |
+| org.eclipse.ltk.ui.refactoring.commands.moveResources | Move Resources | org.eclipse.ltk.ui.category.refactoring | null (command declares none) | true | org.eclipse |
+| org.eclipse.ltk.ui.refactoring.commands.renameResource | Rename Resource | org.eclipse.ltk.ui.category.refactoring | 1 | true | org.eclipse |
+| org.eclipse.quickdiff.toggle | Quick Diff Toggle | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.remote.ui.command.closeConnection | Close Connection | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.remote.ui.command.deleteConnection | Delete Connection | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.remote.ui.command.newConnection | New Connection | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.remote.ui.command.openConnection | Open Connection | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.search.ui.openFileSearchPage | File Search | org.eclipse.search.ui.category.search | null (command declares none) | true | org.eclipse |
+| org.eclipse.search.ui.openSearchDialog | Open Search Dialog | org.eclipse.search.ui.category.search | null (command declares none) | true | org.eclipse |
+| org.eclipse.search.ui.performTextSearchFile | Find Text in File | org.eclipse.search.ui.category.search | null (command declares none) | true | org.eclipse |
+| org.eclipse.search.ui.performTextSearchProject | Find Text in Project | org.eclipse.search.ui.category.search | null (command declares none) | true | org.eclipse |
+| org.eclipse.search.ui.performTextSearchWorkingSet | Find Text in Working Set | org.eclipse.search.ui.category.search | null (command declares none) | true | org.eclipse |
+| org.eclipse.search.ui.performTextSearchWorkspace | Find Text in Workspace | org.eclipse.search.ui.category.search | null (command declares none) | true | org.eclipse |
+| org.eclipse.team.ui.TeamSynchronizingPerspective | Team Synchronizing | org.eclipse.ui.category.perspectives | null (command declares none) | false | org.eclipse |
+| org.eclipse.team.ui.applyPatch | Apply Patch... | org.eclipse.team.ui.category.team | null (command declares none) | true | org.eclipse |
+| org.eclipse.team.ui.synchronizeAll | Synchronize... | org.eclipse.team.ui.category.team | null (command declares none) | false | org.eclipse |
+| org.eclipse.team.ui.synchronizeLast | Repeat last synchronization | org.eclipse.team.ui.category.team | null (command declares none) | false | org.eclipse |
+| org.eclipse.text.quicksearch.commands.quicksearchCommand | Quick Search | org.eclipse.text.quicksearch.commands.category | null (command declares none) | true | org.eclipse |
+| org.eclipse.tm.terminal.command1 | Terminal view insert | org.eclipse.tm.terminal.category1 | null (command declares none) | false | org.eclipse |
+| org.eclipse.tm.terminal.connector.local.command.launch | Open Local Terminal on Selection | org.eclipse.tm.terminal.view.ui.commands.category | null (command declares none) | true | org.eclipse |
+| org.eclipse.tm.terminal.copy | Copy | org.eclipse.tm.terminal.category1 | null (command declares none) | false | org.eclipse |
+| org.eclipse.tm.terminal.maximize | Maximize Active View or Editor | org.eclipse.tm.terminal.category1 | null (command declares none) | false | org.eclipse |
+| org.eclipse.tm.terminal.paste | Paste | org.eclipse.tm.terminal.category1 | null (command declares none) | false | org.eclipse |
+| org.eclipse.tm.terminal.quickaccess | Quick Access | org.eclipse.tm.terminal.category1 | null (command declares none) | false | org.eclipse |
+| org.eclipse.tm.terminal.view.ui.command.disconnect | Disconnect Terminal | org.eclipse.tm.terminal.view.ui.commands.category | null (command declares none) | true | org.eclipse |
+| org.eclipse.tm.terminal.view.ui.command.launch | Open Terminal on Selection | org.eclipse.tm.terminal.view.ui.commands.category | null (command declares none) | true | org.eclipse |
+| org.eclipse.tm.terminal.view.ui.command.launchToolbar | Open Local Terminal on Selection | org.eclipse.tm.terminal.view.ui.commands.category | null (command declares none) | true | org.eclipse |
+| org.eclipse.tm.terminal.view.ui.command.newview | New Terminal View | org.eclipse.tm.terminal.view.ui.commands.category | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.ToggleCoolbarAction | Toggle Main Toolbar Visibility | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.activeContextInfo | Show activeContext Info | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.browser.openBrowser | Open Browser | org.eclipse.ui.category.window | 4 | true | org.eclipse |
+| org.eclipse.ui.browser.openBundleResource | Open Resource in Browser | org.eclipse.ui.category.window | 2 | true | org.eclipse |
+| org.eclipse.ui.cheatsheets.openCheatSheet | Open Cheat Sheet | org.eclipse.ui.category.help | 1 | true | org.eclipse |
+| org.eclipse.ui.cheatsheets.openCheatSheetURL | Open Cheat Sheet from URL | org.eclipse.ui.category.help | 3 | true | org.eclipse |
+| org.eclipse.ui.dialogs.openInputDialog | Open Input Dialog | org.eclipse.ui.category.dialogs | 4 | true | org.eclipse |
+| org.eclipse.ui.dialogs.openMessageDialog | Open Message Dialog | org.eclipse.ui.category.dialogs | 9 | true | org.eclipse |
+| org.eclipse.ui.edit.addBookmark | Add Bookmark | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.addTask | Add Task... | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.copy | Copy | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.cut | Cut | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.delete | Delete | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.findIncremental | Incremental Find | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.findIncrementalReverse | Incremental Find Reverse | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.findNext | Find Next | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.findPrevious | Find Previous | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.findReplace | Find and Replace | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.move | Move... | org.eclipse.ui.category.file | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.paste | Paste | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.redo | Redo | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.rename | Rename | org.eclipse.ui.category.file | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.revertToSaved | Revert to Saved | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.selectAll | Select All | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.clear.mark | Clear Mark | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.contentAssist.contextInformation | Context Information | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.contentAssist.proposals | Content Assist | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.copyLineDown | Copy Lines | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.copyLineUp | Duplicate Lines | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.cut.line | Cut Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.cut.line.to.beginning | Cut to Beginning of Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.cut.line.to.end | Cut to End of Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.delete.line | Delete Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.delete.line.to.beginning | Delete to Beginning of Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.delete.line.to.end | Delete to End of Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.deleteNext | Delete Next | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.deleteNextWord | Delete Next Word | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.deletePrevious | Delete Previous | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.deletePreviousWord | Delete Previous Word | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.delimiter.unix | Convert Line Delimiters to Unix (LF, \n, 0A, ¶) | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.delimiter.windows | Convert Line Delimiters to Windows (CRLF, \r\n, 0D0A, ¤¶) | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.folding.collapse | Collapse | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.folding.collapse_all | Collapse All | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.folding.expand | Expand | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.folding.expand_all | Expand All | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.folding.restore | Reset Structure | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.folding.toggle | Toggle Folding | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.columnNext | Next Column | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.columnPrevious | Previous Column | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.line | Go to Line | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.lineDown | Line Down | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.lineEnd | Line End | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.lineStart | Line Start | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.lineUp | Line Up | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.pageDown | Page Down | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.pageUp | Page Up | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.textEnd | Text End | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.textStart | Text Start | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.windowEnd | Window End | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.windowStart | Window Start | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.wordNext | Next Word | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.goto.wordPrevious | Previous Word | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.gotoLastEditPosition | Previous Edit Location | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.gotoNextEditPosition | Next Edit Location | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.hippieCompletion | Word Completion | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.join.lines | Join Lines | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.lowerCase | To Lower Case | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.moveLineDown | Move Lines Down | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.moveLineUp | Move Lines Up | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.open.hyperlink | Open Hyperlink | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.openLocalFile | Open File... | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.recenter | Recenter | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.removeTrailingWhitespace | Remove Trailing Whitespace | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.scroll.lineDown | Scroll Line Down | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.scroll.lineUp | Scroll Line Up | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.addAllMatchesToMultiSelection | Add all matches to multi-selection | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.select.columnNext | Select Next Column | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.columnPrevious | Select Previous Column | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.lineDown | Select Line Down | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.lineEnd | Select Line End | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.lineStart | Select Line Start | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.lineUp | Select Line Up | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.multiCaretDown | Multi caret down | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.select.multiCaretUp | Multi caret up | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.select.pageDown | Select Page Down | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.pageUp | Select Page Up | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.selectMultiSelectionDown | Multi selection down relative to anchor selection   | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.select.selectMultiSelectionUp | Multi selection up relative to anchor selection | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.select.stopMultiSelection | End multi-selection | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.select.textEnd | Select Text End | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.textStart | Select Text Start | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.windowEnd | Select Window End | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.windowStart | Select Window Start | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.wordNext | Select Next Word | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.select.wordPrevious | Select Previous Word | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.set.mark | Set Mark | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.shiftLeft | Shift Left | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.shiftRight | Shift Right | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.showChangeRulerInformation | Show Quick Diff Ruler Tooltip | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.showInformation | Show Tooltip Description | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.showRulerAnnotationInformation | Show Ruler Annotation Tooltip | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.showRulerContextMenu | Show Ruler Context Menu | org.eclipse.ui.category.window | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.smartEnter | Insert Line Below Current Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.smartEnterInverse | Insert Line Above Current Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.swap.mark | Swap Mark | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.toMultiSelection | To multi-selection | org.eclipse.ui.category.edit | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.toggleBlockSelectionMode | Toggle Block Selection | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.toggleInsertMode | Toggle Insert Mode | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.toggleOverwrite | Toggle Overwrite | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.toggleShowSelectedElementOnly | Show Selected Element Only | org.eclipse.ui.category.window | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.toggleShowWhitespaceCharacters | Show Whitespace Characters | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.toggleWordWrap | Toggle Word Wrap | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.upperCase | To Upper Case | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.edit.text.zoomIn | Zoom In | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.text.zoomOut | Zoom Out | org.eclipse.ui.category.textEditor | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.edit.undo | Undo | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.editors.lineNumberToggle | Show Line Numbers | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.editors.quickdiff.revert | Revert Lines | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.editors.quickdiff.revertLine | Revert Line | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.editors.revisions.author.toggle | Toggle Revision Author Display | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.editors.revisions.id.toggle | Toggle Revision Id Display | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.editors.revisions.rendering.cycle | Cycle Revision Coloring Mode | org.eclipse.ui.category.textEditor | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.externalTools.commands.OpenExternalToolsConfigurations | External Tools... | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.externaltools.ExternalToolMenuDelegateToolbar | Run Last Launched External Tool | org.eclipse.debug.ui.category.run | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.close | Close | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.closeAll | Close All | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.closeAllSaved | Close All Saved | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.closeOthers | Close Others | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.closePart | Close Part | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.exit | Exit | org.eclipse.ui.category.file | 1 | true | org.eclipse |
+| org.eclipse.ui.file.export | Export | org.eclipse.ui.category.file | 1 | true | org.eclipse |
+| org.eclipse.ui.file.import | Import | org.eclipse.ui.category.file | 1 | true | org.eclipse |
+| org.eclipse.ui.file.newQuickMenu | New menu | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.openWorkspace | Switch Workspace | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.print | Print | org.eclipse.ui.category.file | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.file.properties | Properties | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.refresh | Refresh | org.eclipse.ui.category.file | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.file.restartWorkbench | Restart | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.revert | Revert | org.eclipse.ui.category.file | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.file.save | Save | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.saveAll | Save All | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.file.saveAs | Save As | org.eclipse.ui.category.file | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.genericeditor.findReferences | Find References | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.genericeditor.gotoMatchingBracket | Go to Matching Bracket | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.genericeditor.togglehighlight | Toggle Highlight | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.help.aboutAction | About | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.help.displayHelp | Display Help | org.eclipse.ui.category.help | 1 | true | org.eclipse |
+| org.eclipse.ui.help.dynamicHelp | Show Context Help | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.help.helpContents | Help Contents | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.help.helpSearch | Help Search | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.help.installationDialog | Installation Information | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.help.quickStartAction | Welcome | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.help.tipsAndTricksAction | Tips and Tricks | org.eclipse.ui.category.help | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.OpenMarkersView | Open Another | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.configureColumns | Configure Columns... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.configureFilters | Filters... | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.copyBuildIdCommand | Copy Build Id Information To Clipboard | org.eclipse.ui.category.edit | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.copyConfigCommand | Copy Configuration Data To Clipboard | org.eclipse.ui.category.edit | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.deleteCompleted | Delete Completed Tasks | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.ide.markCompleted | Mark Completed | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.ide.markers.copyDescription | Copy Description To Clipboard | org.eclipse.ui.category.edit | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.markers.copyMarkerResourceQualifiedName | Copy Resource Qualified Name To Clipboard | org.eclipse.ui.category.edit | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.ide.showInSystemExplorer | Show In (System Explorer) | org.eclipse.ui.category.navigate | 1 | true | org.eclipse |
+| org.eclipse.ui.navigate.addToWorkingSet | Add to Working Set | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.back | Back | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.navigate.backwardHistory | Backward History | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.navigate.collapseAll | Collapse All | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.expandAll | Expand All | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.forward | Forward | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.navigate.forwardHistory | Forward History | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.navigate.goInto | Go Into | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.goToResource | Go to Resource | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.linkWithEditor | Toggle Link with Editor | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.next | Next | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.nextSubTab | Next Sub-Tab | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.nextTab | Next Tab | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.navigate.openResource | Open Resource | org.eclipse.ui.category.navigate | 1 | true | org.eclipse |
+| org.eclipse.ui.navigate.previous | Previous | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.previousSubTab | Previous Sub-Tab | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.previousTab | Previous Tab | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.navigate.removeFromWorkingSet | Remove From Working Set | org.eclipse.ui.category.edit | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.selectWorkingSets | Select Working Sets | org.eclipse.ui.category.window | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigate.showIn | Show In | org.eclipse.ui.category.navigate | 1 | true | org.eclipse |
+| org.eclipse.ui.navigate.showInQuickMenu | Show In... | org.eclipse.ui.category.navigate | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.navigate.showResourceByPath | Show Resource in Navigator | org.eclipse.ui.category.navigate | 1 | true | org.eclipse |
+| org.eclipse.ui.navigate.up | Up | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.navigator.resources.nested.changeProjectPresentation | P&rojects Presentation | org.eclipse.core.commands.categories.autogenerated | 2 | true | org.eclipse |
+| org.eclipse.ui.newWizard | New | org.eclipse.ui.category.file | 1 | true | org.eclipse |
+| org.eclipse.ui.part.nextPage | Next Page | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.part.previousPage | Previous Page | org.eclipse.ui.category.navigate | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.perspectives.showPerspective | Show Perspective | org.eclipse.ui.category.perspectives | 2 | true | org.eclipse |
+| org.eclipse.ui.project.buildAll | Build All | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.project.buildAutomatically | Build Automatically | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.project.buildLast | Repeat Working Set Build | org.eclipse.ui.category.project | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.project.buildProject | Build Project | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.project.cleanAction | Build Clean | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.project.closeProject | Close Project | org.eclipse.ui.category.project | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.project.closeUnrelatedProjects | Close Unrelated Projects | org.eclipse.ui.category.project | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.project.openProject | Open Project | org.eclipse.ui.category.project | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.project.properties | Properties | org.eclipse.ui.category.project | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.project.rebuildAll | Rebuild All | org.eclipse.ui.category.project | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.project.rebuildProject | Rebuild Project | org.eclipse.ui.category.project | null (command declares none) | false | org.eclipse |
+| org.eclipse.ui.toggleShowKeys | Toggle Show Key Bindings | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.views.properties.NewPropertySheetCommand | Properties | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.views.showView | Show View | org.eclipse.ui.category.views | 3 | true | org.eclipse |
+| org.eclipse.ui.window.activateEditor | Activate Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.closeAllPerspectives | Close All Perspectives | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.closePerspective | Close Perspective | org.eclipse.ui.category.window | 1 | true | org.eclipse |
+| org.eclipse.ui.window.customizePerspective | Customize Perspective | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.fullscreenmode | Toggle Full Screen | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.hideShowEditors | Toggle Shared Area Visibility | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.hidetrimbars | Toggle visibility of the window toolbars | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.lockToolBar | Toggle Lock Toolbars | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.maximizePart | Maximize Active View or Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.minimizePart | Minimize Active View or Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.newEditor | Clone Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.newWindow | New Window | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.nextEditor | Next Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.nextPerspective | Next Perspective | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.nextView | Next View | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.openEditorDropDown | Quick Switch Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.pinEditor | Pin Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.preferences | Preferences | org.eclipse.ui.category.window | 1 | true | org.eclipse |
+| org.eclipse.ui.window.previousEditor | Previous Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.previousPerspective | Previous Perspective | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.previousView | Previous View | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.quickAccess | Find Actions | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.resetPerspective | Reset Perspective | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.savePerspective | Save Perspective As | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.showContextMenu | Show Context Menu | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.showKeyAssist | Show Key Assist | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.showSystemMenu | Show System Menu | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.showViewMenu | Show View Menu | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.splitEditor | Toggle Split Editor | org.eclipse.ui.category.window | 1 | true | org.eclipse |
+| org.eclipse.ui.window.spy | Show Contributing Plug-in | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.switchToEditor | Switch to Editor | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.eclipse.ui.window.togglestatusbar | Toggle Statusbar | org.eclipse.ui.category.window | null (command declares none) | true | org.eclipse |
+| org.hpec.ide.command.ProjectEditor | Project Confiuration Editor | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.hpec |
+| org.hpec.ide.command.SDKConfig | GS SDK Config(Internal) | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.hpec |
+| org.hpec.ide.command.test | test | org.eclipse.core.commands.categories.autogenerated | null (command declares none) | true | org.hpec |
