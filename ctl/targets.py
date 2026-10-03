@@ -77,6 +77,12 @@ class Target:
     vendor_prefix: str = ""
     jre_home: str = ""
     ecj: str = ""
+    #: The vendor view the write cases open/close.  This is per-target **data**,
+    #: not a case constant: the two products name their views differently
+    #: (`com.gs.memory.view` vs `com.ti.ccstudio.project.ui.views.MemoryAllocationView`).
+    #: R5' requires the *same* case with the *same* judgement on both targets;
+    #: only this value may differ.  Empty -> the case SKIPs (never guesses).
+    probe_view: str = ""
 
     # -- construction ------------------------------------------------------ #
 
@@ -102,7 +108,7 @@ class Target:
             )
         values: Dict[str, Any] = {}
         for f in ("install_dir", "eclipse_version", "jre", "java_target", "product",
-                  "launcher", "vendor_prefix", "jre_home", "ecj"):
+                  "launcher", "vendor_prefix", "jre_home", "ecj", "probe_view"):
             if f in merged:
                 values[f] = str(merged[f])
         if "default_port" in merged:
@@ -215,6 +221,8 @@ _BUILTIN: Dict[str, Dict[str, Any]] = {
         "port": 8777,
         "launcher": "GS32.exe",
         "vendor_prefix": "com.gs",
+        # Measured 2026-10-01 (facts-baseline §5): one of the 5 registered `com.gs.*` views.
+        "probe_view": "com.gs.memory.view",
     },
     "ccs12": {
         "install_dir": "D:/ti/ccs1281/ccs/eclipse",
@@ -233,6 +241,12 @@ _BUILTIN: Dict[str, Dict[str, Any]] = {
         # `python -m ctl build --target ccs12 --ecj <jar>`.
         "ecj": "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2/plugins/"
                "org.eclipse.jdt.core.compiler.batch_3.36.0.v20231114-0937.jar",
+        # Measured 2026-10-02 on a live instance: `com.ti` registers 33 views
+        # (`ui.viewids com.ti`), and this one opens and reads back
+        # (`cmd.runp showView viewId=…` -> OK, then present in `ui.parts`).
+        # `.memory.view` (the gs32 suffix) does NOT exist under `com.ti` -- that
+        # is exactly why the old suffix-concatenation could not cross targets.
+        "probe_view": "com.ti.ccstudio.project.ui.views.MemoryAllocationView",
     },
 }
 

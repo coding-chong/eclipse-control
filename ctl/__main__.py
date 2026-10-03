@@ -49,6 +49,8 @@ from .lifecycle import (
     run_paths,
     uninstall as lifecycle_uninstall,
 )
+from .parse import command_ids
+from .run import cmd_run as cmd_run_door
 from .targets import (
     Config,
     Target,
@@ -83,6 +85,9 @@ SUBCOMMANDS = (
     "preflight",
     "act",
     "shadow",
+    # The one door (`deliverable-shape.md` §7): a script on stdin, the library
+    # pre-imported.  Every other subcommand above stays exactly as it was.
+    "run",
 )
 
 #: Retry hint appended to every bridge-originated error (`A12`: each CLI error
@@ -211,6 +216,7 @@ def build_parser() -> CtlParser:
     add("preflight", "doctor + verify + doc/CLI consistency + CHANGELOG entry")
     p_act = add("act", "element-addressed input primitives", parents=(common, write))
     p_shadow = add("shadow", "shadow shots: what the screen looked like after each write")
+    p_run = add("run", "one door: run a Python script from stdin against the bridge")
 
     # -- doctor ------------------------------------------------------------- #
     # (options come from `common`; nothing else)
@@ -242,7 +248,11 @@ def build_parser() -> CtlParser:
     # -- commands ----------------------------------------------------------- #
     p_commands.set_defaults(commands_action="export")
     csub = p_commands.add_subparsers(dest="commands_action")
-    csub.add_parser("export", help="dump the full command table", parents=[common])
+    c_export = csub.add_parser("export", help="dump the full command table", parents=[common])
+    c_export.add_argument("--full", action="store_true",
+                          help="emit the six-field table per command (id/name/category/"
+                               "parameters/handled/vendor) instead of bare ids; costs one "
+                               "cmd.query per command")
     c_find = csub.add_parser("find", help="reverse lookup: UI text -> command id", parents=[common])
     c_find.add_argument("--text", required=True)
 
@@ -315,6 +325,21 @@ def build_parser() -> CtlParser:
     p_shadow.add_argument("--max-bytes", dest="max_bytes", type=int, metavar="BYTES",
                           help="override the ring's byte budget for this call")
 
+    # -- run (the one door) --------------------------------------------------- #
+    p_run.add_argument("--helpers", metavar="PATH",
+                       help="Python file exec'd first, in the same namespace as the script")
+    p_run.add_argument("--no-start", dest="no_start", action="store_true",
+                       help="never start an instance: fail closed (exit 2) when no live "
+                            "bridge answers sys.ping")
+    p_run.add_argument("--stop", action="store_true",
+                       help="tear the instance down after the script and report the "
+                            "four-way clean predicate (bundle_absent / configuration_clean "
+                            "/ port_released / no_process)")
+    p_run.add_argument("--doctor", action="store_true",
+                       help="print the readiness self-check first; informational only -- "
+                            "it scans the whole run root, so its exit code never gates "
+                            "the script")
+
     for name in SUBCOMMANDS:
         sub.choices[name].set_defaults(func=HANDLERS[name])
     return parser
@@ -384,6 +409,16 @@ def _single_target(args, config: Config) -> Target:
     names = _target_names(args, config)
     if len(names) > 1:
         raise UsageError("this command takes a single --target, got: %s" % ", ".join(names))
+    # `--run-id` 已经点名了某个实例。调用方没写 `--target` 时，若能从 run id 反推出唯一的
+    # target 名就采用它 —— 否则 `"target"` 字段与 retry 提示会写成**默认** target，
+    # 对一个属于别的产品的 run 就是错的（实测：`--run-id ccs12-p42` 曾报 `target = gs32`，
+    # 截断提示随之给出跑不通的 `retry: … --target gs32`）。
+    if not getattr(args, "target", None):
+        rid = getattr(args, "run_id", None)
+        if rid:
+            matched = [n for n in config.target_names() if rid == n or rid.startswith(n + "-")]
+            if len(matched) == 1:
+                return config.target(matched[0])
     return config.target(names[0])
 
 
@@ -797,7 +832,8 @@ def _cmd_targets(args) -> int:
 # commands
 # --------------------------------------------------------------------------- #
 
-def _fetch_command_ids(client: Client, target: Target, rid: str) -> Tuple[List[str], Optional[int]]:
+def _fetch_command_ids(client: Client, target: Target,
+                       rid: str) -> Tuple[List[str], Optional[int], List[str]]:
     """Read the full command table.
 
     桥的 `cmd.list` 负载形态（2026-10-01 实测原文）：
@@ -814,11 +850,15 @@ def _fetch_command_ids(client: Client, target: Target, rid: str) -> Tuple[List[s
     ⇒ **`total=` 不在行首**，旧写法 `re.match(r"^\\s*total=(\\d+)")` 永远匹配不到，
     于是 `total` 恒为 `None`、`truncated` 恒为 `False` —— 「截断检测」形同虚设。
     改为：优先认带 `definedCommandIds` 的那一行，退而求其次认任何含 `total=` 的行。
+
+    id 块与 handler-only 块的解析**不在本函数里**：唯一的权威实现在
+    :func:`ctl.parse.command_ids`（`ctl run` 的门共用它，见 `measurement-hygiene.md`
+    §13.7）。这里只保留结算行 `total=` 的解析 —— 它认的是**带 `definedCommandIds`
+    前缀**的那一行，与 id 块框定是两件事。
     """
     response = client.request("cmd.list", timeout=30.0)
     if not response.ok:
         raise _bridge_fail(response, target.name, rid)
-    ids: List[str] = []
     # 先认带 `definedCommandIds` 的汇总行（它有 total/matched/returned/truncated 四个值）；
     # 再退到任何含 `total=` 的行。**不要**让后面的 `handlerOnly ... total=1` 覆盖它。
     total = None
@@ -834,17 +874,60 @@ def _fetch_command_ids(client: Client, target: Target, rid: str) -> Tuple[List[s
             if m:
                 total = int(m.group(1))
                 break
+
+    # id 块（头 `ICommandService …` / 尾 `definedCommandIds …` 框定，块内逐行照抄，**不许**
+    # 加 `"." in token` 之类的启发式）与 handler-only 块（行形如 `  + <id>`，单独返回、不混进
+    # ids）的解析**不在本函数里** —— 唯一权威实现是 `ctl.parse.command_ids`，`ctl run` 的门
+    # 共用它。CCS 上 `undo` / `redo` 不带点，任何点号判据都会静默吞掉它们（805 vs 807）。
+    ids, handler_only = command_ids(response.payload)
+    return ids, total, handler_only
+
+
+#: R8 定死的那六个字段。顺序即产物里的列序。
+_COMMAND_FIELDS: Tuple[str, ...] = ("id", "name", "category", "parameters", "handled", "vendor")
+
+
+def _command_vendor(command_id: str, vendor_prefix: str) -> str:
+    """第 6 个字段（厂商标记）—— 由 id 本身判定，不额外问桥。
+
+    `AUTOGEN:::` 那些是 Eclipse 自己生成的包装命令，不属于任何厂商。
+    """
+    if command_id.startswith("AUTOGEN:::"):
+        return "autogen"
+    for prefix in (vendor_prefix, "com.gs", "com.ti"):
+        if prefix and command_id.startswith(prefix + "."):
+            return prefix
+    parts = command_id.split(".")
+    return ".".join(parts[:2]) if len(parts) >= 2 else command_id
+
+
+def _query_command_fields(client: Client, command_id: str,
+                          vendor_prefix: str) -> Dict[str, Any]:
+    """一次 `cmd.query`，解析成表里的 6 个字段。
+
+    负载是 `key=value` 行 —— 这里**一律按键取值、不按下标**：`name=` / `category=`
+    的值是自由文本，按下标取字段正是 `measurement-hygiene.md` §13.4 那个坑。
+    `cmd.query` 失败（如已消失的命令）不抛，如实留空，由调用方看见。
+    """
+    row: Dict[str, Any] = {"id": command_id, "name": "", "category": "",
+                           "parameters": "", "handled": "",
+                           "vendor": _command_vendor(command_id, vendor_prefix)}
+    response = client.request("cmd.query %s" % command_id, timeout=10.0)
+    if not response.ok:
+        return row
     for line in response.payload:
-        match = re.match(r"^\s*(?:cmd )?id=(\S+)", line)
-        if match:
-            ids.append(match.group(1))
-    if not ids:
-        # 形态二：每行一个裸 id（前导空白 + 无空格 + 含点）
-        for line in response.payload:
-            token = line.strip()
-            if token and " " not in token and "." in token and "=" not in token:
-                ids.append(token)
-    return ids, total
+        text = line.strip()
+        for key in ("handled", "name", "category"):
+            head = key + "="
+            if text.startswith(head):
+                value = text[len(head):]
+                if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                row[key] = value
+        head = "parameters="
+        if text.startswith(head):
+            row["parameters"] = text[len(head):]
+    return row
 
 
 def _cmd_commands(args) -> int:
@@ -852,30 +935,58 @@ def _cmd_commands(args) -> int:
     config = _load_config(args)
     client, target, rid = _connect(args, config)
     if action == "export":
-        ids, total = _fetch_command_ids(client, target, rid)
+        ids, total, handler_only = _fetch_command_ids(client, target, rid)
         truncated = bool(total is not None and total > len(ids))
         if truncated:
             print("warning: bridge reported total=%d but returned %d (truncated); "
                   "retry: python -m ctl build --target %s"
                   % (total, len(ids), target.name), file=sys.stderr)
+
+        if getattr(args, "full", False):
+            # R8 的那张表：每条 6 个字段。`cmd.query` 一条一次，所以 n 条 ≈ n 次往返；
+            # 进度走 stderr —— stdout 只放结果（R12′.2）。
+            rows: List[Dict[str, Any]] = []
+            for index, command_id in enumerate(ids, 1):
+                rows.append(_query_command_fields(client, command_id, target.vendor_prefix))
+                # 进度**只在人看的那次**打。`--json` 的契约是「stderr 为空」（A11b′ / R12′.2）——
+                # 机器消费者不要噪声，否则 `--json 2>err` 不再为空（实测曾因此违反 A11b′）。
+                if not args.json and index % 100 == 0:
+                    print("export: %d/%d" % (index, len(ids)), file=sys.stderr)
+            if args.json:
+                _emit_json({"target": target.name, "run_id": rid, "total": total,
+                            "returned": len(rows), "truncated": truncated,
+                            "fields": list(_COMMAND_FIELDS), "commands": rows,
+                            "handler_only": handler_only})
+            else:
+                print("\t".join(_COMMAND_FIELDS))
+                for row in rows:
+                    print("\t".join(str(row.get(field, "")) for field in _COMMAND_FIELDS))
+            return 0
+
         if args.json:
             _emit_json({"target": target.name, "run_id": rid, "total": total,
-                        "returned": len(ids), "truncated": truncated, "commands": ids})
+                        "returned": len(ids), "truncated": truncated,
+                        "commands": ids, "handler_only": handler_only})
         else:
-            print("total=%s returned=%d" % (total if total is not None else "?", len(ids)))
+            print("total=%s returned=%d handler_only=%d"
+                  % (total if total is not None else "?", len(ids), len(handler_only)))
             for command_id in ids:
                 print(command_id)
+            for command_id in handler_only:
+                print("+ " + command_id)
         return 0
     if action == "find":
         needle = args.text.lower()
-        ids, _total = _fetch_command_ids(client, target, rid)
+        ids, _total, _handler_only = _fetch_command_ids(client, target, rid)
         hits = []
         for command_id in ids:
             response = client.request("cmd.query %s" % command_id, timeout=10.0)
             if not response.ok:
                 continue
             for line in response.payload:
-                match = re.search(r'name="([^"]*)"', line)
+                # **锚定**到 `name=` 行：`cmd.query` 在命令声明了参数时还会吐 `  param id=… name="…"`
+                # 行，`re.search` 会拿参数名当命令名（假命中）。命令自身的 name 行不带前导空格。
+                match = re.match(r'\s*name="([^"]*)"', line)
                 if match and needle in match.group(1).lower():
                     hits.append({"id": command_id, "name": match.group(1)})
                     break
@@ -1651,6 +1762,33 @@ def _act_send_input(args) -> int:
 # dispatch
 # --------------------------------------------------------------------------- #
 
+def _cmd_run_door(args) -> int:
+    """`ctl run` plus the two lifecycle flags R10' requires (`--doctor` / `--stop`).
+
+    **`--doctor` is informational, never a gate.** `_cmd_doctor` scans the *whole* run
+    root, so in a healthy session it reports FAIL for every sibling run and exits 2
+    (measured 2026-10-01) -- and the `--ensure-clean` retry it suggests would kill *this*
+    instance.  Its exit code is therefore discarded.
+
+    **`--stop` reuses the already-tested teardown path** (`_cmd_uninstall`) rather than
+    re-implementing it, and runs even when the script failed: leaking a live instance is
+    worse than a failed script.
+    """
+    if getattr(args, "doctor", False):
+        _cmd_doctor(args)
+    code = cmd_run_door(args)
+    if getattr(args, "stop", False):
+        args.verify_clean = True
+        try:
+            stop_code = _cmd_uninstall(args)
+        except Exception as exc:  # cleanup must never mask the script's own result
+            print("ERR stop failed: %s" % exc, file=sys.stderr)
+            stop_code = 1
+        if stop_code:
+            return stop_code
+    return code
+
+
 HANDLERS = {
     "doctor": _cmd_doctor,
     "install": _cmd_install,
@@ -1674,6 +1812,7 @@ HANDLERS = {
     "preflight": _cmd_preflight,
     "act": _cmd_act,
     "shadow": _cmd_shadow,
+    "run": _cmd_run_door,
 }
 
 

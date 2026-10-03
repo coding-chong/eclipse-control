@@ -9,7 +9,27 @@ Layout (see `design.md` §2)::
     ctl/verify/       acceptance-case runner
 
 Only the Python standard library is used, by design (`design-project.md` §15.3).
+
+The library is importable on its own (`deliverable-shape.md` §7): ``import ctl``
+gives the connection client and the one-shot helpers, so a script can drive the
+bridge through ``python -m ctl run`` or straight from its own process.  The CLI
+subcommands stay exactly as they were; nothing moved out of them.
 """
+
+from .client import Client, Response, discover_endpoint, resp, snap, talk
+from .errors import BridgeError
+
+__all__ = [
+    "BUNDLE_SYMBOLIC_NAME",
+    "BridgeError",
+    "Client",
+    "PROTOCOL_VERSION",
+    "Response",
+    "discover_endpoint",
+    "resp",
+    "snap",
+    "talk",
+]
 
 # Project version == bridge `Bundle-Version` (`design-project.md` §15.2).
 __version__ = "0.1.0"
