@@ -9,7 +9,10 @@ answered ``ERR timeout`` is allowed to have done.  Both drive their own window
 snapshots instead of the runner's guard, because the modal has to be observed
 *while it is on screen*.  ``input`` holds the one case that judges **the target
 product's SWT**, not the bridge: it starts its own fixture and never connects,
-so it runs without ``install``.
+so it runs without ``install``.  ``realflow`` holds the one case that runs the
+**whole real workflow** end to end: it needs a live instance for the editor step
+(``ui.open`` + read-back), then shells out to the target's own headless build
+entry point in a separate JVM with its own scratch workspace.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ from .read_shells import CASE as READ_SHELLS
 from .read_tree import CASE as READ_TREE
 from .read_viewids import CASE as READ_VIEWIDS
 from .read_wait import CASE as READ_WAIT
+from .realflow_build_artifact import CASE as REALFLOW_BUILD_ARTIFACT
 from .resilience_modal_reset import CASE as RESILIENCE_MODAL_RESET
 from .resilience_timeout_applied import CASE as RESILIENCE_TIMEOUT_APPLIED
 from .write_close_view import CASE as WRITE_CLOSE_VIEW
@@ -71,6 +75,9 @@ ALL_CASES = [
     ERRORS_PLUGIN_ID_AS_VIEW,
     RESILIENCE_MODAL_RESET,
     RESILIENCE_TIMEOUT_APPLIED,
+    # `realflow` last: it is the slowest case (a real headless build) and it is the
+    # only one that leaves a scratch project tree behind for `post` to remove.
+    REALFLOW_BUILD_ARTIFACT,
 ]
 
 

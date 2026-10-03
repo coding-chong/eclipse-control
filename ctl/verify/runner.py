@@ -34,7 +34,7 @@ from ..lifecycle import latest_run_id, list_processes, run_paths
 from ..targets import Config
 
 #: Group vocabulary (`design.md` §10): read|write|errors|resilience|input.
-GROUPS = ("read", "write", "errors", "resilience", "input")
+GROUPS = ("read", "write", "errors", "resilience", "input", "realflow")
 
 #: Exceptions a case body may raise to mean "the environment is not ready".
 ENV_NOT_READY = (PrereqNotReady, EndpointNotFound)

@@ -36,7 +36,11 @@ def _action(ctx):
     core = ctx.request("cmd.list org.eclipse.ui.edit")
     prefix = ctx.target.vendor_prefix
     vendor = ctx.request("cmd.list %s" % prefix) if prefix else None
-    return core, vendor, prefix
+    # 空前缀那次：`handlerOnly` 只有在这里才是**全局**值 —— 带前缀时桥按前缀过滤它
+    # （实测 GS32：全局 total=1，`org.eclipse.ui.edit` 域 total=0）。若只取带前缀那次，
+    # 详情里的数字就与前缀绑死，读者拿它去对 `boundaries.md` §5.1 的全局值会看成"打架"。
+    global_ = ctx.request("cmd.list")
+    return core, vendor, prefix, global_
 
 
 def _check(summary, label, problems):
@@ -52,7 +56,7 @@ def _check(summary, label, problems):
 
 
 def _expect(ctx, result) -> Tuple[bool, str]:
-    core, vendor, prefix = result
+    core, vendor, prefix, global_ = result
     problems = []
     if not core.ok:
         problems.append("cmd.list org.eclipse.ui.edit -> %r" % core.status_line)
@@ -69,8 +73,16 @@ def _expect(ctx, result) -> Tuple[bool, str]:
         extra = " | " + _check(vendor_summary, prefix, problems)
         if vendor_summary is not None and vendor_summary["matched"] < 1:
             problems.append("vendor prefix %r matched 0 commands" % prefix)
-    handler_only = _handler_only(core.text)
-    return verdict(problems, detail + extra + " | handlerOnly=%s" % handler_only)
+    if not global_.ok:
+        problems.append("cmd.list (no prefix) -> %r" % global_.status_line)
+    # `handlerOnly` 是**按前缀过滤**的 —— 只有空前缀那次才是全局值（实测 GS32：全局 1，
+    # `org.eclipse.ui.edit` 域 0）。三个作用域都标出来，否则详情里的数字会被拿去对
+    # `boundaries.md` §5.1 的全局值，看着像"打架"。
+    scopes = ["global=%s" % _handler_only(global_.text),
+              "prefix=org.eclipse.ui.edit=%s" % _handler_only(core.text)]
+    if vendor is not None:
+        scopes.append("prefix=%s=%s" % (prefix, _handler_only(vendor.text)))
+    return verdict(problems, detail + extra + " | handlerOnly(" + ", ".join(scopes) + ")")
 
 
 CASE = Case(

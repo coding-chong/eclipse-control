@@ -8,10 +8,10 @@ thread and MAY still take effect".  So the only honest judge is a read-back take
 write -- and the diff has to be *known to be sensitive*, which is what the two
 directions here are for.
 
-Both directions use one perturbation: ``org.eclipse.ui.views.TaskList``, a view
-in the C/C++ perspective's default layout (measured: a fresh instance lists it),
-is closed first, so the observable difference is exactly "did the perspective get
-reset?".
+Both directions use one perturbation: ``org.eclipse.ui.views.ProblemView``, a view
+in the **active perspective's default layout on both targets** (measured: a fresh
+GS32 C/C++ instance and a fresh CCS ``CCS Edit`` instance both list it), is closed
+first, so the observable difference is exactly "did the perspective get reset?".
 
 * **cancel** (``WM_CLOSE`` == the title bar's X, nothing pressed) -> the read-back
   must be **unchanged** -> ``applied=no``, and that matches the ground truth that
@@ -47,9 +47,13 @@ DIALOG_TITLE = "Reset Perspective"
 #: declaration is what `Runner.answer_modal` checks before it does.
 DECLARED_BUTTON = "&Reset Perspective"
 
-#: A view in the C/C++ perspective's default layout: closing it is the
-#: perturbation, and a real reset re-opens it (both measured).
-PERTURB_VIEW = "org.eclipse.ui.views.TaskList"
+#: A view in the **active perspective's default layout on both targets**: closing it
+#: is the perturbation, and a real reset re-opens it (both measured).  Measured
+#: 2026-10-02: `org.eclipse.ui.views.TaskList` *is* in GS32's C/C++ default layout
+#: but NOT in CCS's `com.ti.ccstudio.TICPerspective`, so with the old constant a
+#: CCS reset that worked exactly as designed read as "the view did not come back".
+#: `ProblemView` is in both (fresh-instance `ui.parts` lists it on each).
+PERTURB_VIEW = "org.eclipse.ui.views.ProblemView"
 
 DIALOG_WAIT_S = 12.0
 CLIENT_WAIT_S = 40.0
@@ -230,7 +234,10 @@ def _rollback(ctx):
 CASE = Case(
     name="resilience.timeout-applied",
     group="resilience",
-    targets=("gs32",),
+    # R5': the perturbation is `PERTURB_VIEW` = `org.eclipse.ui.views.ProblemView`,
+    # a platform view in **both** targets' active default layout, and the modal
+    # command is platform-level -- so the case is not target-specific.
+    targets=("gs32", "ccs12"),
     description="a write that answered ERR timeout is judged by the read-back after the modal "
                 "is answered: cancelled -> applied=no, pressed -> applied=yes",
     pre=_pre,

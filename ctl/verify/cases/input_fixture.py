@@ -41,7 +41,14 @@ from ._util import verdict
 #: 仓库根。本文件在 ``<root>/ctl/verify/cases/`` 下。
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _FIXTURE_DIR = os.path.join(_ROOT, "tools", "fixture-swt")
-_OUT_DIR = os.path.join(_FIXTURE_DIR, "out")
+#: Build output is **per target**, never shared.  The class-file version a target's
+#: JVM accepts differs (`java_target` 17 vs 11) and so does the SWT fragment, so one
+#: shared `out/` makes the second target silently reuse the first one's class.
+#: Measured 2026-10-02: CCS (JRE 11.0.13) picked up the Java-17 `Fixture.class`
+#: (major 61) a GS32 run had left behind, the JVM refused to load it, and the
+#: fixture window never appeared -- reported as a SKIP, never as a PASS.
+def _out_dir(target_name: str) -> str:
+    return os.path.join(_FIXTURE_DIR, "out", target_name)
 _PROBE = os.path.join(_FIXTURE_DIR, "probe.ps1")
 
 #: 夹具基类名（`Fixture.java` 的 `BASE`）。标题即判据：
@@ -93,25 +100,134 @@ def _resolve(target) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     return java, ecj, swt
 
 
-def _ensure_built(java: str, ecj: str, swt: str, source_level: str, log: List[str]) -> None:
-    """编译夹具并从 SWT 片段里抽出原生 DLL。**幂等**：class 比源码新就跳过。"""
-    os.makedirs(_OUT_DIR, exist_ok=True)
-    src_java = os.path.join(_FIXTURE_DIR, "Fixture.java")
-    cls = os.path.join(_OUT_DIR, "Fixture.class")
+def _decode(raw: Optional[bytes]) -> str:
+    """Decode a child process' output **without ever losing it**.
 
+    ``text=True`` alone is unsafe here: on a Chinese Windows locale the JVM writes
+    GBK, so a fixed UTF-8 decode raises inside the reader thread and ``stderr``
+    comes back as ``None`` -- the failure then reports an **empty** cause
+    (measured 2026-10-02: CCS's ``fixture build failed (rc=1): `` had no tail at
+    all, hiding the real ``UnsupportedClassVersionError``).  Same family as
+    ``measurement-hygiene.md`` 13.6: a failure that hides its own cause.
+    """
+    if not raw:
+        return ""
+    for enc in ("utf-8", "gbk"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def _can_host_ecj(java: str, ecj: str) -> bool:
+    """True when `java` can actually load and run the ECJ jar -- probed, not guessed."""
+    try:
+        proc = subprocess.run([java, "-jar", ecj, "-version"],
+                              capture_output=True, timeout=_BUILD_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def _owner_of(ecj: str) -> Optional[object]:
+    """The configured target whose installation tree contains `ecj`, if any."""
+    import ctl.targets as _targets
+    try:
+        cfg = _targets.load({})
+    except Exception:
+        return None
+    want = os.path.abspath(ecj).replace("\\", "/")
+    best = None
+    for name in cfg.target_names():
+        t = cfg.target(name)
+        d = os.path.abspath(t.install_dir).replace("\\", "/").rstrip("/")
+        if want.startswith(d + "/") and (best is None or len(d) > len(best[0])):
+            best = (d, t)
+    return best[1] if best else None
+
+
+def _build_java(target, ecj: str, log: List[str]) -> str:
+    """The JVM that *compiles* the fixture -- **the ECJ and its JVM must match**.
+
+    ECJ 3.36 is compiled for Java 17, so CCS's bundled JRE 11 dies with
+    ``UnsupportedClassVersionError: class file version 61.0`` (measured
+    2026-10-02) -- and ``target.ecj_jar()`` on ``ccs12`` points at **GS32's** jar,
+    because CCS ships no batch compiler of its own (``plugins/`` has no
+    ``org.eclipse.jdt.core.compiler.batch_*``).  Only the **compiler** runs on the
+    JVM picked here: the fixture is still launched with the target's own JVM
+    (``_start``) so the target's SWT is what gets exercised, and
+    ``-target <java_target>`` keeps the produced class file loadable there.
+    """
+    target_java = target.java_exe() or ""
+    candidates: List[Tuple[str, str]] = []
+    if target_java:
+        candidates.append((target.name, target_java))
+    owner = _owner_of(ecj)
+    if owner is not None:
+        owner_java = owner.java_exe()
+        if owner_java and all(owner_java.lower() != j.lower() for _, j in candidates):
+            candidates.append((owner.name, owner_java))
+    for name, java in candidates:
+        ok = _can_host_ecj(java, ecj)
+        log.append("build-jvm: %s [%s] -> %s"
+                   % (java, name, "can host ECJ" if ok else "cannot host ECJ"))
+        if ok:
+            return java
+    # Nothing can host it: hand back the target's own JVM so the compile below
+    # fails with the compiler's *real* message instead of an empty string.
+    return target_java
+
+
+def _swt_version(swt_path: str) -> str:
+    """``…org.eclipse.swt.win32.win32.x86_64_3.119.0.v2022….jar`` → ``3.119.0``."""
+    for part in os.path.basename(swt_path or "").split("_"):
+        if part and part[0].isdigit() and part.count(".") >= 2:
+            return part.split(".v")[0]
+    return ""
+
+
+def _ensure_built(java: str, ecj: str, swt: str, source_level: str,
+                  out_dir: str, log: List[str]) -> None:
+    """编译夹具并从 SWT 片段里抽出原生 DLL。
+
+    **幂等是按构建输入键控的**，不只按 mtime：输入 = 源级 / SWT 片段 / ECJ / **跑 ECJ 的 JVM**，
+    记在 ``<out_dir>/.stamp``；任一变化就把整个输出（含 DLL）作废重来。只比 mtime 不够 ——
+    换 target 或换 SWT 片段时源码没动，但产物已经不能用（见 `_out_dir` 的实测）。
+    """
+    src_java = os.path.join(_FIXTURE_DIR, "Fixture.java")
+    stamp = os.path.join(out_dir, ".stamp")
+    want = "%s|%s|%s|%s" % (source_level, swt, ecj, java)
+
+    have = ""
+    if os.path.isfile(stamp):
+        try:
+            with open(stamp, encoding="utf-8") as fh:
+                have = fh.read().strip()
+        except OSError:
+            have = ""
+    if have != want:
+        # 输入变了 ⇒ class 与 DLL 一起作废（DLL 是从上一份 SWT 片段里抽的）。
+        shutil.rmtree(out_dir, ignore_errors=True)
+    os.makedirs(out_dir, exist_ok=True)
+
+    cls = os.path.join(out_dir, "Fixture.class")
     if os.path.isfile(cls) and os.path.getmtime(cls) >= os.path.getmtime(src_java):
-        log.append("build: up-to-date (Fixture.class 不比 Fixture.java 旧)")
+        log.append("build: up-to-date (%s)" % want)
     else:
         proc = subprocess.run(
             [java, "-jar", ecj, "-source", source_level, "-target", source_level,
-             "-nowarn", "-cp", swt, "-d", _OUT_DIR, src_java],
-            capture_output=True, text=True, timeout=_BUILD_TIMEOUT)
-        tail = ((proc.stdout or "") + (proc.stderr or "")).strip().replace("\n", " ")[:300]
+             "-nowarn", "-cp", swt, "-d", out_dir, src_java],
+            capture_output=True, timeout=_BUILD_TIMEOUT)
+        tail = (_decode(proc.stdout) + _decode(proc.stderr)).strip().replace("\n", " ")[:300]
         log.append("build: rc=%d %s" % (proc.returncode, tail))
         if proc.returncode != 0:
             raise Skip("fixture build failed (rc=%d): %s" % (proc.returncode, tail))
 
-    dlls = [n for n in os.listdir(_OUT_DIR) if n.lower().endswith(".dll")]
+    with open(stamp, "w", encoding="utf-8") as fh:
+        fh.write(want)
+
+    dlls = [n for n in os.listdir(out_dir) if n.lower().endswith(".dll")]
     if dlls:
         log.append("swt dlls: present (%d)" % len(dlls))
     else:
@@ -121,15 +237,15 @@ def _ensure_built(java: str, ecj: str, swt: str, source_level: str, log: List[st
             names = [n for n in zf.namelist() if n.lower().endswith(".dll")]
             for name in names:
                 with zf.open(name) as fh:
-                    with open(os.path.join(_OUT_DIR, os.path.basename(name)), "wb") as out:
+                    with open(os.path.join(out_dir, os.path.basename(name)), "wb") as out:
                         shutil.copyfileobj(fh, out)
         log.append("swt dlls: extracted (%d)" % len(names))
 
 
-def _start(java: str, swt: str, log: List[str]) -> subprocess.Popen:
-    classpath = _OUT_DIR + os.pathsep + swt
+def _start(java: str, swt: str, out_dir: str, log: List[str]) -> subprocess.Popen:
+    classpath = out_dir + os.pathsep + swt
     proc = subprocess.Popen(
-        [java, "-Djava.library.path=" + _OUT_DIR, "-cp", classpath, "Fixture"],
+        [java, "-Djava.library.path=" + out_dir, "-cp", classpath, "Fixture"],
         cwd=_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         encoding="utf-8", errors="replace")
     log.append("fixture: started pid=%d" % proc.pid)
@@ -196,9 +312,13 @@ def _action(ctx) -> Dict[str, object]:
             % (target.name, bool(java), bool(ecj), bool(swt)))
 
     log: List[str] = []
-    _ensure_built(java, ecj, swt, target.java_target or "17", log)
+    out_dir = _out_dir(target.name)
+    build_java = _build_java(target, ecj, log)
+    _ensure_built(build_java, ecj, swt, target.java_target or "17", out_dir, log)
+    log.append("build: out_dir=%s" % out_dir)
+    log.append("swt: %s (version %s)" % (swt, _swt_version(swt) or "?"))
 
-    proc = _start(java, swt, log)
+    proc = _start(java, swt, out_dir, log)
     rows: List[Dict[str, object]] = []
     try:
         # 先探一次窗口（探针自带等待），顺便把子窗清单留成证据。
@@ -241,7 +361,8 @@ def _action(ctx) -> Dict[str, object]:
                 proc.kill()
         log.append("fixture: stopped pid=%d (rc=%s)" % (proc.pid, proc.returncode))
 
-    return {"log": log, "assertions": rows, "target": target.name}
+    return {"log": log, "assertions": rows, "target": target.name,
+            "swt": _swt_version(swt)}
 
 
 def _expect(ctx, result) -> Tuple[bool, str]:
@@ -267,7 +388,18 @@ def _expect(ctx, result) -> Tuple[bool, str]:
         if want is _RECORD:
             continue  # ②a/②b 是定论记录，不判定
         if got != want:
-            problems.append("%s：期望 %s，实测 %s（after=%r）" % (cid, want, got, row.get("after")))
+            note = ""
+            if cid == "key":
+                # 平台的 SWT 是否把「合成 WM_KEYDOWN」派发给控件自身的 KeyListener。
+                # 实测（2026-10-02，2×2 同启动方式）：SWT 3.119.0 / Eclipse 4.23 **不**派发；
+                # SWT 3.124.200 / Eclipse 4.30 **派发**。换 JVM（11 ↔ 23）不改变结果；
+                # 补 `WM_SETFOCUS` 或真 `SetForegroundWindow` 也不改变结果
+                # ⇒ 归因到**平台版本**，进兼容矩阵（R5' 要求差异有归因，不允许静默）。
+                note = ("｜目标 SWT=%s —— 已知平台差异（兼容矩阵 input.fixture/key）："
+                        "Eclipse 4.23 不把合成 WM_KEYDOWN 派发给控件自身的 KeyListener"
+                        % (result.get("swt") or "?"))
+            problems.append("%s：期望 %s，实测 %s（after=%r）%s"
+                            % (cid, want, got, row.get("after"), note))
             continue
         shape = row.get("shape")
         if shape and want == _CHANGED and shape not in (row.get("after") or ""):
@@ -291,9 +423,11 @@ def _expect(ctx, result) -> Tuple[bool, str]:
 CASE = Case(
     name="input.fixture",
     group="input",
-    # 只挂 gs32：夹具要借**该 target 安装树内**的 ECJ + JRE + SWT 片段（D1）。
-    # 挂在没有这套工具链的 target 上会 SKIP —— 那时 `verify --all` 显示 SKIP，不是假 PASS。
-    targets=("gs32",),
+    # 两个 target 都挂（R5′ 双 target 一致）。工具链解析本就是**按 target** 的：
+    # `_resolve()` 走 `target.java_exe()` / `target.ecj_jar()` + 该树自己的 SWT 片段 ——
+    # CCS 侧实测三条全解析得到（自带 `jre/bin/java.exe`、SWT 片段在、ECJ 走 target 表里那份）。
+    # 真缺任一 ⇒ 如实 SKIP（不伪装成 PASS），而不是靠闸门预先排除。
+    targets=("gs32", "ccs12"),
     description=("SWT 接受元素寻址的合成输入（六条断言：①③④ 能力、②定论记录、⑤⑥ 证伪）；"
                  "自带夹具启停，不连桥"),
     action=_action,

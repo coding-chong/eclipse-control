@@ -227,7 +227,10 @@ def _rollback(ctx):
 CASE = Case(
     name="resilience.modal-reset",
     group="resilience",
-    targets=("gs32",),
+    # R5': the command under test (`org.eclipse.ui.window.resetPerspective`) is
+    # platform-level -- measured `defined=true handled=true` on BOTH targets --
+    # and the case drives its own snapshots, so it is not target-specific.
+    targets=("gs32", "ccs12"),
     description="a connection stuck in a modal resetPerspective times out, the bridge keeps "
                 "serving other connections, and the modal is dismissed with a screenshot",
     action=_action,

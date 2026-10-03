@@ -18,14 +18,16 @@ from typing import Tuple
 from ..runner import Case, Skip
 from ._util import parts_counts, verdict, view_ids
 
-VIEW_SUFFIX = ".memory.view"
-
-
 def _view_id(ctx) -> str:
-    prefix = ctx.target.vendor_prefix
-    if not prefix:
-        raise Skip("target %s declares no vendor_prefix" % ctx.target.name)
-    return prefix + VIEW_SUFFIX
+    """The target's declared probe view -- per-target data, same case on both.
+
+    See ``write_close_view._view_id`` for why a fixed ``.memory.view`` suffix
+    could never cross targets.
+    """
+    view = ctx.target.probe_view
+    if not view:
+        raise Skip("target %s declares no probe_view" % ctx.target.name)
+    return view
 
 
 def _pre(ctx):
@@ -98,7 +100,7 @@ def _rollback(ctx):
 CASE = Case(
     name="write.runp-show-view",
     group="write",
-    targets=("gs32",),
+    targets=("gs32", "ccs12"),
     description="cmd.runp showView adds one view, the 2nd call is idempotent, close restores it",
     pre=_pre,
     action=_action,
