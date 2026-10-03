@@ -636,6 +636,36 @@ def install(config: Config, target_name: Optional[str] = None, run_id: Optional[
     paths = run_paths(config.run_root, run_id)
     effective_port = int(port) if port is not None else target.port
 
+    # -- Port ownership check (R1: "跑前能判定并清掉脏状态（残留进程、端口占用）") -- #
+    # `is_port_free()` alone is NOT sufficient on Windows: it only tries `bind()`,
+    # and a Java `ServerSocket` binds with `SO_REUSEADDR` by default, so a plain
+    # bind test can succeed while a live bridge is already listening.  Measured
+    # 2026-10-03: installing on a port held by another run made the new instance
+    # share that bridge, and `--stop` then killed the foreign listener (its cleanup
+    # rule is `victims[pid] = "listening on port %d"` -- it kills by PORT, not by
+    # run).  So ask the OS who is actually listening, and refuse unless the caller
+    # explicitly asked for a clean sweep.
+    #
+    # Only *foreign* listeners block: a listener that belongs to this very run's
+    # configuration area is the "re-install the same run" case, whose handling is
+    # unchanged here.
+    if not ensure_clean_requested:
+        holders = list_port_listeners(effective_port)
+        if holders:
+            mine = set()
+            for row in list_processes():
+                cmdline = (row["cmdline"] or "").replace("\\", "/")
+                if paths.configuration.replace("\\", "/") in cmdline:
+                    mine.add(int(row["pid"]))
+            foreign = [pid for pid in holders if pid not in mine]
+            if foreign:
+                raise PrereqNotReady(
+                    "port %d is already held by another run (live listener pid %s); "
+                    "retry: python -m ctl install --target %s --run-id %s --port <free port>, "
+                    "or pass --ensure-clean to stop that listener first"
+                    % (effective_port, ", ".join(str(pid) for pid in foreign),
+                       target.name, run_id))
+
     jar, version = find_bridge_jar(target.name)  # <-- fails here (exit 2) until bridge is built
     expected_major = int(target.java_target) + 44 if target.java_target else None
     actual_major = jar_java_level(jar)
