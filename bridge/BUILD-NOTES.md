@@ -1,6 +1,13 @@
 # bridge/BUILD-NOTES.md — build & jar verification
 
-2026-10-01 · bridge `eclipse-ctl.bridge` 3.1.0 (protocol 1)
+2026-10-02 · bridge `eclipse-ctl.bridge` **0.1.0** (protocol 1)
+
+> **版本沿革（2026-10-02）**：桥的 `Bundle-Version` 原为 **3.1.0**（`livebridge 3.0.0` 遗留序列的
+> 默认值），与项目版本不一致 ⇒ 违反 `design-project.md` §15.2「项目版本 == 桥 `Bundle-Version`」。
+> 现统一为项目版本 **0.1.0**（`bridge/build.py:DEFAULT_VERSION`），jar 名随之变为
+> `eclipse-ctl.bridge_0.1.0_{gs32,ccs12}.jar`（两 target 各一份，**不是**单 jar）。
+> **下文标着 2026-10-01 的原始输出，是当时的实况**（当时确实是 3.1.0，且是**单 jar** 构建、7 classes）——
+> 保留作历史，不再作当前产出；照抄命令时以「输出名随 `--version` 变」为准。
 
 Toolchain: this machine has **no `javac` and no `jar.exe`**. ECJ and the JVM are borrowed
 **read-only** from the target install tree, packaging is Python `zipfile`

@@ -215,7 +215,7 @@ class Console:
     def parse_bundles(ss_output: str) -> List[dict]:
         """Parse `ss` rows.  **实测 GS32/Equinox 的形态是 `id<TAB>STATE<ws>name`（三列）**：
 
-            350\tINSTALLED   eclipse-ctl.bridge_3.1.0
+            350\tINSTALLED   eclipse-ctl.bridge_0.1.0
 
         部分 Equinox 版本会在 state 后多一列 start level（`id state level name`），
         两种都得认 —— 用 `toks[2]` 是不是纯数字来区分。以前写死四列的正则
