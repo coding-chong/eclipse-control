@@ -37,7 +37,7 @@
 成功：
 
 ```
-OK <一行摘要>
+OK
 <负载行 0..N>
 END
 ```
@@ -52,19 +52,37 @@ END
 
 规则：
 
-1. **首行一定是 `OK` 或 `ERR` 开头的一行摘要**；此后是 0..N 行负载；最后一行是**单独的 `END`**。
+1. **首行一定是 `OK`（成功，不带摘要）或 `ERR <code> <message>`（失败）**；此后是 0..N 行负载；最后一行是**单独的 `END`**。
+   `OK` 行**没有**摘要文本 —— 桥只写 `status`（`bridge/src/ctl/bridge/LiveBridge.java:443`），
+   而 `status` 在成功路径上就是字符串 `"OK"`（`:427`），没有别的尾巴。
 2. `END` 是帧终止符。客户端**必须读到 `END` 才认为一帧结束**；读到 `END` 之前就断开 = 帧不完整。
 3. `ERR` 的首行形如 `ERR <code> <message>`，`code` 取自 §3 的闭集，`message` 是**人类可读的一行**。
 4. 负载行**不保证**是合法 JSON；它是给人看、给 grep 的文本。机读请用 CLI 的 `--json`（`design-obs-ux.md` §14.3），
    不要把负载行当机读接口。
 
-**示例（真实形状，取自 `research/facts-baseline.md` §3）**
+**示例（真实帧）**：帧形状对照 `bridge/src/ctl/bridge/LiveBridge.java` —— 请求是 `handle()` 里的
+`in.readLine()` 读到的**一行**（`:435`），响应由同一个 `handle()` 写出首行 `status`、0..N 行负载、末行 `END`（`:443-445`）；
+下文 `sys.env` 的负载行逐字取自 `research/realflow-scenario-2026-10-02.md` 的 `=== [1] identity: sys.env ===`。
+
+请求（**恰好一行**，无任何前缀）：
 
 ```
-REQ  sys.env
-OK   java.version=23.0.2 | os.name=Windows 11 | bundle=eclipse-ctl.bridge id=351 state=32 | thread=gs32ctl-bridge
+sys.env
+```
+
+响应：
+
+```
+OK
+java.version=23.0.2
+os.name=Windows 11
+…（其余每条 `key=value` 一行）
+thread=gs32ctl-conn-4
 END
 ```
+
+> 桥自己的日志行 `REQ "<请求>" -> <status> …`（`LiveBridge.java:453`）**不是**线上帧的一部分；
+> 它只是桥侧日志，别把 `REQ` 前缀当成请求帧的组成部分。
 
 ---
 
@@ -257,8 +275,16 @@ SR-2026-10-01-01 的「条件」字段里（多用户共享机器不得使用本
 
 ## 6. 端口发现（`endpoint.json`）
 
-桥的实际端口由「从 `8777` 起取首个空闲」决定（`design.md` §10、`design-obs-ux.md` §14.3），
-因此**客户端不能假设端口一定是 8777**。每次运行会把寻址信息写进：
+桥的端口**按 target 固定**，**不是**从 `8777` 起自动取首个空闲：内置矩阵里
+`gs32` 条目有 `"port": 8777`、`ccs12` 条目有 `"port": 8778`（`ctl/targets.py:204` / `ctl/targets.py:217`）。
+唯一的覆盖途径是调用方**显式**给一个 `port`（配置字段 / `--port` flag）——`ctl/lifecycle.py:626` 的
+`effective_port = int(port) if port is not None else target.port` 就是全部逻辑：给了就用给的，没给就用 target 的固定值。
+**端口被占即拒（fail closed）**：`install()` 先用 `list_port_listeners()` 问 OS「到底谁在听」
+（`ctl/lifecycle.py:642`：`holders = list_port_listeners(effective_port)`），只要查到的监听进程
+**不属于本次运行**（`if foreign:` 成立），就抛 `PrereqNotReady`（`ctl/lifecycle.py:657`，消息含
+`port %d is already held by another run …`），提示改用 `--port <其它端口>` 或 `--ensure-clean` ——
+**不会**自动换一个空闲端口。
+因此**客户端不能假设端口一定是 8777**，也不能假设它会随占用漂移。每次运行会把寻址信息写进：
 
 ```
 <run_root>/<run_id>/endpoint.json
@@ -282,7 +308,7 @@ python -m ctl status --target gs32 --json
 ```
 
 **用法**：`shell` / `status` / `parts` / `act` 等子命令按 `--run-id` 去读这个文件解析端口；
-**不读它就无法知道「首个空闲」到底落在哪个端口**。
+**不读它就无法知道本次运行实际绑在哪一个端口**（target 固定值，或被 flag/config 覆盖后的值）。
 
 ---
 
