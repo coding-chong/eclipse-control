@@ -6,7 +6,8 @@
 `未证实` = 试过但没有可观测的正证据；`已否决` = 有**方法无效**级别的证据；`决定不投入` = 用户口径的选择，
 **不是**实验结论（出处 `design-project.md` §18.2、`research/facts-baseline.md` §12、`prd.md` §5）。
 
-**本文件条目数**：能做 9 条 / 不能做 11 条 / 未验证 13 条，共 **33 条**，每条恰好一个「证据」字段。
+**本文件条目数**（2026-10-02 复算）：能做 **12** 条 / 不能做 **11** 条 / 未验证 **16** 条，共 **39** 条，
+每条恰好一个「证据」字段（§5 的小节不计入条目；`A6` / `A6b` 两条此前缺该字段，同日补上）。
 
 ---
 
@@ -30,23 +31,16 @@
 
 ### A5 跨产品复现
 - **能力**：同一套技术对 CCS 12（Eclipse 4.23 / JRE 11）复现成功，不只 GS32（4.30 / JRE 23）。
-  **两个 target 各自跑通全量门禁**（2026-10-02 实测）：
+  **两个 target 各自跑通全量门禁** —— **当前数字以 §5.2 / §5.3 为唯一权威**：
+  `verify --all` 实测 **GS32 25 PASS + 1 SKIP / 0 FAIL**（rc=0）· **CCS12 24 PASS + 1 SKIP / 1 FAIL**（rc=1）；
+  唯一那条 FAIL（`input.fixture` 的 `key`）已归因到**平台版本 / SWT 派发行为**（§5.3），**未结案 0 条**。
+  （26 用例：比旧快照多一条 `realflow.build_artifact`，两侧都 PASS —— 见 §5.2 / §5.4。）
+  > ⚠️ **本节此前那张旧表已于 2026-10-02 作废 —— 按 §13.8，只留指针，不留作废的数字。**
+  > 作废原因：那是 **CCS 腿双 target 化之前**的快照，与现在两条腿都跑满 26 用例的事实不符
+  > （`read.console` 两侧同因 SKIP），两张表并存在同一文件里属自相矛盾。
+  > **逐条对照与归因见 §5.2 / §5.3。**
 
-  | 门禁 | gs32 | ccs12 |
-  |---|---|---|
-  | `verify --all` | **23 PASS + 1 SKIP / 0 FAIL** | **19 PASS + 5 SKIP / 0 FAIL** |
-
-  **差异逐条**（6 条 SKIP **全部**是"声明式 skip"或"判据不适用"，**无一条是失败**）：
-
-  | 差异 | gs32 | ccs12 | 原因 |
-  |---|---|---|---|
-  | 命令总数 | 666 | **807** | 厂商 bundle 数 `com.gs` 15 个 vs `com.ti` 177 个 |
-  | 厂商命令数 | `com.gs` **7** | `com.ti` **115** | 两家产品命令面不同 |
-  | 活动透视图 | `org.eclipse.cdt.ui.CPerspective` | `com.ti.ccstudio.TICPerspective` | 厂商产品自带透视图 |
-  | `read.console` | PASS | **SKIP** | 该 ccs12 实例**没有 console 页**（`Console view has no console page`）⇒ 判据不适用 |
-  | `write.close-view` / `write.runp-show-view` / `resilience.modal-reset` / `resilience.timeout-applied` | PASS | **SKIP** | 四条用例声明 `targets=("gs32",)`，**按 target 声明 skip 而非 fail** |
-
-- **兼容矩阵**（五项列）：
+- **兼容矩阵**（五项列；**A5′ 要求的六列版见 §5.1** —— 多「厂商命令 id 清单」一列）：
 
   | 列 | gs32（GS32_Studio v1.2.5.2） | ccs12（CCS 12.8.1） |
   |---|---|---|
@@ -54,7 +48,7 @@
   | JRE 模块数 | **30**（JustJ JRE 23.0.2） | **55**（JRE 11.0.13） |
   | 命令服务 bundle 版本 | `org.eclipse.ui.workbench` **3.131.0** | `org.eclipse.ui.workbench` **3.125.0** |
   | 厂商命令数 | `com.gs` **7**（总 666） | `com.ti` **115**（总 807） |
-  | 必须重编的产物 | `eclipse-ctl.bridge_3.1.0_gs32.jar`（class-file **61** = Java 17） | `eclipse-ctl.bridge_3.1.0_ccs12.jar`（class-file **55** = Java 11） |
+  | 必须重编的产物 | `eclipse-ctl.bridge_0.1.0_gs32.jar`（class-file **61** = Java 17） | `eclipse-ctl.bridge_0.1.0_ccs12.jar`（class-file **55** = Java 11） |
 
   > **同一份源码、两个字节码级别**：ccs12 的 JRE 是 11 ⇒ `-source/-target 11`；gs32 是 17。
   > 两个 jar **按 target 命名并存**（此前同名会互相覆盖），`doctor` 会校验 jar 内 class-file 级别
@@ -99,6 +93,9 @@
   「命中 >1」**静默点第一个**。现改为 **0 命中与 >1 命中都 `exit 1`**（后者列出候选）。
   CLI 层本来就是这个契约（`_act_click_button` 先 `-ListOnly` 自检），这次是**下层工具对齐上层**，
   免得直接调工具的调用方（如 `ctl/screen.py` 的模态框处置路径）把「没点到」读成「点到了」。
+- **证据**：原语表七行逐条实测 —— `research/p6-input-fixture-2026-10-01.md` §2（六条断言首次实测）、
+  §5（下层工具三态）、§7（夹具 v2 五类控件）；下层工具 fail-closed 三态另有 `facts-runtime.md` §12
+  （唯一命中 `rc=0` ／ 0 命中 `rc=1` ／ >1 命中 `rc=1` + 候选）。**在真 IDE 主窗上的适用面见 §A6b-2。**
 
 ### A6b 控件类别的元素寻址结论（P6.4）
 
@@ -154,6 +151,10 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
      -TitleLike "ws - C:" -ListOnly   # 标题片段取唯一者，勿用 GS32_Studio（启动器控制台撞车）
 ```
 
+- **证据**：夹具 v2 重测逐行见 `research/p6-input-fixture-2026-10-01.md` §7（含 `SysTreeView32` 上
+  `TVM_SELECTITEM` 不产生 SWT 选中事件的**负结果**）；§A6b-2 的类名分布来自对运行中实例
+  （`gs32-verify`，pid 15484）**工作台主窗**的 `EnumChildWindows` 全量枚举，复跑命令见本节末。
+
 ### A6c 输入与桥的相互影响（F11 / P6.6）
 
 **分两面写，别混。**
@@ -196,14 +197,47 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 ### A7 观测装置 · 截图
 - **能力**：`tools/shot-window-pw.ps1`（`PrintWindow` + 先 `SetProcessDPIAware`）为**主通道**，不受遮挡、不受 DPI 虚拟化影响；OCU 的 `get_app_state(include_image=true)` 为**备用**（小窗可用）。
 - **证据**：`design-obs-ux.md` §13.1 两条通道表；`research/facts-baseline.md` §11.1（rect 513×132 → 1154×296 的修法实测）。
+- **A9 自证实例（自己看图 → 改变动作，R9）**：模态框处置链路上有一处**完整**的实例 ——
+  ① 发 `cmd.run org.eclipse.ui.window.resetPerspective` 后**超时**；② 先 `win-enum.ps1` 枚举拿标题，
+  再 `shot-window-pw.ps1 -TitleLike "Reset Perspective"` **自己拍下图**（用例归档
+  `<run_root>/<run_id>/shots/resilience.modal-reset-*.png`，GS32 **14057 B** / CCS **28119 B**）；
+  ③ **从图里读出**标题 `Reset Perspective` 与两个按钮 **`&Reset Perspective` / `&No`**；
+  ④ 据此把动作从「盲发 `WM_CLOSE`」改成**按下图上读到的那个按钮**（`BM_CLICK`）——
+  `applied=yes … gained=['org.eclipse.ui.views.ProblemView']` 就是这次改变的**后果**。
+  · 全报告**无**把观察外包给用户的措辞：`grep -nE '请用户截图|你截图|截图给我|麻烦你截图|请反馈'` 在
+  `boundaries.md` / `README.md` / `skill/SKILL.md` / `TROUBLESHOOTING.md` 上**零命中**（实测 2026-10-02）。
 
 ### A8 热装即起 + 桥常驻
 - **能力**：控制台 `install file:<jar>` → `start <id>` 即起；桥被 OSGi 记进**当前使用的配置区**（`configuration/org.eclipse.osgi/<id>/`），跨工作区、跨重启都在；`uninstall <id>` 或删该目录后 `-clean` 可清。
 - **证据**：`research/facts-baseline.md` §7；`prd.md` F6（出处 `route-comparison.md` §9.16）。
 
-### A9 命令表反查
-- **能力**：`ctl commands find --text <S>` 可按 UI 文字反查命令 id（A8 的判据：`--text "Reset Perspective"` 必须包含 `org.eclipse.ui.window.resetPerspective`）。**状态**：设计已定（`design-obs-ux.md` §14.3），落地由 P5.3 验。
-- **证据**：`design-obs-ux.md` §14.3 命令表 `commands find` 行；`prd.md` A8 反查判据。
+### A9 命令表反查与自省（**2026-10-02 实测收口**）
+- **能力**：`ctl commands find --text <S>` 按 UI 文字反查命令 id；`ctl commands export --full` 导出**六字段**机读表
+  （`id / name / category / parameters / handled / vendor`），产物 `commands.json`（`COMMANDS.md` 由 `tools/make-commands-md.py` 同源渲染）。
+- **反查判据（实测原文，GS32 实例）**：`find --text "Reset Perspective"` →
+  `org.eclipse.ui.window.resetPerspective  Reset Perspective`；该 id 送 `cmd.run` 后**回读差非空**：
+  ```
+  1. request sent='cmd.run org.eclipse.ui.window.resetPerspective'
+  2. initiator answered 16.05s -> ERR timeout … read back before retrying
+     applied=yes (apply): …ProblemView before=False after=True | lost=[] gained=['org.eclipse.ui.views.ProblemView']
+  ```
+  ⇒ 命令发出 → 模态框被答复后**副作用真的落地**，回读差非空（这条同时是 A4-⑥「超时 ≠ 未生效」的例子）。
+- **⚠️ 判据名称修正（按实测）**：A8 原文写「`ui.persp` 回读差非空」，但 `ui.persp` 报的是**透视图注册表**
+  （`perspectives=5`，不随 reset 变），真正敏感的回读是 **`ui.parts`**（活动透视图的视图布局）。判据据此改名，
+  不改成「两条都测」—— 否则就是拿一个结构性不敏感的读法凑数。
+- **证据**：本文件 §5.1；`research/facts-baseline.md` §3；产物 `commands.json`（GS32：**666** 条 × 6 字段）。
+
+### A9b `getDefinedCommandIds()` 漏项**已闭合**（2026-10-02；原 §3 的 U11）
+- **能做**：桥的 `cmd.list` 除 `definedCommandIds`（只含**有 `<command>` 声明**者）外，另报 `handlerOnly` 块，
+  **实测正好命中了点名的那一条**：GS32 `handlerOnly registry=ok total=1` → `com.gs.chipsetting.commands.opthandler`
+  （厂商 OptionBytes）。⇒ 「有 handler 无声明」这个**结构性盲区已闭合**。
+- **客户端侧（2026-10-02 修）**：`commands.json` 现在把 `handler_only` 作为顶层字段**单独携带**（不混进 `commands`，
+  因为它们 `cmd.query` 会 `notfound`，拿不到 name/category）。此前导出器把它整块丢掉。
+- **同时修掉的静默丢数据**：id 块改为**按两行签名行框定**（头 `ICommandService …`、尾 `definedCommandIds …`），块内逐行照抄。
+  原先的启发式兜底要求 id **含点**，于是 CCS 的 `redo` / `undo`（Eclipse 遗留短 id，**不带点**）被静默吞掉
+  —— 客户端报 `returned=805` 而桥说 `returned=807`。修后两侧实测：GS32 `666/666`、CCS `807/807`，均 `truncated=false`。
+  教训同 `measurement-hygiene.md` §13.4：**按签名字段定位，不按启发式**。
+- **证据**：`research/facts-baseline.md` §3（桥侧 `cmd.list` 原文）；`ctl/__main__.py:_fetch_command_ids`。
 
 ---
 
@@ -284,7 +318,7 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 
 ### U3 元素寻址输入原语的**泛化**
 - **未验证**：`BM_CLICK` 按控件文本点 `Button` 已实测可行，但此前**只验证过「解除模态框」这一个用例**；作为通用原语（任意控件 / 菜单 / 工具栏 / 树节点 / 按键 / 文本输入）**未验**。文本输入与按键「完全未验」（桥内 `Display.post` 与外部消息注入两条路都没试过）。
-- **验证入口**：`python -m ctl verify --group input --target fixture`（夹具断言 ③ 按键、④ 文本输入）；菜单/工具栏/树节点按 `implement.md` P6.4 各自给结论，**能走命令框架的一律优先走命令**。
+- **验证入口**：`python -m ctl verify --group input --target gs32`（夹具断言 ③ 按键、④ 文本输入；`input` 组用例自带夹具、`requires_bridge=False`，**不需要 `install`**，但 `--target` 仍须是**真实 target**）；菜单/工具栏/树节点按 `implement.md` P6.4 各自给结论，**能走命令框架的一律优先走命令**。
 - **证据**：`prd.md` §6.7、§6.8（含 prior art：真按键合成走 `Display.post` 且**要求目标是前台窗口，否则拒绝**；文本输入更稳的是直接改编辑器 document——出处 `routes/eclipse-mcp-vogella.md:62-64`）。
 
 ### U4 运行配置区隔离（`-configuration`）是否生效
@@ -326,14 +360,13 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 - **验证入口**：`implement.md` P6.6——桥**正常服务期间**用 `tools/win-click-button.ps1`（`BM_CLICK`）点主窗一个**无害按钮**，同时在**另一条连接**上量 `sys.ping` 往返与 `ui.parts` 是否被拖慢。**不得**再用「重发 `resetPerspective`」当输入场景（那是**命令**弹框，不是输入）。
 - **证据**：`prd.md` F11 与 §6.10；`design.md` §18.1（F7 的机制直接落在 Input 域上）。
 
-### U11 `getDefinedCommandIds()` 结构性漏项
-- **未验证（恢复路径已在源码落地，运行期未验）**：`getDefinedCommandIds()` 只含**有 `<command>` 声明**的 id，**结构性漏掉**「有 handler 无声明」者——典型正是厂商 OptionBytes = `com.gs.chipsetting.commands.opthandler`。桥源码已增加恢复路径：从活动 bundle 的 `org.eclipse.ui.handlers` 扩展点收集这类 id，并在 `cmd.list` 的 **`handlerOnly`** 块中单独报出。**但它是否真能补上厂商那一条，尚未在真实例上验过。**
-- **验证入口**：
-  ```bash
-  python -m ctl commands --json | python -c "import json,sys; d=json.load(sys.stdin); print('opthandler' in json.dumps(d))"
-  ```
-  以及 `python -m ctl commands find --text "OptionBytes"` 必须能命中该 id。
-- **证据**：`prd.md` A8 的 ⚠️ 注；`research/facts-baseline.md` §3 陷阱段末句（「`getDefinedCommandIds()` 还漏掉「有 handler 无声明」的 id（典型：厂商 OptionBytes）」）；恢复实现见桥的 `cmd.list` 处理里的 `handlerOnly` 块。
+### U11（**已闭合 2026-10-02 → 见 §1 的 A9b**）
+- 原条目：`getDefinedCommandIds()` 只含**有 `<command>` 声明**的 id，结构性漏掉「有 handler 无声明」者
+  （典型：厂商 OptionBytes = `com.gs.chipsetting.commands.opthandler`）。
+- **已在真实例上验证闭合**，内容移至 §1「A9b `getDefinedCommandIds()` 漏项**已闭合**」；此处只留指针，避免
+  「未验证」区里挂着一条已验证的条目。
+- **证据**：§1「A9b」的实测原文（GS32 `handlerOnly registry=ok total=1` → `com.gs.chipsetting.commands.opthandler`；
+  `commands.json` 顶层 `handler_only` 字段）；本条目**不再是「未验证」结论**，只作旧编号的转指。
 
 ### A12 三个 `idempotent` 值**已实测回填**（2026-10-01）
 - **能做**：`protocol.md` §7 表与 `sys.help` 的 `idempotent` 列现为实测值 ——
@@ -391,3 +424,159 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 - 「坐标注入」**不是**「已证伪」，也**不是**「能做」——它是 U2 的**未证实 + 决定不投入**。
 - 「控制台反射调 Java」**是** N1 的**已否决**（有方法无效级证据）。
 - 「同一个源，两套编译参数（gs32 = 17 / ccs12 = 11）」是 `design.md` §9 的**设计决定**，不是本文件的边界条目。
+
+---
+
+## 5. A5′ 双 target 兼容矩阵与两列对照（R5′ / 门 G4，2026-10-02）
+
+> 数据来源：**两侧都在真实例上全量跑过**（各 26 用例），原始日志留档；
+> 平台事实取自 `read.env` / `read.cmd.list` / `read.viewids` 的**协议原文**与磁盘上的实际文件名。
+> **不抽样**（R5′.5）：没有「只跑一侧、说另一侧应该也行」的条目。
+
+### 5.1 兼容矩阵（六列）
+
+| 列 | GS32_Studio v1.2.5.2 | CCS 12.8.1 |
+|---|---|---|
+| **平台版本** | Eclipse Platform **4.30.0** + CDT 11.5.0 | Eclipse Platform **4.23.0** |
+| **JRE 模块数** | JustJ Temurin **23.0.2** minimal → **30** 模块（`java --list-modules \| wc -l`） | **11.0.13** → **55** 模块（同上实测） |
+| **命令服务 bundle 版本** | `org.eclipse.ui.workbench_3.131.0.v20231201-0512` | `org.eclipse.ui.workbench_3.125.0.v20220308-0722` |
+| **厂商命令数** | `com.gs` → **7**（`cmd.list` 原文 `com.gs total=666 matched=7 returned=7`） | `com.ti` → **115**（原文 `com.ti total=807 matched=115 returned=115`） |
+| **必须在目标上重编的产物** | 桥 jar（class-file **61** / Java 17，`java_target=17`）；**SWT 片段 3.124.200** 与夹具 class | 桥 jar（class-file **55** / Java 11，`java_target=11`）；**SWT 片段 3.119.0** 与夹具 class |
+| **厂商命令 id 清单** | 7 条：`com.gs.sdk.version`、`…sendtoLive`、`…checkproject`、`…gsprojectimport`、`…gsprojectcreate`、`com.gs.sdk.editor.activate`、`com.gs.ui.intro.openFile` | 115 条（`com.ti.*` 前缀；全量清单以 `ctl commands export` 的产物为准，本表给前缀与计数） |
+
+补充事实（同一协议原文）：`read.viewids` 注册视图 GS32 `total=55`（厂商 5）/ CCS `total=95`（厂商 33）；
+命令表总量 GS32 **666** / CCS **807**；`handlerOnly` GS32 **1**（`com.gs.chipsetting.commands.opthandler`）/ CCS **0**。
+> **2026-10-02 更正**：本行此前写「两者 `handlerOnly=0`」，与桥侧原文（空前缀 `handlerOnly registry=ok total=1`）不符。
+> 实测**两个数都对，只是作用域不同** —— `handlerOnly` 块**按前缀过滤**：
+> **空前缀（全局）** GS32 **1** / CCS **0**；带 `org.eclipse.ui.edit` 前缀时**两侧都是 0**。
+> `read.cmd.list` 早先只把带前缀那次的值打进详情，于是读起来像"打架"（**上一版本行曾把它推测成
+> 「扫描落地前的旧值」，那是没有证据的假设，已按实测改掉**）；该用例现改为三个作用域都标出：
+> `handlerOnly(global=…, prefix=org.eclipse.ui.edit=…, prefix=<vendor>=…)`。
+> 客户端 `ctl commands export` 走空前缀，故 §A9b 引用的是**全局值**；它另修掉了 CCS 少 2 条 `redo`/`undo` 的静默丢数据。
+
+### 5.2 两列对照表（同一用例集，逐条）
+
+`ctl verify --all` 在两侧各跑一遍（26 用例 = read 11 + write 4 + errors 7 + resilience 2 + input 1 + realflow 1）。
+
+| 用例 | GS32 | CCS | 差异与归因 |
+|---|---|---|---|
+| `read.ping` | PASS | PASS | — |
+| `read.env` | PASS | PASS | — |
+| `read.shells` | PASS | PASS | — |
+| `read.parts` | PASS | PASS | — |
+| `read.viewids` | PASS | PASS | — |
+| `read.persp` | PASS | PASS | — |
+| `read.tree` | PASS | PASS | — |
+| `read.cmd.list` | PASS | PASS | — |
+| `read.cmd.query` | PASS | PASS | — |
+| `read.wait` | PASS | PASS | — |
+| `read.console` | SKIP | SKIP | 两侧同因：该实例 Console 视图没有 console 页 ⇒ 如实跳过 |
+| `write.open-editor` | PASS | PASS | — |
+| `write.close-view` | PASS | PASS | — |
+| `write.runp-show-view` | PASS | PASS | — |
+| `write.run-toggle` | PASS | PASS | — |
+| **`input.fixture`** | **PASS** | **FAIL** | **见 §5.3（归因：平台版本 / SWT）** |
+| `errors.unknown-method` | PASS | PASS | — |
+| `errors.bad-param` | PASS | PASS | — |
+| `errors.missing-id` | PASS | PASS | — |
+| `errors.unhandled` | PASS | PASS | — |
+| `errors.bad-runp-param` | PASS | PASS | — |
+| `errors.console-absent` | PASS | PASS | — |
+| `errors.plugin-id-as-view` | PASS | PASS | — |
+| `resilience.modal-reset` | PASS | PASS | — |
+| `resilience.timeout-applied` | PASS | PASS | — |
+| **`realflow.build_artifact`** | **PASS** | **PASS** | 判据、配方形状、产物名与 `e_machine` 见 §5.4（差异只在值上：构建入口 / 配置名 / 标记的字节编码） |
+| **合计** | **25 PASS + 1 SKIP / 0 FAIL**（rc=0） | **24 PASS + 1 SKIP / 1 FAIL**（rc=1） | 归因 1 条，未结案 **0** 条 |
+
+原始输出片段（`input.fixture` 的差异 + 新增 `realflow` 两侧原文）：
+
+```
+[GS32] [PASS] input.fixture  7 条断言（4 条标题有变化；证伪 ⑤=1 ⑥=UNCHANGED）｜ target=gs32
+[CCS ] [FAIL] input.fixture  7 条断言（3 条标题有变化；证伪 ⑤=1 ⑥=UNCHANGED）｜ target=ccs12
+        | FAILED: key：期望 CHANGED，实测 UNCHANGED（after='ctl-fixture GO 2'）
+        | 目标 SWT=3.119.0 —— 已知平台差异（兼容矩阵 input.fixture/key）：
+        | Eclipse 4.23 不把合成 WM_KEYDOWN 派发给控件自身的 KeyListener
+[GS32] [PASS] realflow.build_artifact  target=gs32 project=realflow_gs32 create=ok rc=0 editors=3->4
+        new_editor='org.eclipse.cdt.ui.editor.CEditor' build_rc=0 artifact=realflow_gs32.elf
+        size=551584 e_machine=243(exp 243) marker_in_image=ascii@32996
+[CCS ] [PASS] realflow.build_artifact  target=ccs12 project=realflow_ccs create=ok rc=0 editors=3->4
+        new_editor='org.eclipse.cdt.ui.editor.CEditor' build_rc=0 artifact=realflow_ccs.out
+        size=17528 e_machine=141(exp 141) marker_in_image=u16le@604
+```
+
+### 5.3 归因：唯一一条差异 = **平台版本（SWT 派发行为）**
+
+**判据**：夹具对 `Edit` 子窗发同一条 `WM_KEYDOWN VK_RETURN`（`SendMessage`），
+标题应变成 `ctl-fixture KEY 13`。GS32 变，CCS 不变（**3/3 确定性，不是偶发**）。
+
+**归因实验（同一套启动方式，只换一个变量）**：
+
+| # | JVM | SWT（平台版本） | `key` 结果 |
+|---|---|---|---|
+| A | 11.0.13 | **3.119.0**（Eclipse 4.23） | UNCHANGED |
+| B | **23.0.2** | **3.119.0** | UNCHANGED |
+| C | **23.0.2** | **3.124.200**（Eclipse 4.30） | **CHANGED** |
+| D | 11 / 23 | 3.119.0 + `WM_SETFOCUS` 或 `SetForegroundWindow` | 仍 UNCHANGED |
+
+⇒ **变量是 SWT 版本**：A↔B 同 SWT 换 JVM **不翻面**；B↔C 同 JVM 换 SWT **翻面**。
+⇒ **JVM 排除；焦点/前台排除**（D 两种补救都无效）。
+⇒ **归因 = 平台版本**（R5′.3 的四类之一），**不是** JVM 级别，也**不是**依赖 bundle 缺失。
+
+**边界**（措辞纪律，§4 的三档不得混用）：
+- 「点按钮」`BM_CLICK` 与「写文本」`WM_SETTEXT` 在**两侧都通** ⇒ 元素寻址输入原语**不是**整体不可用。
+- 「按键」`WM_KEYDOWN` 在 Eclipse 4.23 上**不可用**（本机实测，确定性）；在 4.30 上可用。
+  ⇒ 结论写作「**按键原语按平台核对**」，**不**写成「合成输入无效」。
+
+### 5.4 判据同源可证（A5′④）
+
+两侧跑的是**同一个用例文件、同一段判据表达式**，逐字相同：
+
+```python
+# ctl/verify/cases/input_fixture.py —— 两侧共用同一份源码
+want = row["expect"]                      # 来自同一张常量表 _PROBES
+got  = row["verdict"]
+if got != want:
+    problems.append("%s：期望 %s，实测 %s（after=%r）%s" % (cid, want, got, row.get("after"), note))
+```
+
+- **没有任何 per-target 的判据分支**：判据表达式里不出现 `target`。
+- 唯一按 target 取值的量是 **target 事实**（R5′.2 允许「差异落在值上」）：
+  `probe_view`（两侧厂商视图名不同）与夹具工具链路径。两侧的 `want` 表**逐字相同**。
+- 归因**写在失败消息里**（上引原文），不是靠人工记忆附会。
+
+**第二个例子：`realflow.build_artifact`（2026-10-03 新增）** —— 判据完全同源，
+per-target 差异只在**配方数据**与**值**上：
+
+```python
+# ctl/verify/cases/realflow_build_artifact.py —— 两侧共用同一份源码（逐字摘录）
+problems.append("artifact: e_machine=%d, expected %d"
+                % (elf["machine"], recipe["machine"]))
+...
+        new_row = added[0]
+        if "CEditor" not in new_row[0]:
+            problems.append("ide: the new editor is %r, not a CEditor" % (new_row[0],))
+        if new_row[1] != write.get("marker_name"):
+            problems.append("ide: the new editor name is %r, expected %r"
+                            % (new_row[1], write.get("marker_name")))
+```
+
+| 量 | GS32 | CCS | 性质 |
+|---|---|---|---|
+| 判据表达式 | 同一份文件 | 同一份文件 | 同源 |
+| 建工程 | 复制 CDT 模板 + 改 `.project` `<name>` | `.projectspec` + `com.ti.ccstudio.apps.projectCreate` | **构建入口差异**（已归因，§6.2 of 研究档 / §5.1 末行） |
+| 构建 | CDT `headlessbuild` | `com.ti.ccstudio.apps.projectBuild` | 同上 |
+| 构建配置名 / 产物 | `Flash_ILM` / `*.elf` | `Debug` / `*.out` | **值** |
+| `e_machine` | 243（RISC-V） | 141（TI C2000） | **值**（器件） |
+| 标记字节编码 | `ascii` | `u16le`（C2000 默认 16 位 `char`） | **值**（工具链） |
+| 实测 | PASS · `realflow_gs32.elf` 551584 B | PASS · `realflow_ccs.out` 17528 B | — |
+
+反假阳性两侧同样成立：写出的源带唯一 `CTL-REALFLOW-<8 hex>`，`main` 引用它，
+构建后在产物字节里**按对应编码找回**那串标记 ⇒ 编的是**这一次写的**代码，不是陈旧产物。
+
+> 上表「实测」列的尺寸是**某一 run** 的值：标记每次随机 ⇒ 同一份源码也会差几个字节
+> （实测 GS32 551584 / 551588 B，CCS 17528 / 17532 B）。**稳定判据是 `e_machine` 与
+> 「标记在产物里」，不是尺寸**。
+
+### 5.5 未结案条目
+
+**0 条。** 唯一差异已归因（§5.3）。

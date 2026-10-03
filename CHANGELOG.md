@@ -10,6 +10,19 @@
 
 ### Added
 
+- **验收用例组 `realflow` 与新用例 `realflow.build_artifact`**：把「真实工作流」——**建工程 →
+  写几行代码 → IDE 认它 → 构建出产物**——固化成一条可复跑的用例（`python -m ctl verify
+  --group realflow`）。两个 target（GS32 / CCS）跑**同一段用例代码、同一组判据**，只有配方是
+  per-target 数据：启动器、建工程命令（GS32 = 复制 CDT 模板 + 改 `.project` 的 `<name>`；
+  CCS = 最小 `.projectspec` + `com.ti.ccstudio.apps.projectCreate`）、构建命令
+  （CDT `headlessbuild` vs `com.ti.ccstudio.apps.projectBuild`）、构建配置名、产物名、`e_machine`。
+  判据含**反假阳性**：写出的源文件带唯一标记 `CTL-REALFLOW-<8 hex>`，`main` 引用它，
+  构建后在**产物字节里**找回该标记（GS32 = ASCII；C2000 默认 16 位 `char` ⇒ u16le），
+  证明编的是**这次写的**代码而不是陈旧产物。目标缺配方 / 缺启动器 / 缺模板目录 ⇒ SKIP；
+  配方齐备但跑挂 ⇒ FAIL。环境变量 `ECLIPSE_CTL_REALFLOW_<KEY>` 可覆盖配方标量以便换机器。
+  实测 2026-10-03（两侧各跑多次）：GS32 `rc=0`（`realflow_gs32.elf` ≈551.6 KB · `e_machine=243`）·
+  CCS `rc=0`（`realflow_ccs.out` ≈17.5 KB · `e_machine=141`）。产物大小随每次运行的随机标记
+  差几个字节 ⇒ 只给量级；**稳定判据是 `e_machine` 与「标记能在产物字节里找到」**。
 - **影子留档（shadow shots）—— 写动作后自动留一帧屏幕**：每次**写动作**完成后截一帧存进
   `<run_root>/<run_id>/shadow/`（`manifest.jsonl` + 帧），**默认不读**，出事时用
   `python -m ctl shadow --run-id <id> [--seq N] [--promote N] [--open N] [--prune]` 回看。
@@ -22,6 +35,23 @@
 
 ### Fixed
 
+- **`install` 用固定端口且不判占用 ⇒ 与活实例「共用」端口，`--stop` 再按端口误杀别人**（2026-10-03 实测踩到）：
+  `effective_port = port or target.port` 直接取目标配置的固定端口，**没有任何占用判定**；而 `is_port_free()`
+  只做 `bind()` 试探 —— Windows 上对端 Java `ServerSocket` 默认可 `SO_REUSEADDR`，**判不准**
+  （`pick_port()` 那条「首个空闲端口」还是**死代码**，全仓零调用点）。
+  实测代价：`install --target ccs12 --run-id rfv3-ccs` 与另一个 run 的实例（`ccs12-p42`）同占 8778，
+  客户端连到**别人的桥**；收工时 `ensure_clean()` 的规则是 `victims[pid] = "listening on port %d"`
+  ⇒ **按端口收、不按 run**，把不属于本次 run 的 pid 一并停掉。
+  现在：未给 `--ensure-clean` 时，若目标端口有**非本 run** 的活监听 ⇒ **fail closed**（rc=2）并给出
+  `--port <free port>` / `--ensure-clean` 两条可操作出路。三态实测：被占 ⇒ 拒绝并点名持有者 pid；
+  空闲端口 ⇒ 照常起；`--ensure-clean` ⇒ 仍按原语义清理后起。同 run 自身的重装路径不受影响。
+- **`ctl run` 的 `commands()` 静默吞掉 CCS 的 `undo` / `redo`**（真实工作流验证发现，2026-10-03）：
+  该助手仍是旧启发式（`"." in token`），而 `cmd.list` 的 id 块**应按两行签名行框定、块内逐行照抄**
+  —— 这条契约此前只修在 `ctl/__main__.py:_fetch_command_ids`，**同仓的第二个调用方没跟上**
+  （`measurement-hygiene.md` §13.7「修一处不算修」）。后果：桥上 `returned=807`，
+  库里 `len(commands())` 只有 **805**，且**无任何告警**；GS32 恰好每条 id 都带点 ⇒ **只在 CCS 一侧显形**。
+  改为签名行框定后两侧实测：CCS `count=807`（`undo`/`redo` 归位）／GS32 `count=666`，
+  **均与桥自报的 `returned=` 逐字相等**。
 - **`ctl shadow` 的写方法判定漏掉 `cmd.runp`**（验收时发现，S4）：`sys.help` 的 `cmd.runp` 行
   **args 列自身含一个 `|`**（`<paramId|=paramName>=<value>`），朴素 `split("|")` 把列冲歪，
   `fields[2]` 不再是 write 列 ⇒ 该行被判成非写 ⇒ **`ctl cmd` 带参数时一律走 `cmd.runp`，

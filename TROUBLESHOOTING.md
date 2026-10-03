@@ -150,6 +150,7 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `ERR notfound no such subcommand` | `ERR notfound` / **1** | 子命令拼写错。`design-obs-ux.md` §14.3 是命令面的准绳。<br>`ctl/__main__.py:1589` |
 | `has no frame on disk (pruned or never kept` | `ERR notfound` / **1** | 清单里有这条 `seq` 但帧文件已被裁掉（promoted 不会被裁，所以多半是普通帧）。<br>`ctl/__main__.py:1290` |
 | `IDE process is not accepting console input (rc=` | `ERR internal` / **1** | IDE 不接收控制台输入（进程已死/未起 `-console`）。看 `console.log`，必要时重装。<br>`ctl/console.py:192` |
+| `is already held by another run (live listener pid` | `ERR internal` / **2** | 目标端口上已有**别的 run** 的活桥。修前会与它**共用端口**（连到旧桥 ⇒ 测量作废），`--stop` 还会**按端口收尸**误杀旁人的实例。**换 `--port <free port>`**，或 `--ensure-clean` 显式清掉它（注意：那会**停掉**那个实例）。<br>`ctl/lifecycle.py:663` |
 | `is missing (source present` | `ERR internal` / **2** | 桥不可构建（源码在但构件缺）。看 `doctor` 的 ECJ 一行。<br>`ctl/lifecycle.py:352` |
 | `is not a bridge method (Gogo console forwarding is not wired in this round` | `ERR badrequest` / **1** | `ctl shell` 只转桥方法；Gogo 控制台转发本轮未接。<br>`ctl/__main__.py:1117` |
 | `launcher not found for target` | `ERR internal` / **2** | 找不到该 target 的启动器（`GS32.exe`/`ccstudio.exe`）。核对 `source_dir`。<br>`ctl/lifecycle.py:523` |
@@ -186,8 +187,19 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 > **兜底说明**：`ctl/__main__.py` 里的 argparse `error()` 覆写是所有用法错误的统一出口，
 > 它按 `invalid choice` 分派码（子命令拼错 ⇒ `notfound`，其余 ⇒ `badrequest`）。
 >
-> 上表覆盖**全部 60 条**含 `retry:` 的消息模板；核对脚本（可复跑、含证伪自测）见
-> `10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`。
+> **本表的覆盖度由脚本判定，不由这句话判定**（判据会漂，故不写死数字）。复跑：
+> `python <工作区>/.trellis/tasks/10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`
+> （`--repo D:/gitclone/eclipse-ctl`；判据 = 把模板按 `%s/%d/%r` 切段，取 **≥6 字符**的片段，
+> 只要有**一段**能在本表原样 grep 命中即算覆盖）。
+> **实测（2026-10-03，本轮补入 `is already held by another run` 之后）**：
+> `templates=70 checked=69 exempt=1 missing=10` ⇒ **`coverage: FAIL`**。
+> 余下 10 条**均为本轮之前就在的缺口**：`act` 的按键 / 文本 / 按类寻址一族（5 条，`ctl/__main__.py`）、
+> `ctl run` 的 4 条（`ctl/run.py`）、桥的重建提示（1 条，`ctl/lifecycle.py`）。
+> 具体是哪 10 条**以脚本输出为准**。
+> ⚠️ **判据自身的盲区（实测踩到）**：它按**子串**命中 —— 正文里（哪怕是在描述缺口时）
+> **提到**某个候选串，就会把对应模板算成"已覆盖"。所以**别在本段里罗列那些串**，
+> 也别把"提到了"当成"写好了处置行"。
+> **要绿就把这 10 条补上表**；在那之前，别把本表当"全覆盖"用。
 
 **退出码**：`0` 成功 / `1` 失败（含用法与查找错误）/ `2` 前置未就绪
 —— `design-obs-ux.md` §14.3。注意 **`rc=0` 不代表没有弹框**：写命令的弹框只在回话的 `dialog=` 负载行里，
