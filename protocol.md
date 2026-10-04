@@ -29,7 +29,7 @@
 ```
 
 - `method` 与 `arg` 以**单个空格**分隔；`arg` 内部可含空格（整行剩余部分即 `arg`）。
-- 约定：`sys.ping` / `sys.env` 无参数；`ui.tree` 取一个深度整数；`cmd.runp` 的 `arg` 形如
+- 约定：`sys.ping` / `sys.env` 无参数；`ui.tree` 取一个可选深度整数与可选的 `--shell <sel>`；`cmd.runp` 的 `arg` 形如
   `<commandId> <paramId>=<value> [<paramId>=<value> ...]`。
 
 ### 2.2 响应
@@ -99,7 +99,7 @@ END
 | `badrequest` | 请求行不合语法 / 参数非法 / 未知方法 / 字节上限内无法表达 | **不可重试**（原样重发必然再失败）；改成合法请求再发 |
 | `notfound` | 目标不存在：视图 id、命令 id、参数 id、文件绝对路径、用例名 | **不可原样重试**；可分支（换 id / 换路径）后再发 |
 | `disabled` | 命令存在但 enablement 不满足（`NotEnabledException` 的映射；如无 selection、无脏编辑器） | **不可原样重试**；先建前置态（开编辑器 / 设 selection），或把该用例标 skip |
-| `unhandled` | 命令有声明但当前上下文无 handler（`NotHandledException` 的映射；典型：part-scoped 未路由） | **不可原样重试**；见 `boundaries.md` 的 part-scoped 条目 |
+| `unhandled` | 命令有声明但**当前活动部件**没有它的 handler（`NotHandledException` 的映射；**2026-10-05 修正**：不是 lookup 上下文的问题 —— 窗口级 `IHandlerService` 会路由到活动部件的 handler，见 `boundaries.md` N9） | **不可原样重试**；part-scoped 命令（如 `org.eclipse.ui.edit.selectAll`）先把目标部件变成**活动部件**（如 `python -m ctl open <abs file> --yes`）再发一次 |
 | `timeout` | UI 调用等待超过上限（桥侧默认 15 s，客户端默认 25 s）；通常是模态框占住 UI 线程 | **禁止当作「未生效」**（语义见 §4）；写方法**必须回读差**再判定；**只有幂等方法才允许自动重试** |
 | `noWorkbench` | 桥活着但工作台未创建（工作区被占用 / 未起来） | **不可在此实例上重试**；清场或换工作区后重装（`design-obs-ux.md` §14.5） |
 | `internal` | 未映射的异常；`message` 必须带原始异常类名 | 可重试**一次**（且**仅当**该方法是幂等方法）；仍失败则上报四件套 |
@@ -328,7 +328,7 @@ python -m ctl status --target gs32 --json
 | `ui.parts` | 读 | 否 | `true` | — |
 | `ui.viewids [prefix] [--limit <n>]` | 读 | 否 | `true` | — |
 | `ui.persp` | 读 | 否 | `true` | — |
-| `ui.tree <depth>` | 读 | 否 | `true` | — |
+| `ui.tree [depth] [--shell <all\|index\|title>]` | 读 | 否 | `true` | — |
 | `ui.console [--tail <n>]` | 读 | 否 | `true` | — |
 | `cmd.list [prefix] [--limit <n>]` | 读 | 否 | `true` | — |
 | `cmd.query <id>` | 读 | 否 | `true` | — |
@@ -354,6 +354,29 @@ python -m ctl status --target gs32 --json
 
 `sys.help` 返回**桥自身**的方法表（name / 参数 / 一句话 / 是否写操作 / 是否幂等），
 是客户端做 dry-run 白名单与审批闸的载体（`design.md` §3 第 2 条）。
+
+### 7.1 `ui.tree` 的 shell 选择（`--shell`，2026-10-05 新增）
+
+`ui.tree` 默认只走**一个** shell —— 「**最大的可见** shell」（历史行为，未改）。`--shell` 放宽这个选法：
+
+| `--shell` | 取值 | 语义 |
+|---|---|---|
+| 省略 | — | 最大的可见 shell（**默认不变**） |
+| 索引 | `0`、`1`… | `Display.getShells()` 里的下标；越界 ⇒ `ERR badrequest`，并报 `shells=<n>` |
+| 标题 | 任意子串 | **大小写不敏感**的标题子串；命中 0 ⇒ `ERR notfound`；命中 >1 ⇒ `ERR badrequest`（**不猜**，§18.3） |
+| 全部 | `all` | 逐个 shell 输出，顺序即 `Display.getShells()` |
+
+每个被选中的 shell 输出**一行** `root` 头，形状（新增 `vis=` 与 `shell=<i>/<n>` 两个字段）：
+
+```
+root text="…" vis=<true|false> b=Rectangle {…} shell=<i>/<n> maxDepth=<N> thread=<name>
+```
+
+`--shell all` 的负载 = 各 shell 单独读时的负载**拼接**（实测 CCS 12 上 `3` 个 shell、`depth=20`：
+`170 + 38 + 2 = 210` 行，逐行比对无多无少；GS32 上 `2` 个 shell：`138 + 117 = 255` 行）。**为什么需要它**（实测 2026-10-05）：e4 的 `PartRenderingEngine` 把**尚未渲染**的部件
+停在不可见的 `PartRenderingEngine's limbo` shell 里 —— GS32 上（Welcome 最大化时）编辑器与 4 个视图栈
+**全部**在 limbo（可见 shell：`StyledText` 0 个 / `Tree` 0 个；limbo：`StyledText` 1 个 / `Tree` 3 个），
+**任何深度的默认 `ui.tree` 都读不到**。`ui.shells` 给出标题与下标，是本节的寻址入口。
 
 **响应字段分工**：全量导出类响应（命令表 / 视图表 / Console 文本）必须带
 `total` / `returned` / `truncated` 三字段（桥另额外给出 `matched`），客户端据此判断落盘是否完整

@@ -270,6 +270,9 @@ def build_parser() -> CtlParser:
 
     # -- single-call reads --------------------------------------------------- #
     p_tree.add_argument("depth", nargs="?", type=int, default=3)
+    p_tree.add_argument("--shell", metavar="SEL", default=None,
+                        help="which SWT shell to walk: all | <index> | <title substring> "
+                             "(default: the largest visible shell)")
     p_viewids.add_argument("prefix", nargs="?")
     p_cmd.add_argument("command_id")
     p_cmd.add_argument("params", nargs="*", metavar="key=value")
@@ -1137,7 +1140,10 @@ def _cmd_gc(args) -> int:
 
 def _cmd_tree(args) -> int:
     client, target, rid = _connect(args, _load_config(args))
-    return _send(client, "ui.tree %d" % args.depth, target, rid, args)
+    request = "ui.tree %d" % args.depth
+    if args.shell:
+        request += " --shell %s" % args.shell
+    return _send(client, request, target, rid, args)
 
 
 def _cmd_parts(args) -> int:

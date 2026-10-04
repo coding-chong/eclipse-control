@@ -6,8 +6,14 @@
 `未证实` = 试过但没有可观测的正证据；`已否决` = 有**方法无效**级别的证据；`决定不投入` = 用户口径的选择，
 **不是**实验结论（出处 `design-project.md` §18.2、`research/facts-baseline.md` §12、`prd.md` §5）。
 
-**本文件条目数**（2026-10-02 复算）：能做 **12** 条 / 不能做 **11** 条 / 未验证 **16** 条，共 **39** 条，
-每条恰好一个「证据」字段（§5 的小节不计入条目；`A6` / `A6b` 两条此前缺该字段，同日补上）。
+**本文件条目数**（2026-10-05 复算；判据 = §1–§3 内每个条目小节各计一条，
+`grep -cE '^### (A|N|U)[0-9]'`）：能做（`A*`）**17** 条 / 不能做（`N*`）**14** 条 /
+「未验证」区（`U*`）**12** 条（其中 8 条已标「已闭合」、仍开放 4 条：U2 / U3 / U8 / U9），
+共 **43** 条。§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
+`A*` / `N*`。§4 / §5 的小节不计入条目。
+（旧注记 —— 2026-10-02 的 `12 / 11 / 16 = 39` —— **已作废**：它与任何机械计数都对不上，
+且此后新增 / 闭合条目时都没跟着更新；同处原写的「每条恰好一个证据字段」也不成立 —— 全文里
+`A6b` / `A6c` 两条各有 2 个 `- **证据**`。）
 
 ---
 
@@ -357,6 +363,28 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
 
 ---
 
+### A11b `ui.tree` 的 **shell 面**：默认只读「最大的可见 shell」，`--shell` 把它放宽（2026-10-05）
+
+- **能力**：`ui.tree [depth] [--shell <all|index|title>]`。**默认行为一字未改**（仍是最大的可见 shell）；
+  `--shell` 给三条新路：`all` / `Display.getShells()` 下标 / 标题子串（命中 0 或 >1 一律 `ERR`，**不猜**）。
+  每个 shell 输出一行 `root` 头，带 `vis=` 与 `shell=<i>/<n>`（`protocol.md` §7.1）。
+- **为什么需要**（**实测量到的盲区**）：e4 的 `PartRenderingEngine` 把**尚未渲染**的部件停在不可见的
+  `PartRenderingEngine's limbo` shell 里。同一时刻、同一实例，**默认 `ui.tree` 任何深度都读不到它们**：
+
+  | target（2026-10-05，jar 0.2.0） | 默认（可见 shell） | `--shell limbo` | `--shell all` |
+  |---|---|---|---|
+  | GS32（Welcome 最大化；编辑器已开） | 138 行 · `StyledText` **0** · `Tree` **0** | **117 行 · `StyledText` 1 · `Tree` 3** | 255 行（`138+117`，逐行无多无少） |
+  | CCS12（编辑器 + 导航器已开） | 170 行 · `StyledText` 1 · `Tree` 1 | 38 行 · `Tree` 1 · `Text` 1 | 210 行（`170+38+2`，逐行无多无少） |
+
+  GS32 那一列里，limbo 躺着的是 **8 个 `CTabItem`**：编辑器（`ctl_depth_fixture.c` 的 `StyledText`）、
+  `Project Explorer`、`Outline`/`Build Targets`、`Problems`/`Tasks`/`Console`/`Properties` 四个部件的 `Tree`
+  ——**都是部件内部的控件**，即「按部件读」这件事的实物。
+- **边界（同刻实测）**：`--shell` **不解决**「部件没被渲染」这个前提 —— 它只是把**已经在读的那棵树**
+  从「一个可见 shell」放宽到「指定 shell / 全部 shell」。部件→控件根的真映射仍要 e4（见 U7 的结论二）。
+- **证据**：`protocol.md` §7.1；任务侧 `research/tree-p2-*.txt`（原始输出）；`ui.shells` 是寻址入口。
+
+---
+
 ## 2. 不能做
 
 ### N1 控制台不能反射调用任意 Java 方法（**已否决**）
@@ -391,9 +419,41 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
 - **不能做**：用 `tools/shot-window.ps1`（`CopyFromScreen` 版）作主通道。实测 rect 报 513×132（真实 1154×296），抓到的却是 IDE 工具栏——遮挡 + DPI 虚拟化双重坑。它已**降级为备用**。
 - **证据**：`research/facts-baseline.md` §11.1 两种成因与修法；`design-obs-ux.md` §13.1 A′ 行。
 
-### N9 `executeCommand(id, null)` 不路由到 part-scoped handler
-- **不能做**：用 `IHandlerService.executeCommand(id, null)` 驱动部件级命令（`org.eclipse.ui.edit.selectAll` 永远 `NotHandled`）。另外 `org.eclipse.ui.file.saveAll` 在开编辑器前后都是 `NotEnabledException`——它的条件是「有**脏**编辑器」，不是「有编辑器」。
-- **证据**：`research/facts-baseline.md` §5「enablement 的两条实测结论」（1、2 两条）；出处 `route-comparison.md` §9.13.1。
+### N9 `executeCommand(id, null)` 的 **lookup 上下文**不是它找不到 handler 的原因（**2026-10-05 修正**）
+
+- **原条目（现被推翻一半）**：「用 `IHandlerService.executeCommand(id, null)` 驱动部件级命令
+  （`org.eclipse.ui.edit.selectAll` **永远** `NotHandled`）」。
+- **现在能说清的是三条**（2026-10-05 实测，两侧，jar 0.1.0 与 0.2.0 同结论）：
+  1. **不是「永远」**。窗口级的 `IHandlerService` **会**路由到活动部件自己的 handler ——
+     同一个命令 id 有三种结局，取决于**哪个部件是活动部件**、以及它的 handler 是否 enabled：
+
+     | 状态（CCS 12.8.1 / GS32 1.2.5.2 同刻实测） | `Command.isHandled()` | 结局 |
+     |---|---|---|
+     | 编辑器是活动部件 | `true` | **`OK`**（`executeCommand returned: null`） |
+     | 视图是活动部件、该部件无 selectAll handler | `false` | `ERR unhandled` |
+     | 视图是活动部件、handler 找到了但 `canExecute=false`（GS32 上导航器活动时） | `true` | **`ERR disabled`** |
+
+     第 2、3 两行是**同一个靶**在同一台机器上的两种失败 —— 这正是 `unhandled` / `disabled`
+     **不可混**的活例（`protocol.md` §3）。
+  2. **换 lookup 上下文不管用**：把来源从「窗口级」换成「活动部件站级 + 窗口级回落」后，
+     同一个状态下的结局**逐条相同**（Problems 视图活动时两级都返回**同一个**
+     `org.eclipse.ui.internal.views.markers.MarkerSelectAllHandler`；导航器活动时两级都 `not-handled`）。
+     ⇒ 这不是 lookup 的问题，**已不投入**（`M1` 已否决并回滚）。
+  3. **`null` 事件不是拦路虎**：上面第 1 行的 `OK` 就是**原样的** `executeCommand(id, null)` 跑出来的
+     ⇒ 「传 `null` 事件」本身不构成障碍，`M2`（构造带 selection 的 `ExecutionEvent`）**没有可测的缺口要补**，
+     本轮不投入。
+- **仍然成立的部分**：`org.eclipse.ui.file.saveAll` 的 `NotEnabledException` 条件是「有**脏**编辑器」，
+  不是「有编辑器」——两者不可混。
+- **证据**：任务侧 `research/p3-selectall-terminal.txt`；另 `errors.unhandled` 用例的 docstring 早就把
+  `selectAll` 记为「focus-dependent，只作证据不作断言」（2026-10-01 实测过一半）。
+
+### N9′ 部件→控件根（part → widget）没有非 e4 的公共入口
+
+- **不能做**：用 `IWorkbenchPart` 拿它自己的 SWT 控件根 —— 公共 API 里**没有** `getControl()`
+  （`IWorkbenchPartSite.getShell()` 只到 shell；`ISelectionService` 给的是模型对象）。
+- **能用什么**：e4 侧（`MUIElement.getWidget()` 一类）—— 那是 `prd.md` §6.3 的领域，本轮**停手**。
+- **不需要它的理由**：`ui.tree <N≥15>` 已经能读到部件内部的控件（见 U7），所以这条**不是**读不到的原因。
+- **证据**：任务侧 `research/p3-selectall-terminal.txt` 的结论段；`boundaries.md` U8（e4 层仍挂未验证）。
 
 ### N10 桥没有 dry-run 概念
 - **不能做**：指望桥自己「先空跑一遍」。dry-run 只能落在**客户端**，且**只作用于会改 IDE 状态的方法**（`cmd.run` / `cmd.runp` / `ui.open` / `ui.close` / 元素寻址的三个库原语）；只读方法默认真发，dry-run 也不阻止建立连接。不带 `--yes` 时 CLI **打印 `DRY-RUN <line>` 到 stdout 并以退出码 0 结束**；库原语不带 `yes=True` 时**返回 `DRY-RUN …`**——两条路都**桥侧零请求**。
@@ -478,10 +538,40 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
 - **落点**：「不能做」半在 §2 的 **N16**（连接槽是单点容量）；「模态框不传染」在 §3 的 **A13**。
 - **证据**：任务侧 `research/p3-gate.md` §1（含两种 `ERR busy` 的原文与 `rejectBusy` 的 RST 缺陷修复）。
 
-### U7 深层控件树
-- **未验证**：CCS 12 上 `ui.tree 5` 只展开到 `Composite`，更深层读取未解决。
-- **验证入口**：`python -m ctl tree <N>` 逐步加大 N，直到出现目标控件（`depth` 是**位置参数**、不是 `--depth` —— 实测 `python -m ctl tree --depth 3` ⇒ `ERR badrequest unrecognized arguments: --depth`，rc=1；`python -m ctl tree 3` 则进入连接阶段）。用例须显式给 depth（`design.md` §12 风险表「深层树读不到」）。
-- **证据**：`prd.md` §6.4；`design.md` §12 风险表同项。
+### U7 深层控件树（**已闭合 2026-10-05** —— 结论就在本条，复跑入口见文末）
+
+- 原条目：CCS 12 上 `ui.tree 5` 只展开到 `Composite`，更深层读取未解决。
+- **结论一：不是读不到，是 N 不够。** `walk()` 只有四个停法（深度 / 3000 条预算 / 非 `Control` 的特判 /
+  别的 shell），**只有深度在拦**：行数从未接近 3000（最大 255 行）；**主可见 shell 域**（编辑器已开）
+  两侧同值：**最小可读 N = 15**：
+
+  | N | 12 | 13 | 14 | **15** | 16 | 20 / 30 / 60 |
+  |---|---|---|---|---|---|---|
+  | CCS12 行数 / 有没有编辑器 `StyledText` | 161 / ✗ | 163 / ✗ | 165 / ✗ | **169 / ✓** | 171 / ✓ | 171 / ✓（**已到叶子，逐档一致**） |
+  | GS32 行数 / 有没有编辑器 `StyledText` | 197 / ✗ | 202 / ✗ | 207 / ✗ | **221 / ✓** | 224 / ✓ | 224 / ✓（同上） |
+
+  深度 15 是**编辑器客户端区**的深度（`Canvas → StyledText`）；视图内部更浅 —— Project Explorer 的
+  `Tree` 在**深度 8**、Outline 的 `Tree` 在**深度 12**。
+  · **这个 15 带 shell 作用域**（2026-10-05 复核补，`measurement-hygiene` §13.8）：它是**主可见 shell** 里的数。
+    GS32 的 `PartRenderingEngine's limbo` shell 里，**同一个** `StyledText` 在**深度 13** 即到
+    （复核实测：`tree 13 --shell limbo` → `StyledText vis=false en=true`，缩进 26 空格 ⇒ 深度 13）。
+    ⇒ 引用这个数**必须带 shell 作用域**；跨 shell 比较行数也不成立（两边不是子集关系，见 §1 A11b）。
+  ⇒ 旧条文里「更深层读取未解决」的真相是「`ui.tree 5` 只走到深度 5」，**不是**平台读不到；
+  `route-comparison.md:415` 的「这是桥要改进的点」也据此更正为：**桥不需要改默认**，需要的是**写明最小可读 N**。
+- **结论二：`--shell` 把另一个真盲区补上（不是深度问题）。** 默认只挑「最大的可见 shell」，
+  而 e4 会把**尚未渲染**的部件停在不可见的 `PartRenderingEngine's limbo` —— GS32 上编辑器与 4 个视图栈
+  **全部**在 limbo，**任何 N 都读不到**；`ui.tree 20 --shell limbo` 一次读到（`StyledText` 1 / `Tree` 3）。
+  细节与对照表见 §1 的 **A11b**、`protocol.md` §7.1。
+- **结论三（停手）：真正的「部件 → 控件根」要 e4，本轮不做。** 公共 API 没有 `IWorkbenchPart.getControl()`
+  （见 §2 的 **N9′**）；既然结论一已经证明**不需要**它，就**不**在本轮碰 `prd.md` §6.3 的 e4 模型层。
+- **复跑入口**（两条，都不改默认语义）：
+  ```bash
+  python -m ctl tree 15 --run-id <id> --port <p>                     # 到最小可读 N（**主可见 shell** 域；编辑器控件深度 15）
+  python -m ctl tree 15 --shell limbo --run-id <id> --port <p>       # 读不可见 shell 里的部件
+  ```
+  `depth` 是**位置参数**（`python -m ctl tree --depth 3` ⇒ `ERR badrequest unrecognized arguments: --depth`，2026-10-05 复现）。
+- **证据**：任务侧 `research/final-depth-*.txt`（10 档原始输出）、`research/tree-p2-*.txt`（多 shell 对照）、
+  `research/p1-depth-table.md`（汇总与分因）。
 
 ### U8 e4 应用模型层寻址
 - **未验证**：`EModelService` / `MApplication` / `MWindow` 层寻址未实测。
@@ -558,10 +648,36 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
   这是有界的退化，不是死锁：探测是瞬时的，退避重试即可。
 - **证据**：`protocol.md` §4.4；任务侧 `research/p3-gate.md`。
 
-### U13 part-scoped 命令的驱动方法
-- **未验证**：已知 `executeCommand(id, null)` **不**路由到部件级 handler（见 N9）；但**如何设置 selection / 构造 Event** 才能驱动这类命令，未验。
-- **验证入口**：以 `org.eclipse.ui.edit.selectAll` 为靶——先 `python -m ctl cmd org.eclipse.ui.edit.selectAll --yes` 复现 `ERR unhandled`，再按 `implement.md` 增一条用例，判据为该命令回读差非空。
-- **证据**：`prd.md` §6.2；`research/facts-baseline.md` §5 enablement 结论 2。
+### U13 part-scoped 命令的驱动方法（**已闭合 2026-10-05** —— 见 §2 的 N9）
+
+- 原条目：已知 `executeCommand(id, null)` **不**路由到部件级 handler（见 N9）；但**如何设置 selection /
+  构造 Event** 才能驱动这类命令，未验。
+- **终局：靶不再失败，而且不需要改桥。** `org.eclipse.ui.edit.selectAll` 在**编辑器是活动部件**时
+  （`python -m ctl open <file> --yes` 之后）回 **`OK`**，且**有可归因回读差**（见下）。
+  这一条 2026-10-05 在两侧复跑过；payload 原文 `before: defined=true handled=true` +
+  `executeCommand returned: null`。
+- **可归因回读差**（2026-10-05，CCS 12，run `p2-ccs12-focus`，端口 8783）：动作前编辑器无选中、
+  状态栏 `3 : 1 : 79`；动作后 79 个字符全选、状态栏 `3 : 1 [79]`（`[n]` 就是 Eclipse 文本编辑器的
+  「已选中 n 个字符」字段，79 = 该文件字节数）。两帧截图：
+  任务侧 `research/` 记录的路径（`a3-before-011557-*.png` / `a3-after-011636-*.png`）。
+  ⚠️ **现有方法面没有读选区的方法**，所以这条回读差**走的是截图通道**（`see()`，`skill/references/observation.md`
+  的证据通道），不是协议回读 —— 这条缺口如实记下，不冒充。
+  **补（2026-10-05 复核独立复跑，CCS 12 run `chk-ccs12-1005`/端口 8830，jar 0.2.0）**：方法面确实没有
+  **直接**读选区的方法，但选区的**存在性**有一条**协议级**（非像素）回读通道 —— 挑一条**以选区为前提**
+  的命令，读它的 enablement。同一编辑器上 `python -m ctl cmd org.eclipse.ui.edit.copy … --yes`：
+  **刚打开、无选区**时回 `ERR disabled`（连测两次都是，排除「暖机」），`selectAll` 之后回 `OK`
+  （`copy` 把选区写进系统剪贴板 —— 只动剪贴板，不动被测编辑器的状态）。
+  ⇒ A3 的「可归因回读差」**可以在协议级成立**（不再只有像素）；要读**选区大小**才仍需像素通道
+  （状态栏 `[n]`）—— `ui.tree` 读不到它：`describe()` 只给 `Item` 输出 `text=`，`Label`/`CLabel`/`StatusLine` 没有。
+- **三种结局与不变量**：`OK` / `ERR unhandled` / `ERR disabled` 三档的判据表与「换 lookup 上下文无效」
+  的实测见 §2 的 **N9**；`file.saveAll` 仍是 `ERR disabled`（「有脏编辑器」的条件），未与 `unhandled` 混。
+- **复跑入口**：
+  ```bash
+  python -m ctl open <abs .c> --run-id <id> --port <p> --yes          # 让编辑器成为活动部件
+  python -m ctl cmd org.eclipse.ui.edit.selectAll --run-id <id> --port <p> --yes   # 期望 OK + 上面那对截图
+  python -m ctl cmd org.eclipse.ui.file.saveAll  --run-id <id> --port <p> --yes   # 期望 ERR disabled（对拍）
+  ```
+- **证据**：任务侧 `research/p3-selectall-terminal.txt`。
 
 ---
 

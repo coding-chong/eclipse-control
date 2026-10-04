@@ -27,7 +27,7 @@
 | `Workbench has not been created yet` | `python -m ctl shell --run-id <RUN_ID> -c "ui.parts"`（桥答 `ERR noWorkbench <bridge message>`） | 工作台没起来（工作区被占）：清场或换工作区，重新 `install` | `python -m ctl uninstall --target <TARGET> --run-id <RUN_ID> --verify-clean` 后重装；仍不行查 `Workspace Cannot Be Locked` 那一行 |
 | `oversized` | 用 OCU 截图时 `get_app_state(app="GS32", include_image=true)` 报 `Windows runtime returned oversized output` | 截图超 1 MiB：改用单窗截取 `pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<RUN_ROOT>/<RUN_ID>/shots/win.png"`（`PrintWindow` 不受窗口大小与遮挡影响） | 仍是空图：确认窗口可见（后台目标只尝试 `PrintWindow`，可能返回空白） |
 | `NotEnabledException` | `python -m ctl cmd <COMMAND_ID> --run-id <RUN_ID> --yes`（桥答 `ERR disabled <bridge message>`） | 命令被 disable：建前置态（开编辑器 / 选 selection）后再发；做不到就把该用例标 skip | `python -m ctl commands find --text "<按钮或菜单文字>" --json` 换成真正 enabled 的 id |
-| `NotHandledException` | `python -m ctl cmd <COMMAND_ID> --run-id <RUN_ID> --yes`（桥答 `ERR unhandled <bridge message>`） | part-scoped 命令无 handler（已知缺口，`boundaries.md` N9/U13）：改走命令框架的等价命令 | 记入缺口，不要反复重试同一 id |
+| `NotHandledException` | `python -m ctl cmd <COMMAND_ID> --run-id <RUN_ID> --yes`（桥答 `ERR unhandled <bridge message>`） | **当前活动部件**没有这条命令的 handler（`boundaries.md` N9 / U13，2026-10-05 修正 —— 不是「已知缺口」，也不是 lookup 上下文问题）。part-scoped 命令（如 `org.eclipse.ui.edit.selectAll`）先让目标部件成为活动部件（如 `python -m ctl open <abs file> --yes`）再发一次 | 仍 `unhandled` 就记入缺口，不要反复重试同一 id；注意 `ERR disabled` 是**另一档**（handler 找到但 `canExecute=false`），处置是补前置态 |
 | `Workspace Cannot Be Locked` | `pwsh -NoProfile -File tools/win-enum.ps1 -TitleLike "Workspace"`（弹出该对话框） | 同工作区已有实例：清场后重来（每个 run 用新工作区，`--ensure-clean`） | `python -m ctl uninstall --target <TARGET> --run-id <RUN_ID> --verify-clean`，换 `--run-id` 重装 |
 
 ---

@@ -32,13 +32,18 @@ _JAVA = _ROOT / "bridge" / "src" / "ctl" / "bridge" / "LiveBridge.java"
 #: 上一次真实例 ``sys.help`` 回话的**方法行**（状态行 / ``methods=`` / ``codes=`` / ``note=``
 #: 皆不在此，只保留 ``name|args|write|idempotent|desc``）。逐字照抄，未做任何重排。
 #: 复跑：``python -m ctl shell --run-id <id> -c "sys.help"``。
+#:
+#: **混合快照**（2026-10-05 注明，别把它读成一次读出）：15 行取自 2026-10-04 的 ``gs32``
+#: run ``gs32-b2-help``（端口 8777）；``ui.tree`` 那一行在 2026-10-05 加了 ``--shell`` 之后
+#: **重新取自真实例**（``ccs12`` run ``p2-ccs12-focus``，端口 8783，jar 0.2.0，
+#: ``sys.help`` 回话逐字），其余 15 行**未重读**——它们的漂移只由这条测试的源码侧比对兜住。
 SYS_HELP = [
     'sys.ping||no|true|round-trip liveness probe; answers without touching the UI thread',
     'sys.env||no|true|bridge identity: java/os/protocol/bundle id+version+state/port/timeouts/log path',
     'sys.help||no|true|this method table (name|args|write|idempotent|desc)',
     'sys.wait|[<ms>|jobs-idle]|no|true|wait for org.eclipse.core.runtime.jobs.JobManager to go idle; returns OK with idle=false on timeout',
     'ui.shells||no|true|list SWT shells (text/visible/bounds/children)',
-    'ui.tree|[depth]|no|true|dump the SWT widget tree of the largest visible shell (default depth 3)',
+    'ui.tree|[depth] [--shell <all|index|title>]|no|true|dump the SWT widget tree; default = the largest visible shell (default depth 3), --shell widens the pick',
     'ui.parts||no|true|perspective + views + editors of the active page (created parts only)',
     'ui.viewids|[prefix] [--limit <n>]|no|true|registered view ids (IViewRegistry); no truncation unless --limit is given',
     'ui.persp||no|true|registered perspectives + the active one',

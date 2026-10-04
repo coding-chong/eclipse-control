@@ -64,7 +64,7 @@ python -m ctl run --target gs32 < job.py
 | `run(req)` | 发一行原始请求，回原始回话串 |
 | `resp(req)` | 发一行 → `(状态行, 负载行列表, 原始串)` |
 | `parts()` | 透视图 + 视图 id 列表 + 编辑器数 |
-| `viewids(prefix="")` / `persp()` / `tree(depth)` / `commands(prefix="")` | 读面快捷方式 |
+| `viewids(prefix="")` / `persp()` / `tree(depth, shell=None)` / `commands(prefix="")` | 读面快捷方式 |
 | `cmd(id, yes=False, **params)` | 走命令框架；**默认 dry-run**，真发要 `yes=True` |
 | `open_file(path, yes=False)` / `close_view(id, yes=False)` | 打开文件 / 关视图；同样默认 dry-run |
 | `act_click_button(text, case=None, title=None, yes=False)` | 元素寻址点按钮；默认 dry-run |
@@ -117,6 +117,13 @@ python -m ctl targets add gs32 --source-dir <你的 GS32_Studio 安装根>
 - **参数别硬编码**：跑某条命令前先 `cmd.query <id>` 取 `parameters[]`，再拼 `cmd(id, **params)`。
 - **`ToolItem` / `MenuItem` / `CTabItem` / `TreeItem` 不是 `Control`**：`getChildren()` **拿不到**它们，
   要走 `getItems()`。工具栏按钮的语义常在 `getToolTipText()`（`getText()` 可能是空的）。
+- **读控件树要给够深度**：默认 `tree(3)` 只到深度 3，很容易停在 `Composite` 上被误判成「读不到」。
+  实测（2026-10-05，CCS 12.8.1 与 GS32 1.2.5.2 同值，**主可见 shell 域**）：编辑器内部的 `StyledText` 在**深度 15**，
+  视图内部更浅（Project Explorer 的 `Tree` 深度 8 / Outline 的 12）⇒ **要读部件内部，给 `tree(15)` 起步**。
+- **默认只看「最大的可见 shell」**：e4 会把**尚未渲染**的部件停在不可见的
+  `PartRenderingEngine's limbo` shell 里 —— 那时**任何深度**都读不到它们（GS32 上 Welcome 最大化时
+  编辑器与 4 个视图栈全在里面）。`tree(depth, shell=…)` 可按 `all` / 下标 / 标题子串换 shell：
+  每个 shell 的 `root` 头带 `shell=i/n`，标题与下标先用 `resp("ui.shells")` 取。
 - **幂等三档**（决定能不能自动重试）：`true` 可重试；`false` 不可；**`per-command`** ——
   一个方法名承载任意命令、方法级无从保证（`cmd.run` / `cmd.runp` 就是这档）
   ⇒ **与 `unknown` 同等保守，一律不重试**（实测：开关型命令连点两次会**回到原状**）。

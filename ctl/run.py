@@ -124,8 +124,8 @@ def _make_namespace(client: Client, state: _DoorState) -> Dict[str, Any]:
                 "ids": re.findall(r"^\s*persp id=(\S+)", text, re.M),
                 "raw": text}
 
-    def tree(depth: int) -> str:
-        return _body("ui.tree %d" % int(depth))
+    def tree(depth: int, shell: Optional[str] = None) -> str:
+        return _body("ui.tree %d%s" % (int(depth), (" --shell %s" % shell) if shell else ""))
 
     def commands(prefix: str = "") -> List[str]:
         """The ``cmd.list`` ids -- parsed by the one authoritative reader.

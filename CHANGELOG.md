@@ -8,7 +8,25 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-05
+
+`__version__` / 桥 `Bundle-Version` **0.1.0 → 0.2.0**（`ctl/__init__.py`、`bridge/build.py`）。
+按 `protocol.md` §9「新增 = 升**次**版本」，`PROTOCOL_VERSION` **仍是 1**（行协议的错误码闭集、
+帧结构、既有方法语义都没动）。
+
 ### Added
+
+- **`ui.tree [depth] [--shell <all|index|title>]`：按 shell 读控件树**（2026-10-05，`bridge/src/ctl/bridge/LiveBridge.java` 的 `tree()`）：
+  默认**一字未改**（仍是「最大的可见 shell」），`--shell` 给三条新路：`all` / `Display.getShells()` 下标 /
+  标题子串（大小写不敏感；命中 0 ⇒ `ERR notfound`，>1 ⇒ `ERR badrequest`，**不猜** —— §18.3 寻址纪律）。
+  `root` 头新增 `vis=` 与 `shell=<i>/<n>` 两个字段；`--shell all` 的负载 = 各 shell 单独读的**拼接**
+  （CCS 12 实测 `170+38+2=210` 行、GS32 `138+117=255` 行，逐行比对无多无少）。
+  **它补的是真盲区**：e4 的 `PartRenderingEngine` 把尚未渲染的部件停在不可见的
+  `PartRenderingEngine's limbo` shell 里 —— GS32 上（Welcome 最大化）编辑器与 4 个视图栈**全部**在里面，
+  默认 `ui.tree` **任何深度**都读不到（可见 shell：`StyledText` 0 / `Tree` 0；limbo：`StyledText` 1 / `Tree` 3）。
+  落地面：桥方法（`ui.tree` 的参数）、CLI（`ctl tree --shell`）、库函数（`tree(depth, shell=None)`）、
+  `sys.help` 行、`protocol.md` §7.1、`skill/SKILL.md` 的读树两条坑。
+  单测 `tests/unit/test_help_method_set.py` 的 `ui.tree` 行**重新取自真实例**（ccs12 run `p2-ccs12-focus`，端口 8783，jar 0.2.0）。
 
 - **`preflight` 第七项：开发者门不许进用户路径（判据从子串收紧为词边界）**（2026-10-04）：
   `deliverable-shape.md` §6② / C5 的判据此前只是**手工 grep**，而且是**子串**匹配 ⇒ 对报错串里的
@@ -96,6 +114,22 @@
 
 ### Changed
 
+- **`boundaries.md` 的 U7 与 U13 两条从「未验证」改成终局**（2026-10-05）：
+  · **U7 深层控件树**：**不是读不到，是 N 不够**。**主可见 shell 域**的最小可读 N = **15**
+    （两侧同值；N=14 无、N=15 有，N≥16 起逐档完全一致 = 已到叶子）；视图内部更浅（Project Explorer 的
+    `Tree` 深度 8）。**该数带 shell 作用域**：GS32 的 limbo shell 里同一控件深度 **13** 即到（复核实测）。旧条文
+    「`ui.tree 5` 只展开到 `Composite`，更深层读取未解决」是**深度预算**造成的假象，不是平台限制。
+    真正的「部件→控件根」要 e4（公共 API 没有 `IWorkbenchPart.getControl()`）——**本轮停手**，
+    因为已经不需要它。
+  · **U13 part-scoped 命令**：`org.eclipse.ui.edit.selectAll` **不是永远 `NotHandled`**。同一命令 id
+    有三种结局：编辑器活动 ⇒ `OK`；视图活动且该部件无 handler ⇒ `ERR unhandled`；找到但 `canExecute=false`
+    ⇒ `ERR disabled`（GS32 导航器活动时实测到后者 —— `unhandled`/`disabled` 不可混的活例）。
+    换 lookup 上下文（活动部件站级 + 窗口回落）**逐条同结论** ⇒ 该修法**已不投入并回滚**；
+    `executeCommand(id, null)` 的 `null` 事件也不是障碍（`OK` 就是它跑出来的）。
+- **`boundaries.md` N9 修正**：原条目「`executeCommand(id, null)` 不路由到 part-scoped handler」的
+  「永远」被实测推翻，改写成三档判据表；另加 N9′（部件→控件根没有非 e4 公共入口）。
+- **skill 的读树纪律**（`skill/SKILL.md`）：写明**最小可读 N = 15**、默认只看最大可见 shell、以及
+  `tree(depth, shell=…)` 的用法。
 - **`_doc_command_consistency` 的扫描面从 `skill/*.md` 扩到递归的 `skill/**`**（2026-10-04）：
   `R4` 把深度搬进 `skill/references/` 后，旧的单层扫描会把新层整片放在闸门视野**之外**
   （`deliverable-shape.md` C8「闸门必须能看见它守的东西」）。报错形状同时改为 `file:line`。

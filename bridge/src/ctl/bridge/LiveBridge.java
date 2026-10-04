@@ -265,8 +265,8 @@ public class LiveBridge implements BundleActivator {
         // ui.* read
         add("ui.shells", "", false, "true", true,
                 "list SWT shells (text/visible/bounds/children)", (a, o) -> shells(o));
-        add("ui.tree", "[depth]", false, "true", true,
-                "dump the SWT widget tree of the largest visible shell (default depth 3)", (a, o) -> tree(a, o));
+        add("ui.tree", "[depth] [--shell <all|index|title>]", false, "true", true,
+                "dump the SWT widget tree; default = the largest visible shell (default depth 3), --shell widens the pick", (a, o) -> tree(a, o));
         add("ui.parts", "", false, "true", true,
                 "perspective + views + editors of the active page (created parts only)", (a, o) -> parts(o));
         add("ui.viewids", "[prefix] [--limit <n>]", false, "true", true,
@@ -749,21 +749,85 @@ public class LiveBridge implements BundleActivator {
         }
     }
 
+    /**
+     * Dump a SWT widget tree.
+     *
+     * Default (unchanged): the largest **visible** shell. `--shell <all|index|title>` widens the
+     * pick -- measured 2026-10-05: a part the renderer has not laid out yet is not in the
+     * visible shell at all (GS32_Studio, intro maximized: the open editor's widgets were
+     * reachable only at depth 11 of a *different* shell; `ui.shells` shows them parked in
+     * `PartRenderingEngine's limbo`). Addressing one shell must never silently return another,
+     * so a title match must be unique and an index is bounds-checked.
+     */
     private void tree(String arg, List<String> out) throws CtlException {
         int max = 3;
-        if (arg.length() > 0) {
-            max = parseInt("ui.tree depth", arg);
-            if (max < 0) throw new CtlException(E_BADREQUEST, "ui.tree depth must be >= 0");
+        String selector = null;
+        boolean depthGiven = false;
+        String[] tok = tokens(arg);
+        for (int i = 0; i < tok.length; i++) {
+            if (tok[i].equals("--shell")) {
+                if (i + 1 >= tok.length) {
+                    throw new CtlException(E_BADREQUEST,
+                            "usage: ui.tree [depth] [--shell <all|index|title substring>]");
+                }
+                if (selector != null) throw new CtlException(E_BADREQUEST, "ui.tree: --shell given twice");
+                selector = tok[++i];
+            } else if (!depthGiven && !tok[i].startsWith("--")) {
+                max = parseInt("ui.tree depth", tok[i]);
+                if (max < 0) throw new CtlException(E_BADREQUEST, "ui.tree depth must be >= 0");
+                depthGiven = true;
+            } else {
+                throw new CtlException(E_BADREQUEST, "ui.tree: unexpected argument: " + tok[i]);
+            }
         }
+
         Display d = Display.getCurrent();
         Shell[] shells = d.getShells();
-        Shell best = null;
-        for (Shell s : shells)
-            if (s.isVisible() && (best == null || s.getBounds().height > best.getBounds().height)) best = s;
-        if (best == null) { out.add("no visible shell"); return; }
-        out.add("root text=\"" + cut(best.getText()) + "\" b=" + best.getBounds()
-                + " maxDepth=" + max + " thread=" + Thread.currentThread().getName());
-        walk(best, 1, max, out, 0);
+        List<Shell> chosen = new ArrayList<Shell>();
+        if (selector == null) {
+            Shell best = null;
+            for (Shell s : shells)
+                if (s.isVisible() && (best == null || s.getBounds().height > best.getBounds().height)) best = s;
+            if (best == null) { out.add("no visible shell"); return; }
+            chosen.add(best);
+        } else if (selector.equals("all")) {
+            for (Shell s : shells) chosen.add(s);
+        } else {
+            Integer index = null;
+            try { index = Integer.valueOf(selector); } catch (NumberFormatException ignore) { }
+            if (index != null) {
+                if (index < 0 || index >= shells.length) {
+                    throw new CtlException(E_BADREQUEST, "ui.tree --shell " + index
+                            + " is out of range (shells=" + shells.length + "; see ui.shells)");
+                }
+                chosen.add(shells[index]);
+            } else {
+                String needle = selector.toLowerCase();
+                for (Shell s : shells) {
+                    String t = s.getText() == null ? "" : s.getText().toLowerCase();
+                    if (t.contains(needle)) chosen.add(s);
+                }
+                if (chosen.isEmpty()) {
+                    throw new CtlException(E_NOTFOUND, "ui.tree --shell: no shell title contains \""
+                            + selector + "\" (see ui.shells)");
+                }
+                if (chosen.size() > 1) {
+                    // Never guess between two shells -- §18.3 addressing discipline.
+                    throw new CtlException(E_BADREQUEST, "ui.tree --shell \"" + selector
+                            + "\" is ambiguous (" + chosen.size() + " shells); use an index (see ui.shells)");
+                }
+            }
+        }
+
+        for (int i = 0; i < chosen.size(); i++) {
+            Shell sh = chosen.get(i);
+            int at = -1;
+            for (int j = 0; j < shells.length; j++) if (shells[j] == sh) { at = j; break; }
+            out.add("root text=\"" + cut(sh.getText()) + "\" vis=" + sh.isVisible()
+                    + " b=" + sh.getBounds() + " shell=" + at + "/" + shells.length
+                    + " maxDepth=" + max + " thread=" + Thread.currentThread().getName());
+            walk(sh, 1, max, out, 0);
+        }
     }
 
     private void walk(Widget w, int depth, int max, List<String> out, int budget) {
