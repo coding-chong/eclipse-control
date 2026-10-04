@@ -19,6 +19,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import struct
@@ -30,9 +31,9 @@ from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import BUNDLE_SYMBOLIC_NAME
-from .client import Client, write_endpoint
+from .client import Client, discover_endpoint, write_endpoint
 from .console import Console
-from .errors import CtlError, NotFoundError, PrereqNotReady
+from .errors import CtlError, EndpointNotFound, NotFoundError, PrereqNotReady, UsageError
 from .targets import Target, Config
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -83,8 +84,35 @@ def make_run_id(target: str, when: Optional[time.struct_time] = None) -> str:
     return "%s-%s" % (target, stamp)
 
 
+#: A run id is exactly one directory name, always built by :func:`make_run_id`.
+_RUN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+
+
+def validate_run_id(run_id: str) -> str:
+    """Reject a run id that cannot be a single, safe path component.
+
+    ``run_id`` is joined onto ``run_root`` (here and in ``client.endpoint_path`` /
+    ``shadow.ShadowConfig``), so an unvalidated ``--run-id ..\\..\\..\\Users\\Public\\evil``
+    let :func:`prepare_run` ``rmtree`` / ``makedirs`` and write ``endpoint.json``
+    outside the run root (R5-5).  A whitelist runs *before* any join, so an
+    escaping id never produces a path at all -- the alternative (``realpath``
+    after the join) would still build the escaping path and leave the guarantee
+    to each consumer remembering to assert it.
+
+    Rejects ``.`` / ``..`` (leading char must be alphanumeric), separators,
+    drive/UNC prefixes, spaces and the empty string; accepts every id
+    :func:`make_run_id` can emit.
+    """
+    if not isinstance(run_id, str) or not run_id or not _RUN_ID_RE.match(run_id):
+        raise UsageError(
+            "invalid run-id %r: it must match [A-Za-z0-9][A-Za-z0-9._-]* "
+            "(one path component, no separators, no leading dot); "
+            "retry: python -m ctl install --target gs32" % (run_id,))
+    return run_id
+
+
 def run_paths(run_root: str, run_id: str) -> RunPaths:
-    base = os.path.join(run_root, run_id)
+    base = os.path.join(run_root, validate_run_id(run_id))
     return RunPaths(
         run_root=run_root,
         run_id=run_id,
@@ -746,19 +774,21 @@ def uninstall(config: Config, target_name: Optional[str] = None, run_id: Optiona
             % (target.name, config.run_root, target.name))
     paths = run_paths(config.run_root, run_id)
     effective_port = int(port) if port is not None else target.port
+    # Single read point for endpoint.json (`discover_endpoint`): it validates the
+    # port/pid range, so a tampered file can no longer aim `ensure_clean` /
+    # `stop_process` at an arbitrary port or pid (R5-7).  A missing/invalid
+    # endpoint is still tolerated -- uninstall must work on a half-dead run.
     endpoint = None
-    if os.path.isfile(paths.endpoint):
-        try:
-            with open(paths.endpoint, "r", encoding="utf-8") as fh:
-                endpoint = json.load(fh)
-        except (OSError, ValueError):
-            endpoint = None
-    if endpoint and endpoint.get("port"):
-        effective_port = int(endpoint["port"])
+    try:
+        endpoint = discover_endpoint(config.run_root, run_id)
+    except EndpointNotFound:
+        endpoint = None
+    if endpoint:
+        effective_port = endpoint["port"]
 
     stopped: List[str] = []
     if endpoint and endpoint.get("pid"):
-        pid = int(endpoint["pid"])
+        pid = endpoint["pid"]
         if stop_process(pid):
             stopped.append("pid %d" % pid)
     # Processes still holding the port/configuration go too.
@@ -874,12 +904,17 @@ def pid_alive(pid: int) -> bool:
 
 
 def run_live_pid(run_dir: str) -> Optional[int]:
-    """The pid recorded in ``<run_dir>/endpoint.json``, if that process is alive."""
-    path = os.path.join(run_dir, "endpoint.json")
+    """The pid recorded in ``<run_dir>/endpoint.json``, if that process is alive.
+
+    Reads through :func:`ctl.client.discover_endpoint`, so the recorded pid gets
+    the same range/type validation as every other reader (R5-7): a bogus pid
+    (``true`` / ``-1`` / ``1e10``) reads as "not alive" instead of being coerced
+    into a value that would let :func:`gc` delete a running instance.
+    """
+    run_dir = os.path.abspath(run_dir)
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            pid = int(json.load(fh).get("pid") or 0)
-    except (OSError, ValueError, TypeError, AttributeError):
+        pid = discover_endpoint(os.path.dirname(run_dir), os.path.basename(run_dir)).get("pid") or 0
+    except CtlError:
         return None
     return pid if pid_alive(pid) else None
 

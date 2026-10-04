@@ -52,13 +52,37 @@ BRIDGE_UI_TIMEOUT_MS = 15000
 ENDPOINT_FILENAME = "endpoint.json"
 _RECV_CHUNK = 65536
 
+#: Frame-size ceilings.  Nothing in `protocol.md` bounds a request line or a
+#: response, so a peer that never writes ``END`` (or one enormous payload line)
+#: must not be able to grow this process's buffer without limit (R5-2).  The
+#: values are generous next to the largest documented payload -- ``ui.console``
+#: is capped at 200 000 chars bridge-side (`LiveBridge.java` ``CONSOLE_MAX_CHARS``)
+#: -- and only ever stop reads/refuse a request; they never truncate a legal one.
+MAX_REQUEST_BYTES = 64 * 1024
+MAX_LINE_BYTES = 1024 * 1024
+MAX_FRAME_BYTES = 8 * 1024 * 1024
+
 
 # --------------------------------------------------------------------------- #
 # Endpoint discovery
 # --------------------------------------------------------------------------- #
 
+def _checked_run_id(run_id: str) -> str:
+    """Reject a run id that could escape ``<run_root>`` when joined as a path.
+
+    ``run_root``/``run_id`` become a directory in :func:`endpoint_path` and
+    :func:`write_endpoint`; an unvalidated ``..\\..`` run id therefore turned
+    ``discover_endpoint`` / ``write_endpoint`` into reads and writes outside the
+    run root (R5-5).  The whitelist runs *before* any join, so a bad id never
+    produces a path at all -- the alternative (``realpath`` after the join) would
+    still build the escaping path and depend on every consumer checking.
+    """
+    from .lifecycle import validate_run_id  # lazy: lifecycle imports this module
+    return validate_run_id(run_id)
+
+
 def endpoint_path(run_root: str, run_id: str) -> str:
-    return os.path.join(run_root, run_id, ENDPOINT_FILENAME)
+    return os.path.join(run_root, _checked_run_id(run_id), ENDPOINT_FILENAME)
 
 
 def discover_endpoint(run_root: str, run_id: str) -> dict:
@@ -87,18 +111,28 @@ def discover_endpoint(run_root: str, run_id: str) -> dict:
         raise EndpointNotFound(
             "endpoint.json for run '%s' has no port field (%s); retry: python -m ctl install --target gs32 --run-id %s"
             % (run_id, path, run_id))
-    try:
-        data["port"] = int(data["port"])
-    except (TypeError, ValueError):
+    port = data["port"]
+    # Type-strict on purpose: ``True`` is an ``int`` (``int(True) == 1``), a float
+    # like ``3.9`` would silently floor to 3, and ``1e10`` overflowed PowerShell's
+    # ``[uint32]`` port -- all of which a bare ``int()`` accepted (R5-7).
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
         raise EndpointNotFound(
-            "endpoint.json for run '%s' has a non-numeric port (%s)" % (run_id, path))
+            "endpoint.json for run '%s' has an out-of-range port (%r, %s); "
+            "retry: python -m ctl install --target gs32 --run-id %s"
+            % (run_id, port, path, run_id))
+    pid = data.get("pid")
+    if pid is not None and (isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0):
+        raise EndpointNotFound(
+            "endpoint.json for run '%s' has a non-positive pid (%r, %s); "
+            "retry: python -m ctl install --target gs32 --run-id %s"
+            % (run_id, pid, path, run_id))
     return data
 
 
 def write_endpoint(run_root: str, run_id: str, port: int, pid: Optional[int] = None,
                    configuration: str = "") -> str:
     """Record the live instance under ``<run_root>/<run_id>/endpoint.json``."""
-    directory = os.path.join(run_root, run_id)
+    directory = os.path.dirname(endpoint_path(run_root, run_id))
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, ENDPOINT_FILENAME)
     payload = {
@@ -187,10 +221,43 @@ class Response:
 # Transport (relocated verbatim from the slice-1 harness)
 # --------------------------------------------------------------------------- #
 
+def _frame_end_offset(data: bytes, start: int = 0) -> Tuple[Optional[int], int]:
+    """Search ``data`` from ``start`` for a **lone** ``END`` line.
+
+    Returns ``(end_offset, resume)``: ``end_offset`` is the byte just past the
+    terminating line's ``\\n`` (``None`` while no whole ``END`` line is present),
+    and ``resume`` is where the next call continues scanning.  Only a line that
+    is *entirely* ``END`` (whitespace tolerated) ends a frame; a payload line
+    that merely ends with those bytes -- ``"build END"`` -- does not
+    (`protocol.md` §2.2: "读到 END 才算一帧结束").
+    """
+    pos = start
+    while True:
+        nl = data.find(b"\n", pos)
+        if nl < 0:
+            return None, pos
+        if data[pos:nl].strip() == b"END":
+            return nl + 1, nl + 1
+        pos = nl + 1
+
+
 def _recv_until_end(sock: socket.socket, timeout: float) -> bytes:
-    """Read until the ``END`` line, mirroring the legacy receive loop."""
+    """Read until the ``END`` **line**, mirroring the legacy receive loop.
+
+    The legacy loop broke on the *substring* ``b"END\\n"``: a payload line that
+    ended in ``END`` cut the frame short, dropping everything after it while the
+    status line still read ``OK`` (R5-2).  Termination is now per line, and the
+    buffer is bounded by :data:`MAX_LINE_BYTES` / :data:`MAX_FRAME_BYTES` so a
+    peer that never writes ``END`` cannot grow it without limit.
+    """
     data = b""
-    while b"END\n" not in data:
+    cursor = 0
+    while True:
+        end, cursor = _frame_end_offset(data, cursor)
+        if end is not None:
+            return data[:end]
+        if len(data) - cursor > MAX_LINE_BYTES or len(data) >= MAX_FRAME_BYTES:
+            break
         try:
             chunk = sock.recv(_RECV_CHUNK)
         except socket.timeout:
@@ -235,6 +302,13 @@ def talk(req: str, port: Optional[int] = None, timeout: float = DEFAULT_TIMEOUT,
     """
     if timeout is None:
         timeout = DEFAULT_TIMEOUT
+    payload = req.encode("utf-8")
+    if len(payload) > MAX_REQUEST_BYTES:
+        raise CtlError(
+            "badrequest",
+            "request is %d bytes, over the %d-byte request cap; "
+            "retry: send a smaller request (`protocol.md` §2.1: one request = one line)"
+            % (len(payload), MAX_REQUEST_BYTES))
     actual_port = resolve_port(port, run_root, run_id)
     try:
         sock = socket.create_connection((host, actual_port), timeout=timeout)
@@ -244,7 +318,7 @@ def talk(req: str, port: Optional[int] = None, timeout: float = DEFAULT_TIMEOUT,
                        % (host, actual_port, exc))
     try:
         sock.settimeout(timeout)
-        sock.sendall(req.encode("utf-8") + b"\n")
+        sock.sendall(payload + b"\n")
         data = _recv_until_end(sock, timeout)
     finally:
         try:

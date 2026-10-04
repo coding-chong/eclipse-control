@@ -103,11 +103,12 @@ class ShadowConfig:
     def run_key(self) -> str:
         return "%s|%s" % (self.run_root, self.run_id)
 
-    def manifest_path(self) -> str:
-        return os.path.join(self.run_root, self.run_id, SHADOW_DIRNAME, MANIFEST_NAME)
-
     def shadow_dir(self) -> str:
-        return os.path.join(self.run_root, self.run_id, SHADOW_DIRNAME)
+        from .lifecycle import validate_run_id  # lazy: lifecycle imports client -> shadow
+        return os.path.join(self.run_root, validate_run_id(self.run_id), SHADOW_DIRNAME)
+
+    def manifest_path(self) -> str:
+        return os.path.join(self.shadow_dir(), MANIFEST_NAME)
 
 
 _STATE = ShadowConfig()
@@ -721,11 +722,10 @@ def prune(cfg: ShadowConfig) -> List[dict]:
     path = cfg.manifest_path()
     rows = _rows(path)
     frames = frame_rows(rows)
-    directory = cfg.shadow_dir()
     live: List[Tuple[dict, int]] = []
     for row in frames:
-        file_path = os.path.join(directory, str(row.get("shot")))
-        if not os.path.isfile(file_path):
+        file_path = frame_path(cfg, row)
+        if not file_path or not os.path.isfile(file_path):
             continue
         live.append((row, os.path.getsize(file_path)))
     if not live:
@@ -746,7 +746,7 @@ def prune(cfg: ShadowConfig) -> List[dict]:
             break
         if int(row.get("seq") or 0) >= newest:      # never delete the newest frame
             continue
-        _unlink(os.path.join(directory, str(row.get("shot"))))
+        _unlink(frame_path(cfg, row))
         count -= 1
         total -= size
         deleted.append(row)
@@ -779,9 +779,25 @@ def find(cfg: ShadowConfig, seq: int) -> Optional[dict]:
     return None
 
 
+#: A ledger ``shot`` is a file *name* this module wrote (``%04d-<HHMMSS>-<slug>.png``).
+#: Anything else in a manifest -- an absolute path, ``..\``, a nested path -- is
+#: not a frame we produced and must never reach ``os.startfile`` (``--open``) or
+#: ``os.remove`` (prune) outside ``shadow_dir`` (R5-6).
+_FRAME_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.png\Z")
+
+
 def frame_path(cfg: ShadowConfig, row: dict) -> str:
-    name = row.get("shot")
-    return os.path.join(cfg.shadow_dir(), str(name)) if name else ""
+    """Absolute path of a ledger row's frame -- or ``""`` when the name escapes.
+
+    ``shot`` is treated strictly as a base name (alphanumeric start, no
+    separator, ``.png`` only); a row whose ``shot`` names something else is
+    reported as having no frame at all, so ``--open`` (:func:`open_frame`) and
+    :func:`prune` can only ever act on a file inside ``shadow_dir``.
+    """
+    name = str(row.get("shot") or "")
+    if not _FRAME_NAME_RE.match(name):
+        return ""
+    return os.path.join(cfg.shadow_dir(), name)
 
 
 def open_frame(path: str) -> None:
@@ -826,7 +842,7 @@ def summary(cfg: ShadowConfig) -> List[str]:
 def _live_bytes(cfg: ShadowConfig) -> int:
     total = 0
     for row in frame_rows(_rows(cfg.manifest_path())):
-        file_path = os.path.join(cfg.shadow_dir(), str(row.get("shot")))
-        if os.path.isfile(file_path):
+        file_path = frame_path(cfg, row)
+        if file_path and os.path.isfile(file_path):
             total += os.path.getsize(file_path)
     return total
