@@ -1,6 +1,6 @@
 ---
 name: eclipse-ctl
-description: 从外部读取或控制 Eclipse 系 IDE（GS32_Studio / CCS 等）。当需要看 IDE 此刻的界面、部件、命令表，执行 IDE 自己的命令，开文件，对原生控件做元素寻址输入，或排查桥超时与模态框卡死时使用。关键词：eclipse-ctl、ctl run、GS32_Studio、CCS、工作台、模态框、sys.ping、ui.parts。
+description: 从外部读取或控制 Eclipse 系 IDE（GS32_Studio / CCS 等）。当需要看 IDE 此刻的界面、部件、命令表，执行 IDE 自己的命令，开文件，对原生控件做元素寻址输入，截图留证，或排查桥超时与模态框卡死时使用。关键词：eclipse-ctl、ctl run、GS32_Studio、CCS、工作台、模态框、sys.ping、ui.parts、截图、see、windows。
 ---
 
 # eclipse-ctl —— 能力、纪律与自救
@@ -10,6 +10,15 @@ description: 从外部读取或控制 Eclipse 系 IDE（GS32_Studio / CCS 等）
 
 > 这份文档只做**约束**：什么时候用、脚本怎么写、超时后怎么办、不许做什么。
 > 它**不是**命令表 —— 方法面用 `sys.help` 自省（桥会把每个方法的参数、是否写、幂等档位列出来）。
+> **深度在 [`references/`](references/)**，按下表读；正文只留契约。
+
+### 索引：什么时候读哪一份
+
+| 你要做的事 | 读 |
+|---|---|
+| 桥超时 / 界面疑似卡死 / 换一台机器（内置 target 的安装根不是你的） | [`references/recovery.md`](references/recovery.md) |
+| 点按钮 / 按键 / 写文本（元素寻址输入） | [`references/input.md`](references/input.md) |
+| 截图 / 窗口枚举 / `shots` 与 `shadow` 的区别 | [`references/observation.md`](references/observation.md) |
 
 ## 一、何时用
 
@@ -46,7 +55,7 @@ python -m ctl run --target gs32 < job.py
 - `--no-shadow` / `--shadow-only-changes`：影子留档**默认开**，不需要就关。
 - `--json`：机器可读输出。
 
-**stdout 只放结果，诊断走 stderr**；脚本自己的 `print()` 独占 stdout。
+**stdout 只放结果，诊断走 stderr**；脚本自己的 `print` 独占 stdout。
 
 脚本里**已预导入**这些名字（不要自己 `import ctl`）：
 
@@ -61,9 +70,17 @@ python -m ctl run --target gs32 < job.py
 | `act_click_button(text, case=None, title=None, yes=False)` | 元素寻址点按钮；默认 dry-run |
 | `act_send_keys(key, title=None, class_="Edit", index=None, yes=False)` | 元素寻址按键（`WM_KEYDOWN/UP`）；默认 dry-run |
 | `act_set_text(text, title=None, class_="Edit", index=None, yes=False)` | 元素寻址写文本（`WM_SETTEXT`）；默认 dry-run |
+| `see(name=None, title=None)` | 拍一帧**证据**图（`shots/`，走 `shot-window-pw.ps1`）；回「真路径 + 窗口行」。只读 |
+| `windows()` | 本 run 的可见顶层窗 `{hwnd: (pid, class, title)}`。只读 |
+| `close_window(title, cls="", yes=False)` | 按标题关窗（`WM_CLOSE`）；默认 dry-run |
 | `shadow(seq=None)` | 影子留档清单（**留档，不是判据**） |
 | `log(msg)` | 往 stderr 打诊断 |
 | `client` | 底层连接对象（其余名字都闭包在它上面） |
+
+> **排版约定（也是闸门的判据）**：skill 里带括号的反引号名 = 上表的名字；
+> 桥方法（`cmd.query`）、SWT/Java 方法（`getChildren`）、命令与文件名**都不带括号**写。
+> 这条让闸门能把「库函数名」与普通行内代码分开 —— 见 `ctl/__main__.py` 的
+> `_skill_namespace_consistency`。
 
 也可以在**自己的进程**里直接 `import ctl`（`Client` / `talk` / `resp` / `snap` / `discover_endpoint`）——
 `ctl run` 只是同一个库的一扇门，不是第二套实现。
@@ -84,6 +101,17 @@ python -m ctl run --target gs32 < job.py
 连上先发 `sys.env`：必须报 `protocol=1`，且 `bundle=` 的值是 `eclipse-ctl.bridge`。不符就**先别发写方法**。
 **端口不要假设** —— 真实端口写在那个运行目录的 `endpoint.json` 里，`ctl run` 会自己找。
 
+### 换一台机器：内置 target 的安装根不是你的
+
+内置 `gs32` / `ccs12` 的安装根是**参考机**的值。换机器后第一次连接会停在这一条上，
+并把可复跑的修法**印在错误里**（逐字原文、两种措辞见 [`references/recovery.md`](references/recovery.md)）：
+
+```bash
+python -m ctl targets add gs32 --source-dir <你的 GS32_Studio 安装根>
+```
+
+两个 target 各设一次（`gs32` / `ccs12`），`python -m ctl targets list` 的 INSTALL_DIR 列应是你的路径。
+
 ### 几条容易踩的
 
 - **参数别硬编码**：跑某条命令前先 `cmd.query <id>` 取 `parameters[]`，再拼 `cmd(id, **params)`。
@@ -97,44 +125,30 @@ python -m ctl run --target gs32 < job.py
 
 **不许**认定「没执行」—— 桥用 `asyncExec`，超时只结束等待，排队的动作**仍可能生效**。
 
-1. **先枚举，拿到那个框的真标题**（不要先猜、不要问用户）：
+**主路径全在库函数里**（`ctl run` 脚本命名空间，不必 shell 出去）：
 
-   ```bash
-   pwsh -NoProfile -File tools/win-enum.ps1 -Class "#32770"
-   ```
-
-   `#32770` 是原生对话框的窗口类。**顺序不能反** —— 弹框标题通常不含产品名，而按主窗名去截
-   会拍到**一张没有框的图**，正好把你推向「一切正常」。
-
-2. **再按那个标题截图**（多实例时用 `-ProcId` 认准自己那扇）：
-
-   ```bash
-   pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "<上一步枚举到的标题>" -ProcId <pid> -Out "<运行目录>/hung.png"
-   ```
-
-3. **处置**：默认**只关窗**（等同点右上角 X）：
-
-   ```bash
-   pwsh -NoProfile -File tools/win-close.ps1 -TitleLike "<真标题>" -ProcId <pid>
-   ```
-
-   只有用例**显式声明**了按钮时才按下它（点按钮 = 替用户做不可逆决定）：
-
-   ```bash
-   pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "<真标题>" -ProcId <pid> -Text "&No"
-   ```
-
-   > 同名按钮不止一个时**不要挑第一个**：`-Text` 命中 **0 或 >1 都 `exit 1`**（后者列出候选）。
-   > 确实要选第 n 个，就**显式**给 `-Index <n>`（0 基；序位**只在同一会话内**稳定，跨运行会漂移）。
-
+1. **先看**：`windows()`（本 run 的可见顶层窗，只读）—— 拿到那个框的**真标题**，
+   不要先猜、不要问用户。`#32770` 是原生对话框的窗口类。
+2. **再拍**：`see(name="hung")` —— 走 `shot-window-pw.ps1` 落到 `<run 目录>/shots/`，
+   回「真路径 + 窗口行」；不给 `title` 时它**优先拍对话框**（没框才拍工作台主窗）。
+   **顺序不能反** —— 弹框标题通常不含产品名，按主窗名去截会拍到**一张没有框的图**，
+   正好把你推向「一切正常」。
+3. **处置**：默认**只关窗**（等同点右上角 X）—— `close_window("<真标题>", yes=True)`（默认 dry-run）。
+   只有用例**显式声明**了按钮时才按它（点按钮 = 替用户做不可逆决定）：
+   `act_click_button("<真标题>", text="&No", yes=True)`。
+   同名按钮不止一个时**不要挑第一个**（命中 0 或 >1 都失败并列出候选；确实要选第 n 个就显式给 `index=`，
+   0 基、只在同一会话内稳定）。
 4. **探活 —— 但「ping 得通」证明不了「界面没卡」**：模态框在屏上时，**另一条连接**的
    `ui.parts` / `ui.tree` / `sys.ping` **全都正常返回**（SWT 模态框跑的是嵌套事件循环）；
    只有**发起那次请求自己**会 `ERR timeout`。
    ⇒ **别拿「`ui.*` 通不通」判断界面卡没卡**，直接**枚举/截图看那个框在不在**。
    ⇒ 反过来也要记住：**你发的那次请求超时了，不代表别的连接也干不了活**。
-
 5. **再取一次回读差**，把差值归因到先前那次超时请求 —— **这一步不能省**，
    否则会把迟到的副作用算到下一次动作头上。
+
+**Fallback（库函数这条路走不通时才用）**：同一套动作的 shell 版
+（`tools/win-enum.ps1` / `tools/shot-window-pw.ps1` / `tools/win-close.ps1` / `tools/win-click-button.ps1`）
+在 [`references/recovery.md`](references/recovery.md)，含逐条命令与 `-Index` 纪律。
 
 ## 四、不许做什么
 
@@ -142,18 +156,19 @@ python -m ctl run --target gs32 < job.py
   满员后只有 `sys.ping` / `sys.env` / `sys.help` 还能答，其余回 `ERR busy`
   （**可重试**，别当成故障）。**用完就关**。
 - **不要用坐标点击**（该路线**未证实**，且**决定不投入**）；要动手柄一律**元素寻址**。
-- **不要把影子留档当判据**：它是留档。截图通道有「返回 TRUE 却画出整张全黑」的真实失败模式 ——
-  **一个会撒谎的通道不能当断言**。判据只认**回读差**与回话里的 **`dialog=` 行**。
+- **不要拿观测当判据**：`see()` 的照片是**证据**，`shadow()` 的帧是**留档**；两者都**不能**充当 PASS/FAIL。
+  截图通道有「返回 TRUE 却画出整张全黑」的真实失败模式 —— **一个会撒谎的通道不能当断言**。
+  判据只认**回读差**与回话里的 **`dialog=` 行**。（两条通道的分工见 `references/observation.md`。）
+- **不要以为按键原语「到处都能打字」**。真 IDE 实测（2026-10-04，GS32 4.30 的 Preferences 过滤框）：
+  **非字符键（`BACK` / `DELETE` / 方向键 / `RETURN`）可行**（`DELETE` 把 `proxy` 删成 `roxy`，过滤树清空）；
+  **可打印字符无效果**（`X` 无回读差）—— 要「打字」一律走 `act_set_text`；
+  结果还取决于**插入点**（`BACK` 在插入点 0 时无可删，**不是**原语失效）。
+  ⇒ 一条「无回读差」**先排除目标自身状态**（插入点 / 选区 / 只读 / IME）再下结论。全文见 `references/input.md`。
 - **不要反复重试** `ERR disabled` / `ERR unhandled`（enablement / handler 问题，重试无用）。
   `ERR busy` 相反 —— **它就该重试**（可配退避）。
 - **不要在 `--json` 场景把 stderr 混进 stdout**：诊断只走 stderr，stdout 只放结果。
 - **不要用 `taskkill //F`**（参数会被 shell 吃掉）；用
   `pwsh -Command "Stop-Process -Id <pid> -Force"`。而且**要认准自己的 pid** ——
   按映像名杀会连带杀掉别人的实例。
-- **不要假设合成输入在所有平台等价**。实测（2026-10-02，同一个夹具、同一条消息、同一套启动方式）：
-  `BM_CLICK`（点按钮）与 `WM_SETTEXT`（写文本）**两侧都通**；但 `WM_KEYDOWN`（按键）
-  在 **Eclipse 4.30 / SWT 3.124 通**、在 **Eclipse 4.23 / SWT 3.119 不通** ——
-  换 JVM（11 ↔ 23）、补 `WM_SETFOCUS`、置前台**都不改变结果**。
-  ⇒ **按键原语要按平台核对**，别当成到处都行。
 - **不要在真 IDE 的**主窗**里找输入目标**：实测主窗的 `Button` 与 `Edit` **各为 0**；
   元素寻址的真实适用面是**对话框**（那里才有 `&Reset Perspective` / `&No` 这类真按钮）。

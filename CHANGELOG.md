@@ -10,6 +10,48 @@
 
 ### Added
 
+- **`preflight` 第七项：开发者门不许进用户路径（判据从子串收紧为词边界）**（2026-10-04）：
+  `deliverable-shape.md` §6② / C5 的判据此前只是**手工 grep**，而且是**子串**匹配 ⇒ 对报错串里的
+  **字段名** `install_dir` 假阳性 —— 那是 `ctl/lifecycle.py` 的字段名，而 `README.md`「第一步」
+  **逐字引用**整条换机自救串（`f891660` 有意引入，`A3` 要求保留）⇒ 子串判据与它**不能同时成立**；
+  错的是判据，不是文档。新增 `_dev_door_leak_check()`（`ctl/__main__.py`），按**词边界**
+  `\b(verify|preflight|recipes|install|uninstall|gc|upgrade)\b` 匹配：`install_dir` 放行，
+  裸词 `install` 与反引号里的 `gc` 照旧命中。扫描面 = 根 `README.md` + `skill/**/*.md` 递归，
+  **排除** `recipes/`（C5 的开发者工具本体）/ `DEVELOPING.md` / `docs/` / `bridge/`，排除项与盲区
+  写进 docstring（`deliverable-shape.md` C8）；报错形状 `file:line: word`。单测
+  `tests/unit/test_dev_door_gate.py` 含三种变异（真门红 / `install_dir` 绿 / 裸词 `install` 红）
+  与**逐位置**扫描面证明（C10：根 `README.md` / `skill/` / `skill/references/` 各摘一项即变红）。
+  同时修 `N1`：`preflight` 的 `--help` 简介从「doctor + verify + doc/CLI consistency + CHANGELOG
+  entry」改为**逐项**列出实际的 7 项（旧文漏了 `stdlib-only` / `skill/library-name` / 新增项），
+  且同一串同时作该子命令自身的 `--help` 描述（`python -m ctl preflight --help` 可见）。
+- **`ctl run` 脚本命名空间接上观测装置：`see()` / `windows()` / `close_window()`**（2026-10-04）：
+  `ctl/screen.py` 早有第二观测通道（`shoot` / `visible_windows` / `close`），但它**不在
+  `_make_namespace` 的返回里** ⇒ 写脚本的人没有眼睛，只能 shell 出去调 `tools/*.ps1`。现在：
+  · `see(name=None, title=None)` —— 走 `tools/shot-window-pw.ps1`（**证据**通道，不是 `shadow/`）
+  拍一帧到 `<run_root>/<run_id>/shots/`，回「真路径 + 窗口行」；不给标题时**优先拍对话框**
+  （`#32770`）、没框拍工作台主 shell；没有可见窗就**不写盘**直接抛 `ScreenError`（fail closed，
+  空白图由工具自己拒收）。
+  · `windows()` —— 只读枚举本 run 的可见顶层窗 `{hwnd: (pid, class, title)}`（**寻址用**，不是取值器）。
+  · `close_window(title, cls="", yes=False)` —— 按标题 `WM_CLOSE`，默认 dry-run。
+  · **失败兜底**：写助手（`cmd` / `open_file` / `close_view` / `close_window` / `act_*`）**抛异常**
+  或回话是 **`ERR timeout`** 时先拍一帧、把**真路径打到 stderr** 再抛出；**无错误不多拍**，
+  且兜底自身失败只打印一行、**不改**原结果与退出码。
+
+- **skill 重写为「契约 + 索引」，深度落 `skill/references/`**（2026-10-04）：`SKILL.md` 只留
+  四节契约 + 索引（**排版约定**：带括号的反引号名 = `ctl run` 的库函数，桥方法 / SWT 方法 / 命令
+  一律不带括号）。新增三份深度：
+  `references/recovery.md`（超时处置**主路径改教库函数**，shell 版降为 fallback；「换机器 target
+  未配」的症状串逐字与修法）、`references/input.md`（三条原语的真 IDE 实测四元组；按键口径：
+  **非字符键可行 / 可打印字符无效果 / 插入点条件**）、`references/observation.md`
+  （**证据通道 `shots/` 与留档通道 `shadow/` 不得互顶**；枚举器不是取值器）。
+
+- **`preflight` 第六项：skill ↔ `ctl run` 命名空间一致性**（2026-10-04）：
+  `_skill_namespace_consistency()` 扫 `skill/**` 里每个 `` `name(…)` `` 形状的名字，必须能在
+  `ctl/run.py::_make_namespace` 里找到，报错带 `file:line`；与 `_doc_command_consistency` 分工 ——
+  那条守**子命令**，这条守**库函数名**。单测 `tests/unit/test_skill_namespace_gate.py` 含**变异**
+  （往 `skill/` 与 `skill/references/` 各放一个不存在的名字必须变红）；`see` / `windows` /
+  `close_window` 三个名字以**测试自己的字面量**钉住（`deliverable-shape.md` C10）。
+
 - **`preflight` 第五项：标准库-only 门禁**（2026-10-04）：`R11'.3` 的「Python 只用标准库」此前
   **只有纪律、没有门禁**（全仓唯一相关文字是 `ctl/__init__.py:11` / `ctl/targets.py:9` 两行
   docstring）。新增 `_stdlib_only_check()`（与 `_doc_command_consistency` 同形，`ctl/__main__.py`），
@@ -51,6 +93,14 @@
   ⇒ 点到 **Ignore**；`-Index 9` ⇒ `rc=1 out of range`。**被按下的按钮由 Harness 退出码
   3 / 4 / 5 分别指认**（「动作 → 回读差」闭环，`boundaries.md` §A6 末条）。
   `--path`（SWT 式下标路径）**已裁决不做** 且**没有参数可给**（见下 Removed 与 `boundaries.md` N11）。
+
+### Changed
+
+- **`_doc_command_consistency` 的扫描面从 `skill/*.md` 扩到递归的 `skill/**`**（2026-10-04）：
+  `R4` 把深度搬进 `skill/references/` 后，旧的单层扫描会把新层整片放在闸门视野**之外**
+  （`deliverable-shape.md` C8「闸门必须能看见它守的东西」）。报错形状同时改为 `file:line`。
+  单测 `tests/unit/test_doc_command_gate.py` 对**每一个**被扫位置（根 `*.md` / `skill/` /
+  `skill/references/` / `recipes/`）逐项变异证明可见；`recipes/` 仍**单层**扫描。
 
 ### Removed
 

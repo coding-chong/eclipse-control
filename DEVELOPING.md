@@ -70,7 +70,9 @@ python -m ctl verify  --group realflow --target gs32 --run-id dev
 python -m ctl preflight --target gs32,ccs12
 ```
 
-= `doctor` + `verify` + 「文档 ↔ CLI 一致性」+ CHANGELOG 条目检查。
+= `doctor` + `verify` + 「文档 ↔ CLI 一致性」+ 「开发者门不进用户路径」+ 「skill 名 ↔ `ctl run`
+命名空间」+ 「标准库-only import」+ 「CHANGELOG 条目」（**7 项**，与
+`python -m ctl preflight --help` 的简介逐项一致）。
 
 ## 三、配方库（`ctl recipes`）
 
@@ -163,9 +165,21 @@ echo 'act_click_button("&No", title="Reset Perspective", yes=True)' | python -m 
 
 ## 九、用户面里被刻意省略的标识符
 
-`README.md` 与 `skill/SKILL.md` **不写**下面这些字面量 —— `deliverable-shape.md` §6② 的机械判据
-（`grep -nE 'verify|preflight|recipes|install|uninstall|gc|upgrade'` 必须无输出），
-而要传达的意思用中文表达。需要**准确标识符**时来这里取：
+`README.md` 与 `skill/` 树（含 `skill/references/`）**不写**下面这些字面量 ——
+`deliverable-shape.md` §6② 的机械判据（**词边界**：
+`grep -nE '\b(verify|preflight|recipes|install|uninstall|gc|upgrade)\b' README.md skill/`
+必须无输出 ⇒ `rc=1`），而要传达的意思用中文表达。需要**准确标识符**时来这里取：
+
+> **2026-10-04 改判据：子串 → 词边界**。子串形式对 `install_dir` **假阳性** —— 那是
+> `ctl/lifecycle.py` 报错串里的**字段名**，而 `README.md`「第一步」**逐字引用**整条报错串
+> （换机自救，`f891660` 有意引入，`A3` 要求保留）⇒ 子串判据与它**不能同时成立**；错的是判据，
+> 不是文档。词边界**没有**放宽：`python -m ctl install` 与反引号里的 `gc` 照旧命中
+> （`install_dir` 里的 `install` 后跟 `_`，`_` 是词字符 ⇒ 不成词）。
+>
+> **这条不再靠人工 grep**：`ctl/__main__.py::_dev_door_leak_check()` 已接进 `preflight`，
+> 扫描面 = 根 `README.md` + `skill/**/*.md`（**不含** `recipes/`、本文件、`docs/`、`bridge/`，
+> 排除项写在 docstring），报错形状 `file:line: word`；
+> 单测 `tests/unit/test_dev_door_gate.py`（`install_dir` 绿 / 裸词 `install` 红 / 逐位置变异）。
 
 | 用户面说法 | 真实标识符 |
 |---|---|

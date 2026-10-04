@@ -24,6 +24,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -32,9 +33,15 @@ from . import screen as _screen
 from . import shadow as _shadow
 from .client import Client, discover_endpoint, resolve_pid
 from .errors import CtlError, NotFoundError, PrereqNotReady, UsageError
-from .lifecycle import REPO_ROOT, install as lifecycle_install, latest_run_id, make_run_id
+from .lifecycle import (
+    REPO_ROOT,
+    install as lifecycle_install,
+    latest_run_id,
+    make_run_id,
+    run_paths,
+)
 from .parse import command_ids
-from .targets import Config, load as load_config
+from .targets import DEFAULT_RUN_ROOT, Config, load as load_config
 
 #: One re-runnable command per error, the way every other CLI error carries one.
 RUN_RETRY = "retry: python -m ctl run --target gs32 < script.py"
@@ -158,6 +165,122 @@ def _make_namespace(client: Client, state: _DoorState) -> Dict[str, Any]:
             return _shadow.summary(cfg)
         return _shadow.find(cfg, int(seq))
 
+    # -- observation: the second channel (`ctl/screen.py`) ------------------ #
+    #
+    # `see` / `windows` / `close_window` expose the *evidence* channel
+    # (`tools/shot-window-pw.ps1`) without a shell-out.  The shadow frames
+    # (`tools/win-probe.ps1`, `<run>/shadow/`) are a **different device** and
+    # are not evidence -- never substitute one for the other
+    # (`skill/references/observation.md`).
+
+    def _shots_dir() -> str:
+        """``<run_root>/<run_id>/shots`` -- where evidence frames land."""
+        root = client.run_root or DEFAULT_RUN_ROOT
+        if state.run_id:
+            return run_paths(root, state.run_id).shots
+        return os.path.join(tempfile.gettempdir(), "eclipse-ctl-shots", "adhoc")
+
+    def _run_pids() -> Optional[List[int]]:
+        """``[pid]`` for this run, else ``None`` ("every process", explicitly)."""
+        pid = resolve_pid(client.run_root, state.run_id)
+        return [pid] if pid else None
+
+    def windows() -> _screen.WindowMap:
+        """Visible, titled top-level windows of this run (read-only).
+
+        -> ``{hwnd: (pid, class, title)}`` via ``win-enum.ps1``.  Pure
+        enumeration: it addresses no window.  ``-ListOnly``-style output is for
+        *addressing* only -- it is never a value read (`measurement-hygiene.md`
+        §13.12: cross-process ``GetWindowText`` returns empty for this product's
+        ``Edit``).
+        """
+        return _screen.visible_windows(_run_pids())
+
+    def _default_shot_title(found: _screen.WindowMap) -> str:
+        """Which window ``see()`` shoots when no ``title`` is given.
+
+        A visible dialog (``#32770``) wins -- that is the thing you cannot
+        otherwise see; else the workbench shell (``SWT_Window0``); else the
+        longest-titled candidate.  Ties break on hwnd, so the pick is
+        deterministic and the shot is attributable.  Fails closed on no window.
+        """
+        if not found:
+            raise _screen.ScreenError(
+                "no visible titled window for run %s (pid scope %s): nothing to observe"
+                % (state.run_id or "<none>", _run_pids()))
+        rows = sorted(found.items())
+        for cls in ("#32770", "SWT_Window0"):
+            same = [row for row in rows if row[1][1] == cls]
+            if same:
+                return max(same, key=lambda row: (len(row[1][2]), row[0]))[1][2]
+        return max(rows, key=lambda row: (len(row[1][2]), row[0]))[1][2]
+
+    def see(name: Optional[str] = None, title: Optional[str] = None) -> str:
+        """One evidence frame + the window line -- via ``shot-window-pw.ps1``.
+
+        Writes ``<run_root>/<run_id>/shots/<tag>-<HHMMSS>-<slug>.png`` and
+        returns ``"<path>\\n<window line>\\n<tool note>"``.  Read-only with
+        respect to the IDE: it enumerates and shoots, it never closes or clicks.
+
+        Fails closed: with no visible titled window **nothing is written** and
+        :class:`ctl.screen.ScreenError` is raised; a blank bitmap is refused by
+        the tool itself, so a returned path is always a non-blank PNG.
+        """
+        found = windows()
+        target = title or _default_shot_title(found)
+        path = _screen.shot_path(_shots_dir(), name or "see", target)
+        landed, note = _screen.shoot_verbose(target, path, pids=_run_pids())
+        if not landed:
+            raise _screen.ScreenError(
+                "no evidence frame for %r (pid scope %s): %s"
+                % (target, _run_pids(), note))
+        return "%s\n%s\n%s" % (path, _screen.describe(found), note)
+
+    def close_window(title: str, cls: str = "", yes: bool = False) -> str:
+        """Post ``WM_CLOSE`` to this run's visible window(s) titled ``title``.
+
+        The library route for the recovery flow's "default: close the window"
+        step.  Dry-run unless ``yes=True`` (closing a window is a write).  It
+        posts a *request*: re-observe afterwards.
+        """
+        if not yes:
+            return "DRY-RUN close-window title=%r class=%r" % (title, cls)
+        return _screen.close(title, cls, pids=_run_pids())
+
+    def _is_timeout(raw: str) -> bool:
+        """Whether a bridge reply is the timeout shape (the fallback trigger)."""
+        head = (raw or "").splitlines()[0] if raw else ""
+        return head.startswith("ERR timeout") or "<client timeout>" in raw
+
+    def _auto_shot(what: str, why: str) -> None:
+        """On failure only: take one frame, put its path on stderr.
+
+        Never changes the caller's outcome -- an observation that itself fails
+        is reported and swallowed, so the original exception / ``ERR`` still
+        propagates.  No frame is taken on a clean return (`_watched`).
+        """
+        try:
+            out = see(name="auto-%s" % why)
+        except Exception as exc:                      # noqa: BLE001 - must not mask
+            print("run: auto-shot after %s in %s failed: %s" % (why, what, exc),
+                  file=sys.stderr, flush=True)
+            return
+        print("run: auto-shot after %s in %s ->\n%s" % (why, what, out),
+              file=sys.stderr, flush=True)
+
+    def _watched(what: str, fn):
+        """Wrap a write helper: one evidence frame **only** on exception/timeout."""
+        def wrapper(*args, **kwargs):
+            try:
+                out = fn(*args, **kwargs)
+            except BaseException:
+                _auto_shot(what, "exception")
+                raise
+            if isinstance(out, str) and _is_timeout(out):
+                _auto_shot(what, "timeout")
+            return out
+        return wrapper
+
     def act_click_button(text: str, case: Optional[bool] = None,
                          title: Optional[str] = None, yes: bool = False) -> str:
         return _click_button(client, text, case, title, yes)
@@ -182,13 +305,16 @@ def _make_namespace(client: Client, state: _DoorState) -> Dict[str, Any]:
         "persp": persp,
         "tree": tree,
         "commands": commands,
-        "cmd": cmd,
-        "open_file": open_file,
-        "close_view": close_view,
+        "cmd": _watched("cmd", cmd),
+        "open_file": _watched("open_file", open_file),
+        "close_view": _watched("close_view", close_view),
         "shadow": shadow,
-        "act_click_button": act_click_button,
-        "act_send_keys": act_send_keys,
-        "act_set_text": act_set_text,
+        "see": see,
+        "windows": windows,
+        "close_window": _watched("close_window", close_window),
+        "act_click_button": _watched("act_click_button", act_click_button),
+        "act_send_keys": _watched("act_send_keys", act_send_keys),
+        "act_set_text": _watched("act_set_text", act_set_text),
         "log": log,
         "__name__": "__ctl_run__",
     }

@@ -189,8 +189,8 @@ def build_parser() -> CtlParser:
     )
     sub = parser.add_subparsers(dest="command", title="subcommands")
 
-    def add(name: str, help_text: str, parents=(common,)) -> CtlParser:
-        return sub.add_parser(name, help=help_text, parents=list(parents))
+    def add(name: str, help_text: str, parents=(common,), **kwargs) -> CtlParser:
+        return sub.add_parser(name, help=help_text, parents=list(parents), **kwargs)
 
     # -- lifecycle ---------------------------------------------------------- #
     add("doctor", "self-check: 8 checks, every one with a verdict")
@@ -212,7 +212,14 @@ def build_parser() -> CtlParser:
     p_shell = add("shell", "interactive / one-shot bridge shell")
     add("verify", "acceptance cases")
     add("build", "compile and package the bridge jar")
-    add("preflight", "doctor + verify + doc/CLI consistency + CHANGELOG entry")
+    # N1: the blurb must name the checks that actually run, **in the order they
+    # run** (it had silently omitted `stdlib-only`, `skill/library-name` and the
+    # new dev-door gate).  The same string feeds the subcommand list and the
+    # subcommand's own `--help`.
+    preflight_help = ("doctor + verify + doc/CLI command consistency + developer-door "
+                      "leak check + skill/library-name consistency + stdlib-only "
+                      "imports + CHANGELOG (7 items)")
+    add("preflight", preflight_help, description=preflight_help)
     p_shadow = add("shadow", "shadow shots: what the screen looked like after each write")
     p_run = add("run", "one door: run a Python script from stdin against the bridge")
 
@@ -1519,8 +1526,8 @@ def _cmd_build(args) -> int:
 _BARE_ENUM = re.compile(r"`[a-z][a-z0-9\-]*`(?:\s*/\s*`[a-z][a-z0-9\-]*`)+")
 
 
-def _doc_commands(text: str) -> List[str]:
-    """Command words that the docs actually *invoke* (code spans / shell lines).
+def _doc_commands(text: str) -> List[Tuple[str, int]]:
+    """``[(word, lineno), …]`` for the command words the docs actually *invoke*.
 
     Prose like "the ctl description" must not be mistaken for a command, so only
     backticked spans and lines beginning with ``ctl`` / ``python -m ctl`` count
@@ -1528,20 +1535,24 @@ def _doc_commands(text: str) -> List[str]:
     subcommands only when the line says so (``… 等子命令``): elsewhere
     ``port`` / ``pid``, ``undo`` / ``redo`` and the frozen error codes are all
     slash-listed too, and none of them is a command.
+
+    The line number rides along so a red gate can name ``file:line`` (the shape
+    a mutation must produce, ``deliverable-shape.md`` C8).
     """
     pattern = re.compile(r"(?:python -m ctl|ctl)\s+([a-z][a-z0-9\-]+)")
-    found: List[str] = []
-    for span in re.findall(r"`([^`\n]+)`", text):
-        match = pattern.match(span.strip())
-        if match:
-            found.append(match.group(1))
-    for line in text.splitlines():
+    found: List[Tuple[str, int]] = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for span in re.findall(r"`([^`\n]+)`", line):
+            match = pattern.match(span.strip())
+            if match:
+                found.append((match.group(1), lineno))
         match = pattern.match(re.sub(r"^\s*\$?\s*", "", line))
         if match:
-            found.append(match.group(1))
+            found.append((match.group(1), lineno))
         if "子命令" in line or "subcommand" in line.lower():
             for enumeration in _BARE_ENUM.findall(line):
-                found.extend(re.findall(r"`([^`]+)`", enumeration))
+                for name in re.findall(r"`([^`]+)`", enumeration):
+                    found.append((name, lineno))
     return found
 
 
@@ -1550,21 +1561,26 @@ def _doc_command_consistency() -> Tuple[bool, str]:
 
     Scan surface (what "the repo docs" means here -- ``deliverable-shape.md``
     C8, "the gate must be able to see what it guards"): the root-level
-    ``*.md`` plus ``skill/*.md`` and ``recipes/*.md``.  Recognised invocation
-    shapes are ``ctl <word>`` / ``python -m ctl <word>`` inside a code span or
-    at the start of a line, and a bare ``shell`` / ``status`` / … 等子命令
-    enumeration.
+    ``*.md``, every ``*.md`` under ``skill/`` **recursively**
+    (``skill/SKILL.md`` + ``skill/references/*.md``), and ``recipes/*.md``.
+    Recognised invocation shapes are ``ctl <word>`` / ``python -m ctl <word>``
+    inside a code span or at the start of a line, and a bare
+    ``shell`` / ``status`` / … 等子命令 enumeration.  Problems are reported as
+    ``file:line: word``.
 
     Known blind spots -- shapes this gate does *not* see, so a green result is
     not "every doc is consistent": a bare subcommand name in prose with no
     ``ctl`` prefix and no slash-joined enumeration (e.g. "运行 `act` 即可"),
     and such a name in a heading (e.g. "### act 子命令").  ``.md`` files
-    outside the surface above (e.g. ``bridge/``) are likewise invisible.
+    outside the surface above (e.g. ``bridge/``, ``docs/``) are likewise
+    invisible; ``recipes/`` is scanned **one level deep only** (unchanged by
+    this gate).
     """
     problems: List[str] = []
     checked = 0
     for path in sorted(glob.glob(os.path.join(REPO_ROOT, "*.md"))) + \
-            sorted(glob.glob(os.path.join(REPO_ROOT, "skill", "*.md"))) + \
+            sorted(glob.glob(os.path.join(REPO_ROOT, "skill", "**", "*.md"),
+                             recursive=True)) + \
             sorted(glob.glob(os.path.join(REPO_ROOT, "recipes", "*.md"))):
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -1572,13 +1588,155 @@ def _doc_command_consistency() -> Tuple[bool, str]:
         except OSError:
             continue
         checked += 1
-        for word in _doc_commands(text):
+        rel = os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
+        for word, lineno in _doc_commands(text):
             if word in SUBCOMMANDS or word == "help":
                 continue
-            problems.append("%s: %s" % (os.path.basename(path), word))
+            problems.append("%s:%d: %s" % (rel, lineno, word))
     if problems:
         return (False, "unknown subcommand(s) referenced in docs: %s" % ", ".join(sorted(set(problems))))
     return (True, "%d doc file(s) scanned" % checked)
+
+
+#: The user face's one prohibition (`deliverable-shape.md` §6② / C5): the names of
+#: the developer doors must not appear in `README.md` or under `skill/`.
+_DEV_DOOR_WORDS: Tuple[str, ...] = ("verify", "preflight", "recipes", "install",
+                                    "uninstall", "gc", "upgrade")
+
+#: **Word boundaries, not substrings.**  ``_`` is a word character, so the error
+#: string's field name ``install_dir`` (``ctl/lifecycle.py``; ``README.md`` quotes
+#: the whole string verbatim since ``f891660``, and `A3` requires that it stay
+#: quoted) does *not* hit -- while every real door still does: ``\bgc\b`` matches a
+#: backticked ``gc``, and ``python -m ctl install`` / ``run install to deploy``
+#: match.  The hand-run grep this gate replaces used plain substrings and called
+#: the field name a leak; that judgement and `A3` cannot both hold, and the
+#: judgement was the wrong one.
+_DEV_DOOR_RE = re.compile(r"\b(?:%s)\b" % "|".join(_DEV_DOOR_WORDS))
+
+
+def _dev_door_leak_check() -> Tuple[bool, str]:
+    """No developer door may be named in the user face (`deliverable-shape.md` §6②).
+
+    ``C5`` keeps the maintenance instruments (``verify`` / ``preflight`` /
+    ``recipes`` / ``install`` / ``uninstall`` / ``gc`` / ``upgrade``) **in the
+    repo** but out of the *user path*; §6② stated that as a hand-run ``grep``
+    only.  This is the runnable judge, wired into ``_cmd_preflight``.
+
+    Scan surface (``deliverable-shape.md`` C8, "the gate must be able to see what
+    it guards"): ``README.md`` **and every ``*.md`` under ``skill/``
+    recursively** (``skill/SKILL.md`` + ``skill/references/*.md``).  Deliberately
+    **outside** the surface -- and why: ``recipes/`` *is* the C5 developer tool
+    rather than user path; ``DEVELOPING.md`` is the developer home these words
+    are *supposed* to live in; ``docs/`` and ``bridge/`` are not the user face
+    either.  Problems are reported as ``file:line: word``.
+
+    Matching is word-boundary and case-sensitive (``_DEV_DOOR_RE`` says why the
+    substring form was wrong).  The whole file is read -- fenced code blocks
+    included.
+
+    Known blind spots -- green here is not "no developer door is reachable from
+    the user face": only these seven literal English words are matched, so a door
+    named in Chinese (``回收`` / ``换代``) or a subcommand outside the list is
+    invisible; the match is case-sensitive, so an upper-case spelling does not
+    hit; and no file outside the surface above is read at all.
+    """
+    problems: List[str] = []
+    checked = 0
+    paths = [os.path.join(REPO_ROOT, "README.md")]
+    paths += sorted(glob.glob(os.path.join(REPO_ROOT, "skill", "**", "*.md"),
+                              recursive=True))
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        checked += 1
+        rel = os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for match in _DEV_DOOR_RE.finditer(line):
+                problems.append("%s:%d: %s" % (rel, lineno, match.group(0)))
+    if problems:
+        return (False, "developer-door word(s) in the user face: %s"
+                % ", ".join(sorted(set(problems))))
+    return (True, "%d user-face file(s) scanned" % checked)
+
+
+def _skill_calls(text: str) -> List[Tuple[str, int]]:
+    """``[(name, lineno), …]`` for the library calls the skill *invokes*.
+
+    The shape is decided by a stated convention, so it is mechanical rather
+    than a guess: **inside the skill, a backticked span that begins with a
+    lowercase ``name(`` names a ``ctl run`` script-namespace function**.  Every
+    name in that namespace is lowercase ``snake_case`` (Python convention), so a
+    token carrying an uppercase letter (``getChildren()``, ``PrintWindow()``)
+    cannot be one and is deliberately not read as a library call.  A bridge
+    method (``cmd.query``), an SWT method, a command line and a file name are
+    all written without the parenthesis.
+
+    What the convention buys: the gate below can tell a *library call* from
+    ordinary code spans; what it costs: a library name written without ``()``
+    is invisible (see :func:`_skill_namespace_consistency`).
+    """
+    found: List[Tuple[str, int]] = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for span in re.findall(r"`([^`\n]+)`", line):
+            match = re.match(r"([a-z_][a-z0-9_]*)\s*\(", span.strip())
+            if match:
+                found.append((match.group(1), lineno))
+    return found
+
+
+def _skill_namespace_consistency() -> Tuple[bool, str]:
+    """Every library-function name the skill invokes must exist in `ctl run`.
+
+    This complements :func:`_doc_command_consistency`: that gate guards the
+    *subcommands* the docs invoke (``python -m ctl <word>``), this one guards
+    the *script-namespace names* the skill tells an agent to call
+    (``deliverable-shape.md`` C3: a capability that lands in the library must
+    not be documented at a name that does not exist).
+
+    The guarded set is **not** a literal here -- it is read from the real
+    namespace (``_make_namespace``), so adding a helper to ``ctl/run.py``
+    automatically widens it.  A name is checked only when the skill writes it
+    in the ``name(…)`` shape (:func:`_skill_calls`).
+
+    Scan surface (``deliverable-shape.md`` C8): every ``*.md`` under ``skill/``
+    **recursively** (``skill/SKILL.md`` + ``skill/references/*.md``), the same
+    tree :func:`_doc_command_consistency` scans.  Problems are reported as
+    ``file:line: name``.
+
+    Known blind spots -- green here is not "every name in the skill is real":
+    a name written without parentheses (``see`` instead of ``see()``) is
+    invisible; a name with a receiver (``client.request``) or a dotted bridge
+    method is not matched; names only inside a fenced code block are not
+    scanned (only backtick spans are); and a Python builtin the examples happen
+    to write as ``name(…)`` in a span would be reported as unknown (the fix is
+    to write it without the parenthesis or put the example in a fence).
+    """
+    from .run import _DoorState, _make_namespace  # lazy: keeps `__main__` import light
+
+    namespace = set(_make_namespace(None, _DoorState()).keys())
+    problems: List[str] = []
+    checked = 0
+    base = os.path.join(REPO_ROOT, "skill")
+    for path in sorted(glob.glob(os.path.join(base, "**", "*.md"), recursive=True)):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        checked += 1
+        rel = os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
+        for name, lineno in _skill_calls(text):
+            if name in namespace:
+                continue
+            problems.append("%s:%d: %s" % (rel, lineno, name))
+    if problems:
+        return (False, "skill names not found in the `ctl run` namespace: %s"
+                % ", ".join(sorted(set(problems))))
+    return (True, "%d skill file(s) scanned against %d `ctl run` name(s)"
+            % (checked, len(namespace)))
 
 
 #: Directories whose Python must stay stdlib-only (R11'.3 / deliverable-shape.md C3).
@@ -1711,6 +1869,16 @@ def _cmd_preflight(args) -> int:
 
     ok, detail = _doc_command_consistency()
     print("[%s] doc/CLI command consistency: %s" % ("PASS" if ok else "FAIL", detail))
+    if not ok:
+        problems += 1
+
+    ok, detail = _dev_door_leak_check()
+    print("[%s] developer-door leak check: %s" % ("PASS" if ok else "FAIL", detail))
+    if not ok:
+        problems += 1
+
+    ok, detail = _skill_namespace_consistency()
+    print("[%s] skill/library-name consistency: %s" % ("PASS" if ok else "FAIL", detail))
     if not ok:
         problems += 1
 
