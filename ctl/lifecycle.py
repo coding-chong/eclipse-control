@@ -34,7 +34,7 @@ from . import BUNDLE_SYMBOLIC_NAME
 from .client import Client, discover_endpoint, resolve_pid, write_endpoint
 from .console import Console
 from .errors import CtlError, EndpointNotFound, NotFoundError, PrereqNotReady, UsageError
-from .targets import Target, Config
+from .targets import Target, Config, reference_install_dir
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BRIDGE_DIR = os.path.join(REPO_ROOT, "bridge")
@@ -596,9 +596,39 @@ class Instance:
         }
 
 
+def _same_path(a: str, b: str) -> bool:
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
+
+def _install_dir_missing(target: Target) -> PrereqNotReady:
+    """Diagnose a target whose configured install tree is not on this machine.
+
+    One hint, one place.  ``_launch_args`` is the resolution point immediately
+    before an instance starts, and it is where "the launcher is not there" was
+    already reported, so both conditions share this single branch instead of
+    growing a second, divergent suggestion elsewhere.  The built-in targets
+    ship the reference machine's ``install_dir``; a fresh clone on another
+    machine stops here on its first run, and the message has to say what to do
+    rather than point at ``doctor`` (which would only restate the same absence).
+    """
+    reference = reference_install_dir(target.name)
+    if reference is not None and _same_path(target.install_dir, reference):
+        origin = "it is the reference machine's value"
+    else:
+        origin = "it is not on this machine"
+    launcher = target.launcher or "the IDE launcher"
+    return PrereqNotReady(
+        "target '%s' install_dir does not exist: %s; %s -- set yours with: "
+        "python -m ctl targets add %s --source-dir <the directory that contains %s>"
+        % (target.name, target.install_dir, origin, target.name, launcher),
+        code="notfound")
+
+
 def _launch_args(target: Target, paths: RunPaths, port: int) -> List[str]:
     exe = target.launcher_path()
     if not exe or not os.path.isfile(exe):
+        if target.install_dir and not os.path.isdir(target.install_dir):
+            raise _install_dir_missing(target)
         raise PrereqNotReady(
             "launcher not found for target %s: %s; retry: python -m ctl doctor --target %s"
             % (target.name, exe or "<unset>", target.name))

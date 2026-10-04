@@ -92,6 +92,66 @@ python -m ctl run --target gs32 < job.py
 echo 'print("done")' | python -m ctl run --target gs32 --run-id <id> --stop
 ```
 
+## 换一台机器：clone 即用
+
+项目按**仓根直接跑**的形态分发，不装包。`import ctl` 依赖仓内布局——`tools/*.ps1` 与
+`bridge/dist/*.jar` 都在仓根下、不在 `ctl` 包里——所以入口就是仓根：
+
+```bash
+git clone <仓库地址> eclipse-ctl
+cd eclipse-ctl
+
+python -m ctl --help                                    # -m 把当前目录放进 sys.path，门就在这
+echo 'p = parts(); print(p.perspective)' | python -m ctl run --target gs32
+```
+
+用库时同理：在仓根跑，或把仓根挂上 `PYTHONPATH`：
+
+```bash
+cd eclipse-ctl && python my_job.py                      # 在仓根跑
+PYTHONPATH=D:/path/to/eclipse-ctl python my_job.py       # 从别的目录跑
+```
+
+### 第一步：把内置 target 的安装根换成你的路径
+
+内置矩阵里 `gs32` / `ccs12` 各带一个 `install_dir`，值是**参考机**的路径。换机器后第一次
+起实例会停在这一条上，并给出可复跑的设置命令：
+
+```
+ERR notfound target 'gs32' install_dir does not exist: D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2; it is the reference machine's value -- set yours with: python -m ctl targets add gs32 --source-dir <the directory that contains GS32.exe>
+```
+
+把 `--source-dir` 换成你机器上的安装根，两个 target 各设一次：
+
+```bash
+python -m ctl targets add gs32  --source-dir <你的 GS32_Studio 安装根>
+python -m ctl targets add ccs12 --source-dir <你的 ccs/eclipse 目录>
+python -m ctl targets list      # INSTALL_DIR 列应是你的路径
+```
+
+覆盖写进 `~/.eclipse-ctl/config.json`（`--config` 可换文件）。JRE 级别 / 端口 / 启动器沿用内置值；
+产品版本换了再一起给：
+
+```bash
+python -m ctl targets add gs32 --source-dir <安装根> --java-level 17 --launcher GS32.exe
+```
+
+### 第二步：编一次桥
+
+新克隆里没有桥 jar（`bridge/dist/` 不入库）。在仓根编一次，两个 target 各一份：
+
+```bash
+python -m ctl build --target gs32
+python -m ctl build --target ccs12
+```
+
+产物落在 `bridge/dist/eclipse-ctl.bridge_<版本>_<target>.jar`；`run` 按 target 自动选对应那份。
+
+### 起不来时看什么
+
+- `python -m ctl doctor --target gs32` —— 逐项体检：安装根在不在、桥 jar 的字节码级别对不对、端口通不通。
+- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) —— 症状 → 处置，含 `no bridge jar built yet`、`launcher not found` 两条。
+
 ## 配置文件
 
 `~/.eclipse-ctl/config.json`（可用 `--config` 换）。**优先级：flag > 环境变量 > 文件 > 内置默认。**

@@ -92,10 +92,28 @@ REQUIRED_PLUGIN_PREFIXES = [
 
 ECJ_GLOBS = ["plugins/org.eclipse.jdt.core.compiler.batch_*.jar"]
 
-# Install roots recorded in research/facts-baseline.md §1.
+# Install roots are recorded once, in `ctl/targets.py` (`_BUILTIN`), and read from
+# there.  The CLI already passes `--src` from the same place (`ctl.__main__._build_bridge`),
+# so a direct `python bridge/build.py --target ccs12` must not carry a second, drifting
+# copy of the paths.  `ctl` is a sibling package of this script inside the repo; running a
+# script by path puts `bridge/` (not the repo root) on `sys.path`, so add the repo root.
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+from ctl.targets import builtin_targets  # noqa: E402  (import needs the path insert above)
+
+_INSTALL_DIRS = {name: target.install_dir for name, target in builtin_targets().items()}
+
+
+def _install_dir(name: str) -> str:
+    return _INSTALL_DIRS.get(name, "")
+
+
+# The fallback below is spelled from this value, never as a second literal path.
+_GS32 = _install_dir("gs32")
+
 TARGETS = {
     "gs32": {
-        "src": "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2",
+        "src": _install_dir("gs32"),
         "java_level": "17",
         "ecj_globs": ECJ_GLOBS,
         "jre_globs": [
@@ -104,14 +122,14 @@ TARGETS = {
         ],
     },
     "ccs12": {
-        "src": "D:/ti/ccs1281/ccs/eclipse",
+        "src": _install_dir("ccs12"),
         "java_level": "11",
-        # CCS ships no JDT, so the in-tree glob finds nothing; the second entry
-        # borrows the sibling gs32 tree's ECJ (3.36 emits `-source/-target 11`).
-        # Override with --ecj <jar>.
+        # CCS ships no JDT, so the in-tree glob finds nothing.  The second entry is a
+        # **fallback, not the normal path**: it borrows the sibling gs32 tree's ECJ
+        # (3.36 emits `-source/-target 11`, which is what this target needs).  Override
+        # with --ecj <jar>.
         "ecj_globs": ECJ_GLOBS + [
-            "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2/plugins/"
-            "org.eclipse.jdt.core.compiler.batch_*.jar",
+            "%s/plugins/org.eclipse.jdt.core.compiler.batch_*.jar" % _GS32.replace("\\", "/"),
         ],
         "jre_globs": [
             "jre/bin/java.exe",

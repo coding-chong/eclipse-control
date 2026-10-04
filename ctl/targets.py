@@ -238,6 +238,19 @@ def builtin_targets() -> Dict[str, Target]:
     return {name: Target.from_dict(name, data) for name, data in _BUILTIN.items()}
 
 
+def reference_install_dir(name: str) -> Optional[str]:
+    """The built-in ``install_dir`` shipped for ``name``, or ``None``.
+
+    The built-ins carry the *reference machine's* paths, so a fresh clone on any
+    other machine inherits an install tree that is not there.  Compare a
+    target's effective ``install_dir`` against this to tell "you never set this
+    target up" apart from "your own value is wrong", and word the diagnosis
+    accordingly.
+    """
+    entry = _BUILTIN.get(name)
+    return entry.get("install_dir") if entry else None
+
+
 # --------------------------------------------------------------------------- #
 # Config
 # --------------------------------------------------------------------------- #
