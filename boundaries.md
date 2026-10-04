@@ -171,6 +171,49 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
   `TVM_SELECTITEM` 不产生 SWT 选中事件的**负结果**）；§A6b-2 的类名分布来自对运行中实例
   （`gs32-verify`，pid 15484）**工作台主窗**的 `EnumChildWindows` 全量枚举，复跑命令见本节末。
 
+#### A6b-3 真 IDE 对话窗上的端到端四元组（2026-10-04 实测，**闭合 §6.7 / §6.8**）
+
+上面三节证明的是「真 IDE **主窗**没有可寻址目标」。本节补的是另一半：**对话窗上有，而且产品库点得动、写得进、按得响**。
+实例 `gs32-p67real`（pid 5924 / 端口 8911，不复用任何既有实例的端口），三条原语**全部走 `ctl run` 脚本命名空间**。
+
+| 原语 | 真 IDE 载体与寻址 | 动作原文 | 可观测回读差 | 结论 |
+|---|---|---|---|---|
+| **点 `Button`** | `#32770` 标题 `Reset Perspective`；可见 `Button` ×2：`&Reset Perspective` / `&No` | `BM_CLICK sent to hwnd=0x715DA text="&No"` | `ui.shells` 3→2（框消失）+ 独立 `win-enum -Class "#32770"` **空** + `parts` **不变**（8 views）+ `ping OK` | **可行** |
+| **写文本** | `#32770` 标题 `Preferences`；可见 `Edit` **3 个**（过滤框 `0x1E12F4` 在最前） | `sent WM_SETTEXT "proxy" -> hwnd=0x1E12F4` | 框内出现 `proxy` **且**左树按它过滤成 `General > Network Connections`（SWT `ModifyListener` 真跑） | **可行（行为级）** |
+| **按键（非字符键）** | 同上 | `sent WM_KEYDOWN/WM_KEYUP vk=0x2E -> hwnd=0x1E12F4` | 框内 `proxy` → **`roxy`**，左树**清空** | **可行** |
+| 按键（**可打印字符**，`X`） | 同上 | `vk=0x58` | **无**回读差（插入点在 0 也不该无变化 ⇒ 见下第 1 条） | **不可行**（范围限定） |
+| 负例：不给序位 | 同上 | `act_set_text(…, index 缺省)` | `ERR badrequest ambiguous: 3 visible children of class 'Edit'`，**写之前**拒 | **fail closed 成立** |
+
+**三条新增事实（写用例时必读）：**
+
+1. **按键要分字符键 / 非字符键** —— `BACK`（`vk=0x8`）与 `X`（`vk=0x58`）都**无**回读差，
+   但原因**不是同一个**：`WM_SETTEXT` 之后插入点在 **0**，`DELETE` 删掉的正是**后面**那个字符
+   （`proxy`→`roxy`）⇒ `BACK` 的"无效"是**无可删**（插入点位置）；而 `X` 在插入点 0 处**本应**插入字符。
+   **`[INFERENCE]`（机制未单独验证）**：本层是 `SendMessage` **直达子窗 HWND**，消息**不进目标线程的消息队列**
+   ⇒ `TranslateMessage` **从不运行** ⇒ **不生成 `WM_CHAR`** ⇒ 可打印字符不产生输入；`BACK`/`DELETE`
+   属非字符键，由编辑控件自己的 `WM_KEYDOWN` 分支直接处理，故生效。
+   ⇒ **范围限定：本原语对非字符键可行；可打印字符无效果** —— 要"打字"走 `act_set_text`，
+   **不要**用 `act_send_keys` 逐字敲。没有 `DELETE` 做对照，会把"插入点在 0"误读成"按键原语不生效"（F9 的假阴性形态）。
+2. **跨进程 `GetWindowText` 对 `Edit` 不回内容** —— 同一次子窗枚举里 `Button` 的文字读得到
+   （`Apply and Close` / `Cancel`），而刚被写过的 `Edit` 仍读回 `text=""`。
+   ⇒ `tools/win-send-input.ps1 -ListOnly` **只许用于寻址**（类名 / 可见性 / 矩形），
+   **不得当文本值的判据**；文本值与行为都走**像素**（`shot-window-pw.ps1`）。
+3. **建议显式给 `title=`** —— `ctl/run.py::_window_title()` 只在 `ui.shells` 里**按面积**挑
+   （先取最大的当主窗，再取其余里最大的）；**有多个非主窗时谁更大**才是那个不稳定因素
+   （不是枚举顺序）。给标题就把寻址钉死在一次枚举结果上。
+
+**复跑命令**（全流程；`<script.py>` 见任务侧 `research/probes/p67-step*.py`）：
+
+```bash
+python -m ctl run --target gs32 --run-id gs32-p67real --port <free> --no-start < <script.py>
+python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))"   # 经 stdin 喂给上面那条
+```
+
+- **证据**：`research/p67-realide-input-2026-10-04.md`（四元组 + 原始输出 + 复跑命令 + 收工四项 `[clean]`）；
+  截图六张在任务侧 `research/shots/p67-*.png`（`PrintWindow`，**agent 自己读的图**）。
+- **别读错 prior art**：`prd.md` §6.8 那条「真按键合成要求前台，否则拒绝」说的是 `Display.post`；
+  本层的跨进程 `WM_KEYDOWN` **不需要前台**（实测该窗 `hwndFocus=0x1E12F4`，`GetForegroundWindow()` 是别人的窗）。
+
 ### A6c 输入与桥的相互影响（F11 / P6.6）
 
 **分两面写，别混。**
