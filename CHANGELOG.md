@@ -32,14 +32,26 @@
   （优先级：命令行 > 环境变量 > 配置文件 > 默认）。
 - **`ui.shells` 之外，窗口选题改由类名白名单定身份**：`pid` ∧ `class ∈ {SWT_Window0, #32770}` ∧
   `vis=True` ∧ 标题非辅助窗；**没有合法候选就 `rc=1` 且不写盘**（fail closed）。
-- **`ctl act click-button --index <n>`：元素寻址的「序位」档**（2026-10-04）。文本命中 **>1** 时不再只有
-  「报错」一条路 —— 显式给 **0 基序位**即可选中其中一个（与 `send-keys` / `set-text` 的 `--class`+`--index`
-  同一条契约）；**不给 `--index` 时仍 fail closed**（0 命中与 >1 命中都 `exit 1`）。底层
-  `tools/win-click-button.ps1` 增 `-Index`（`-Text` 为空时 = 全体可见 `Button` 的序位）。真实端到端实测
-  （真模态 `#32770` 的 Abort / Retry / Ignore）：`--text "A"` → 点到 **Abort**；`--text "(" --index 1` →
-  点到 **Retry**；`--index 2` → 点到 **Ignore** —— **被点的按钮由退出码 3 / 4 / 5 指认**（「动作 → 回读差」闭环）。
-  `--path`（SWT 式下标路径）**已裁决不做**：`act` 层打的是**进程外 Win32 子窗**，算不出 SWT 控件树的路径，
-  参数保留但**显式拒绝**（理由与处置见 `boundaries.md` N11）。
+- **元素寻址的输入原语就是库函数**（`ctl run` 脚本命名空间的 `act_click_button` /
+  `act_send_keys` / `act_set_text`）。三条口径不变：**标签**寻址（`act_click_button`）必须**唯一**；
+  **类名**寻址（`act_send_keys` / `act_set_text`，缺省 `Edit`）必须唯一或由 `index=` 显式指定
+  **0 基序位**（序位只在同一会话内稳定，故**永不自动挑**）；不带 `yes=True` 一律只返回
+  `DRY-RUN …`，**桥侧与窗口零动作**。下层 `tools/win-click-button.ps1 -Index` 的三态实测
+  （真模态 `#32770` 的 Abort / Retry / Ignore）：文本唯一 ⇒ 点到 **Abort**；文本 0 命中 ⇒
+  **不点**；文本 >1 不给序位 ⇒ **不点**并列出候选；`-Index 1` ⇒ 点到 **Retry**；`-Index 2`
+  ⇒ 点到 **Ignore**；`-Index 9` ⇒ `rc=1 out of range`。**被按下的按钮由 Harness 退出码
+  3 / 4 / 5 分别指认**（「动作 → 回读差」闭环，`boundaries.md` §A6 末条）。
+  `--path`（SWT 式下标路径）**已裁决不做** 且**没有参数可给**（见下 Removed 与 `boundaries.md` N11）。
+
+### Removed
+
+- **`act` 子命令整体移除**（2026-10-04）：元素寻址的三个原语本来就只是库函数（`ctl run` 的脚本
+  命名空间），CLI 那条路是**第二个控制门** —— 与 `deliverable-shape.md` C3 / `prd.md` R10′.1
+  「不得有第二个控制门」冲突，而且 `ctl/__main__.py` 已被它堆到 1955 行（第 5 轮审查 R5-4）。
+  现在它是未知子命令（`ERR notfound no such subcommand: act`，`rc=1`）；`act *` 专属的
+  解析器、处理器、pid 解析与 argv 构造（约 230 行）一并删除，`ctl/run.py` 的库入口**一个也没动**。
+  验收用例 `input.fixture` 的第 ⑤ 条（对不存在的控件点必须失败）随之改走库入口，
+  实测同判据仍 `rc=1`（`ERR notfound no visible Button matching '&NoSuchButton' …`）。
 
 ### Fixed
 
@@ -77,16 +89,25 @@
   改为：**0 命中 → `exit 1`**；**>1 命中 → `exit 1` 并列出候选**（`ERR ambiguous: N visible Buttons match …`）。
   实测三态（同机）：唯一命中 `rc=0` 且标题 `ctl-fixture`→`GO 1`；
   `-Text '&NoSuchButton'` → `rc=1`；`-Text '('`（消息框 3 个 Button 全含）→ `rc=1` + 三条候选。
-  CLI 层本来就是这个契约，本次是**下层工具对齐上层**，不改 CLI 行为。
-- **CLI 侧按「整行」过滤按钮**（2026-10-04，加 `--index` 时发现）：`_act_click_button` 用
-  `"class=Button" in line and text in line` 判命中，于是**工具自己的标记**（`Button` / `rect=`）也算命中 ——
-  既**凭空制造歧义**，又让 CLI 算出的序位与工具在同一窗口上算出的**不一致**（实测 `--text "o"`：CLI 数到 3、
-  工具只认 2 ⇒ 可能把 `--index` 校验放过去、到下层的 `-Index` 才炸）。改为只认 `text="…"` 字段、
-  且只认 `vis=True`（工具本来就不点不可见子窗）；回归 `tests/unit/test_act_addressing.py`（11 例，含这两条）。
-- **`TROUBLESHOOTING.md` §7 的 `--index/--path …` 行指向一条**已不存在**的报错串**，且同表另有 1 行指向
-  `no free port in [`（`pick_port` 死代码删除后该串已从代码里消失）：前者改成现在真实的
-  `--path is not supported by the `act` layer` 并补 `--index … out of range` 一行；后者**删行**。
-  同表里因本轮改动而漂移的 `ctl/__main__.py:*` 行号一并重指（**改代码就得跟着改引文**）。
+  寻址层本来就是这个契约（`ctl/run.py::_click_button` 先 `-ListOnly` 自检），本次是**下层工具对齐上层**。
+- **寻址层按「整条记录」认控件，listing 文本按 JSON 字符串体转义**（2026-10-04，第 5 轮审查 R5-3）：
+  读侧要认的是**一条完整记录**（`hwnd=… class=… vis=… text="…" rect=…`），不是「行里出现过
+  `class=Button`」。旧写法（`"class=Button" in line and text in line`）把**工具自己的标记**
+  （`Button` / `rect=`）也算命中 —— 既凭空制造歧义，又让读侧算出的序位与工具在同一窗口上算出的
+  **不一致**（实测 `--text "o"`：读侧数到 3、工具只认 2 ⇒ 序位校验可能放过去、到下层的 `-Index` 才炸）。
+  现在 `ctl/run.py` 与 `ctl/screen.py` **共用** `ctl/screen.py::child_record`（只认完整记录、只认
+  `vis=True`），`tools/win-click-button.ps1` / `win-send-input.ps1` 则把 `GetWindowTextW` 的原文
+  按 **JSON 字符串体**转义（`\` `"` 翻倍；CR/LF/TAB 与其余控制字符、`U+0085`/`U+2028`/`U+2029`
+  写成 `\r`/`\n`/`\t`/`\uXXXX`）—— 否则控件文本里一个换行就能**伪造一整行假控件**（`splitlines()`
+  之后 2 条命中，`matched` 证据行被污染）。读侧用 `json.loads` 还原：写者与读者**同一次改动**落地。
+  回归：`tests/unit/test_act_addressing.py`（含「标签里的一个换行不是两个控件」）、
+  `tests/unit/test_window_pid_contract.py`（`screen.buttons` 的转义/还原各一条）。
+- **`TROUBLESHOOTING.md` 的 `act` 一族引文随拆门重指**（2026-10-04）：`--index/--path …` 那两行
+  指的是**已删除**的 CLI 层报错串（`act` 子命令已移除），改成现在真实的库侧报错
+  （`ctl/run.py::_click_button` 的 `ambiguous: N Buttons match …` / `no visible Button matching …`）
+  并把触发写成 `ctl run` 脚本形式；`unknown act action` 一行**删行**；`pwsh not found` 一行的
+  出处从 `ctl/__main__.py` 改指 `ctl/run.py`。同表里因本轮改动而漂移的 `ctl/__main__.py:*` 行号一并重指
+  （**改代码就得跟着改引文**）。
 
 ### Changed
 

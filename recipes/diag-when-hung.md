@@ -78,8 +78,10 @@ pwsh -NoProfile -File tools/win-close.ps1 -ProcId <pid> -TitleLike "Reset Perspe
 pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <pid> -TitleLike "Reset Perspective" -Text "&No"
 ```
 
-> `ctl act click-button --title "Reset Perspective" --text "&No" --yes` 是同一动作的 CLI 形式
-> （寻址 = `--text` 文本（须唯一）或 `--index` 序位；`--path` 已裁决不做，见 `boundaries.md` N11）。
+> 同一个动作在产品面就是库函数 `act_click_button("&No", title="Reset Perspective", yes=True)`
+> （喂给 `python -m ctl run`）；寻址 = **标签文本，必须唯一**（底层 `tools/win-click-button.ps1` 还有
+> `-Index` 序位档，但 `act_click_button` 不暴露它；“下标路径”已裁决不做，见 `boundaries.md` N11 ——
+> 那个参数已随 `act` 子命令一起消失）。
 > 两条路都**不用鼠标、不需前台**。
 
 ## 6. 探活 + **回读差复查**（最后一步，也是判据所在）

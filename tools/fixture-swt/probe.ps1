@@ -1,7 +1,8 @@
 # 夹具探针 —— 对 ctl-fixture 发**合成输入**并回读窗口标题。
 #
-# 定位：`Fixture.java` 的配套**取证装置**，不是产品工具。产品侧契约是
-# `ctl act click-button` / `act send-keys` / `act set-text`（三个动作**只做元素寻址**）；
+# 定位：`Fixture.java` 的配套**取证装置**，不是产品工具。产品侧契约是库函数
+# `act_click_button` / `act_send_keys` / `act_set_text`（`ctl run` 的脚本命名空间，
+# 三个原语**只做元素寻址**；`python -m ctl act` 子命令 2026-10-04 已删除）；
 # 本脚本额外覆盖产品**不做**的两档 —— 坐标注入（②a/②b）与空白负例（⑥），
 # 它们只用于 P6 的定论记录与证伪（见 `design-project.md` §18.2/§18.4）。
 #

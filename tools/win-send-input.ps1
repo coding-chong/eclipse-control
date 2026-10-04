@@ -69,7 +69,7 @@ public class Inp {
       var c = new StringBuilder(256); GetClassNameW(h, c, 256);
       RECT r; GetWindowRect(h, out r);
       outv.Add(string.Format("hwnd=0x{0:X} class={1} vis={2} text=\"{3}\" rect={4},{5},{6},{7}",
-        (long)h, c, IsWindowVisible(h), t, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top));
+        (long)h, c, IsWindowVisible(h), Esc(t.ToString()), r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top));
       return true;
     }, IntPtr.Zero);
     return outv;
@@ -85,6 +85,29 @@ public class Inp {
     }, IntPtr.Zero);
     return outv;
   }
+  // One listing field (`text="…"`) is a JSON string body: `\` and `"` doubled, and
+  // CR/LF/TAB plus every other control character (and U+0085/U+2028/U+2029, which
+  // Python's str.splitlines() also breaks on) written as `\r`/`\n`/`\t`/`\uXXXX`.
+  // Without it a control's text containing a line break would forge a whole extra
+  // `hwnd=… class=…` line for the Python readers, which count lines.
+  public static string Esc(string s) {
+    var b = new StringBuilder(s.Length + 8);
+    foreach (char ch in s) {
+      switch (ch) {
+        case '\\': b.Append("\\\\"); break;
+        case '"': b.Append("\\\""); break;
+        case '\r': b.Append("\\r"); break;
+        case '\n': b.Append("\\n"); break;
+        case '\t': b.Append("\\t"); break;
+        default:
+          if (ch < ' ' || ch == '\u0085' || ch == '\u2028' || ch == '\u2029')
+            b.Append("\\u").Append(((int)ch).ToString("x4"));
+          else b.Append(ch);
+          break;
+      }
+    }
+    return b.ToString();
+  }
   public static string SendKey(IntPtr h, uint vk) {
     SendMessageW(h, 0x0100, (IntPtr)vk, IntPtr.Zero);   // WM_KEYDOWN
     SendMessageW(h, 0x0101, (IntPtr)vk, IntPtr.Zero);   // WM_KEYUP
@@ -92,7 +115,7 @@ public class Inp {
   }
   public static string SetText(IntPtr h, string s) {
     SendMessageStr(h, 0x000C, IntPtr.Zero, s);          // WM_SETTEXT
-    return string.Format("sent WM_SETTEXT \"{0}\" -> hwnd=0x{1:X}", s, (long)h);
+    return string.Format("sent WM_SETTEXT \"{0}\" -> hwnd=0x{1:X}", Esc(s), (long)h);
   }
 }
 "@

@@ -110,7 +110,7 @@ python -m ctl targets list                                              # target
 python -m ctl commands find  --text "Reset Perspective"                  # 反查：UI 文字 → 命令 id
 python -m ctl commands export --json --full > commands.json             # 命令表导出（六字段；R8 的机读产物）
 python tools/make-commands-md.py                                        # 由 commands.json 同源渲染 COMMANDS.md
-python -m ctl act click-button --title "Reset Perspective" --text "&No" --yes   # 元素寻址输入
+echo 'act_click_button("&No", title="Reset Perspective", yes=True)' | python -m ctl run --target gs32  # 元素寻址输入（库函数）
 ```
 
 `--stop` / `--doctor` 是 `ctl run` 上的等价开关，用户面走那两个。
@@ -134,14 +134,15 @@ python -m ctl act click-button --title "Reset Perspective" --text "&No" --yes   
 
 | 层 | 回答什么 | 复跑命令 | 实测（2026-10-04） |
 |---|---|---|---|
-| 单元 | 四层配置的**优先级**（flag > env > file > 默认）、窗口寻址的 pid 契约、`act` 寻址契约、`run` 写助手、控制台黑名单 | `python -m unittest discover -s tests/unit -t . -q` | 48 tests / `rc=0` |
+| 单元 | 四层配置的**优先级**（flag > env > file > 默认）、窗口寻址的 pid 契约、元素寻址契约（库形态 `act_click_button` / `act_send_keys` / `act_set_text`）、`run` 写助手、控制台黑名单 | `python -m unittest discover -s tests/unit -t . -q` | 73 tests / `rc=0` |
 | 契约 | 冻结的 **8 个错误码**：常量 ↔ 异常映射 ↔ `protocol.md` 三者不漂移 | `python -m unittest discover -s tests/contract -t . -q` | 7 tests / `rc=0` |
 | 验收 | 真实例上的端到端行为（需要活实例） | `python -m ctl verify --case read.ping --target gs32 --run-id <id>` | 见 §一 |
 
-两层的合集：`python -m unittest discover -s tests -t . -q` → **55 tests / `rc=0`**
-（= 单元 48 + 契约 7；48 = `test_window_pid_contract.py` 13 + `test_act_addressing.py` 11 +
-`test_command_id_framing.py` 8 + `test_config_precedence.py` 7 + `test_run_write_helpers.py` 4 +
-`test_console_blacklist.py` 3 + `test_help_method_set.py` 2）。
+两层的合集：`python -m unittest discover -s tests -t . -q` → **80 tests / `rc=0`**
+（= 单元 73 + 契约 7；73 = `test_boundary_validation.py` 16 + `test_window_pid_contract.py` 15 +
+`test_act_addressing.py` 13 + `test_command_id_framing.py` 8 + `test_config_precedence.py` 7 +
+`test_frame_termination.py` 5 + `test_run_write_helpers.py` 4 + `test_console_blacklist.py` 3 +
+`test_help_method_set.py` 2）。
 **计数由各文件 `def test_` 直接数** —— 别照抄这里的数字，改了测试就复算一次。
 
 > 契约层**实测咬出过一个真问题**，值得记着：最初把「未知错误码要保留原文」这条断言写在 `CtlError` 上，

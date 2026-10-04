@@ -51,7 +51,8 @@ recorded 6 line(s) -> <RUN_ROOT>/<RUN_ID>/record.sh
 
 > 注意第 4、5 行：`viewids` 是**读**、`showView` 是**写**——写方法的判据是第 5 行的回读差（views 7→8），
 > 不是第 4 行的 `OK`。
-> `shell` 是原始通道：不挂 `--yes`（`--yes` 只挂在 `cmd` / `open` / `close` / `act` 上），
+> `shell` 是原始通道：不挂 `--yes`（`--yes` 只挂在 `cmd` / `open` / `close` 三个写子命令上；
+> 元素寻址的三个库原语用 `yes=True`，不走 `--yes`），
 > 但危险 Gogo 命令仍需 `--allow-dangerous`（默认拒绝）。
 
 ## 3. 检查录制产物

@@ -44,7 +44,7 @@
 | `--json` 输出混入诊断、stdout 解析失败 | `python -m ctl parts --json 2>err.txt \| python -c "import json,sys; json.load(sys.stdin)"` | 这是 stdout/stderr 分工被破坏的缺陷：诊断必须只走 stderr（`design-project.md` §17.2） | 留原文上报（四件套） |
 | 写命令「什么都没发生」（stdout 打印 `DRY-RUN <line>`，退出码 0） | `python -m ctl cmd --run-id <RUN_ID> org.eclipse.ui.views.showView viewId=com.gs.memory.view` | 没带 `--yes`：dry-run 只打印不发送（`design-project.md` §16.2）。补上 `--yes` 重发 | 补 `--yes` 后仍无变化 → 走回读差判定（`protocol.md` §4.2），别信返回值 |
 | `verify --group <G>` 退出码 `2` | `python -m ctl verify --group <G> --target <TARGET>` | 该组**命中 0 条**用例即退出码 2（防「空组全绿」）；这是「前置/选择器有问题」，不是「测试失败」 | `python -m ctl verify --all --target <TARGET>` 看实际用例名 |
-| `ctl act click-button --path` 被拒绝（`--index` **已可用**） | `python -m ctl act click-button --title "ctl-fixture" --path 0/1 --yes` | `--path`（SWT 式下标路径）**已裁决不做**：本层打的是 Win32 子窗，不是 §18.3 引文那个 SWT 控件树（`boundaries.md` N11）。`--index` 是「命中 >1」时的显式序位 | 歧义时给序位：`python -m ctl act click-button --title "ctl-fixture" --text "&Go" --index 0 --yes` |
+| 元素寻址歧义 / 找不到控件（`ERR badrequest ambiguous: …` 或 `ERR notfound no visible Button matching …`） | 脚本里 `act_click_button("&OK", title="Reset Perspective", yes=True)`，喂给 `python -m ctl run --target <TARGET>` | 寻址必须**唯一**：先把标题收窄到那扇窗，再把文字收窄到那个控件。**类名**寻址那一族（`act_send_keys` / `act_set_text`）多命中时用 `index=<0 基序位>` 显式指定（序位只在同一会话内稳定，所以永不自动挑）。`--path`（SWT 式下标路径）**已裁决不做**，并随 `act` 子命令一起消失 —— 参数都不存在了（`boundaries.md` N11） | 先枚举看真实标签：`pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <pid> -TitleLike "<标题片段>" -ListOnly` |
 | `recipes run <name>` 报用法错误、退出码 `1` | `python -m ctl recipes run view-and-shot` | 配方文件里还有**未替换的 `<...>` 占位符**：CLI **拒绝执行**（不会把字面量喂给 shell） | 先把 `<RUN_ID>` / `<RUN_ROOT>` 等替换成实际值，再跑 |
 | 命令表导出条数异常（比实例里少） | `python -m ctl commands export --json \| python -c "import json,sys; d=json.load(sys.stdin); print(d['total'], d['returned'], d['truncated'])"` | 见 `boundaries.md` §A11（旧产物硬截断 300 条，2026-10-01 已去掉）与 §A9b（`getDefinedCommandIds()` 漏「有 handler 无声明」的 id） | 若 `returned != total`，按缺陷上报；不要拿半份导出当权威命令表 |
 
@@ -101,7 +101,7 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 
 ---
 
-## 7. CLI 错误串 ↔ 本文件命中行（A12 判据）
+## 7. CLI / 库错误串 ↔ 本文件命中行（A12 判据）
 
 规则见 `protocol.md` §11：CLI 把失败写到 stderr，形如 `ERR <code> <message>; retry: <命令>`。
 
@@ -120,7 +120,7 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 > ⚠️ `PrereqNotReady`（前置未就绪）的**码是 `internal` 但退出码是 `2`** —— 与「真正的内部异常」同码不同退。
 > 判「能不能继续」要看**退出码**，不要只看码（`design-obs-ux.md` §14.3 的退出码语义）。
 
-| CLI stderr / 报告里的可 grep 字面量 | 形态 · 码 · 退出码 | 处置与出处 |
+| stderr / 报告里的可 grep 字面量 | 形态 · 码 · 退出码 | 处置与出处 |
 |---|---|---|
 | `bridge did not answer on port` | `ERR` + 具体码 / **1** | 桥起了但不在超时内回话：**先按 §1 recv 超时行**处置（多半是模态框）。<br>`ctl/lifecycle.py:708` |
 | `cannot reach bridge on` | `ERR` + 具体码 / **1** | 连不上端口：实例没起、端口变了、或被杀。`status --json` 看 endpoint；见 §2「端口被别的实例占用」。<br>`ctl/client.py:244` |
@@ -133,8 +133,7 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `recipe unreadable` | `ERR` + 具体码 / **1** | 配方文件读不了。`ctl recipes list` 核对路径。<br>`ctl/__main__.py:1052` |
 | `workbench did not become ready within %.0f s (last` | `ERR` + 具体码 / **1** | 工作台在超时内没就绪（工作区被占）。见 §1「`Workspace Cannot Be Locked`」行。<br>`ctl/lifecycle.py:714` |
 | `-- replace it before running` | `ERR badrequest` | 配方块里还有未替换的 `<...>` 占位符：CLI **拒绝执行**（不把字面量喂给 shell）。先替换再跑。<br>`ctl/__main__.py:1085` |
-| `--path is not supported by the `act` layer` | `ERR badrequest` / **1** | `--path`（SWT 式下标路径）**已裁决不做** —— 本层打 Win32 子窗，算不出 §18.3 引文那个 SWT 控件树路径（`boundaries.md` N11）。要「歧义时选一个」用 `--index`。<br>`ctl/__main__.py:1717`（`send-keys`/`set-text` 侧 `:1792`） |
-| `--index 9 out of range (3 Button(s) matched)` | `ERR badrequest` / **1** | `--index` 超出匹配数（各动作的 `-ListOnly` 先自检，**什么都没点**）。先看候选数再给序位。<br>`ctl/__main__.py:1756`（`send-keys`/`set-text` 侧 `:1839`） |
+| `index 9 out of range (3 match(es))` | `ERR badrequest` / **1** | `index=` 超出该类名的可见匹配数（`-ListOnly` 先自检，**什么都没点**）。先看候选数再给序位；不给序位而命中 >1 会得到另一条 `ambiguous: N visible children of class …`。<br>`ctl/run.py:348`（歧义侧 `:345`） |
 | `--json requires -c` | `ERR badrequest` | `ctl shell --json` 必须配 `-c` 单发；交互模式不能出 JSON。<br>`ctl/__main__.py:1266` |
 | `--open needs a frame: use --seq N --open, or --open N` | `ERR badrequest` | `--open` 没给帧号。用 `--seq N --open` 或 `--open N`。<br>`ctl/__main__.py:1424` |
 | `--promote and --prune are different actions` | `ERR badrequest` | `--promote` 与 `--prune` 是两种动作，不能同时给。<br>`ctl/__main__.py:1372` |
@@ -143,7 +142,6 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `bridge jar is stale, none declares` | `ERR internal` / **2** | `dist/` 里的 jar 不是本版编的。`ctl build --target <t>` 重编。<br>`ctl/lifecycle.py:385` |
 | `bridge not answering for run` | `ERR internal` / **2** | 该 run 没有可用的桥（没装过/已停）。`install` 或换 `--run-id`。<br>`ctl/verify/runner.py:181` |
 | `bridge source missing` | `ERR internal` / **2** | 桥源码树缺失。确认 `bridge/src` 在仓里。<br>`ctl/lifecycle.py:395` |
-| `click-button needs --text <button label> or --index` | `ERR badrequest` | `act click-button` 必须给 `--text <按钮标签>`。<br>`ctl/__main__.py:1721` |
 | `dangerous console command refused` | `ERR disabled` / **1** | 同上行（控制台路径）。<br>`ctl/console.py:65` |
 | `endpoint.json for run '` | `ERR notfound` / **1** | `endpoint.json` 里没有 `port` 字段（文件损坏）。重装该 run。<br>`ctl/client.py:88` |
 | `endpoint.json unreadable for run '` | `ERR notfound` / **1** | `endpoint.json` 读不了。删掉该 run 重装。<br>`ctl/client.py:84` |
@@ -155,11 +153,11 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `is missing (source present` | `ERR internal` / **2** | 桥不可构建（源码在但构件缺）。看 `doctor` 的 ECJ 一行。<br>`ctl/lifecycle.py:392` |
 | `is not a bridge method (Gogo console forwarding is not wired in this round` | `ERR badrequest` / **1** | `ctl shell` 只转桥方法；Gogo 控制台转发本轮未接。<br>`ctl/__main__.py:1244` |
 | `launcher not found for target` | `ERR internal` / **2** | 找不到该 target 的启动器（`GS32.exe`/`ccstudio.exe`）。核对 `source_dir`。<br>`ctl/lifecycle.py:585` |
-| `missing tool` | `ERR internal` / **2** | `tools/` 下的窗口脚本缺失 —— 仓库不完整。<br>`ctl/__main__.py:1725` |
+| `missing tool` | `ERR internal` / **2** | `tools/` 下的窗口脚本缺失 —— 仓库不完整。<br>`ctl/run.py:254`（`act_click_button`）/ `:300`（`act_send_keys` / `act_set_text`） |
 | `name different frames` | `ERR badrequest` | `--open` 与 `--seq` 指的不是同一帧。<br>`ctl/__main__.py:1401` |
 | `no bash found to run recipe` | `ERR internal` / **2** | 跑配方需要 bash，本机没找到。<br>`ctl/__main__.py:1080` |
 | `no bridge jar built yet` | `ERR internal` / **2** | 还没编过桥。`ctl build --target <t>`。<br>`ctl/lifecycle.py:389` |
-| `no Button containing` | `ERR notfound` / **1** | 该窗口里没有含这段文字的 Button。先 `win-click-button.ps1 -ListOnly` 看真实标签。<br>`ctl/__main__.py:1752` |
+| `no visible Button matching` | `ERR notfound` / **1** | 该窗口里没有含这段文字的可见 Button。先 `win-click-button.ps1 -ListOnly` 看真实标签。<br>`ctl/run.py:275` |
 | `no cases matched (case=` | `ERR internal` / **2** | 选择器没命中任何用例（防「空组全绿」）。`verify --group read` 看组内有哪些。<br>`ctl/__main__.py:1456` |
 | `no command whose name contains` | `ERR notfound` / **1** | 命令表里没有名字含该文字的命令。`ctl commands --json` 看全量。<br>`ctl/__main__.py:998` |
 | `no endpoint for run '` | `ERR notfound` / **1** | 该 run 没有 `endpoint.json` = 没装过或已被清。见 §2「端口被别的实例占用」行。<br>`ctl/client.py:77` |
@@ -169,11 +167,10 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `no such case` | `ERR notfound` / **1** | 用例名写错。见 §2「`ERR notfound no such case` 形态的用例名写错」行。<br>`ctl/verify/runner.py:264` |
 | `no such recipe` | `ERR notfound` / **1** | 没有这个配方。`ctl recipes list` 看五个内置配方。<br>`ctl/__main__.py:1076` |
 | `no such target` | `ERR notfound` / **1** | target 名不在册。`ctl targets list` 列出 `gs32` / `ccs12`。<br>`ctl/targets.py:493` |
-| `no visible window matching` | `ERR notfound` / **1** | 没有匹配该标题的可见窗口。标题可能含零宽字符，改用更短片段。<br>`ctl/__main__.py:1742` |
+| `no visible window matching` | `ERR notfound` / **1** | 没有匹配该标题的可见窗口。标题可能含零宽字符，改用更短片段。<br>`ctl/run.py:271`（`act_click_button`）/ `:334`（`act_send_keys` / `act_set_text`） |
 | `parameter must be key=value, got` | `ERR badrequest` | `ctl cmd` 的参数必须 `key=value`。<br>`ctl/__main__.py:1197` |
-| `pwsh not found` | `ERR internal` / **2** | 本机没有 pwsh。`act` 与截图都依赖它。<br>`ctl/__main__.py:1728` |
-| `text addressing must be unique` | `ERR badrequest` / **1** | 文本寻址命中了多个 Button（必须唯一）。改用更精确的文字。<br>`ctl/__main__.py:1759` |
-| `unknown act action` | `ERR badrequest` / **1** | `act` 只有 `click-button` 一个动作。<br>`ctl/__main__.py:1693` |
+| `pwsh not found` | `ERR internal` / **2** | 本机没有 pwsh。元素寻址输入与截图都依赖它。<br>`ctl/run.py:257` / `:303`；截图侧 `ctl/screen.py` |
+| `addressing must be unique` | `ERR badrequest` / **1** | 寻址命中了多个控件（必须唯一）：标签侧报 `ambiguous: N Buttons match …`，类名侧报 `ambiguous: N visible children of class …`。改用更精确的文字，或（类名侧）给 `index=`。<br>`ctl/run.py:277` / `:345` |
 | `unknown commands action` | `ERR badrequest` / **1** | `commands` 的子动作拼错。<br>`ctl/__main__.py:1006` |
 | `unknown recipes action` | `ERR badrequest` / **1** | `recipes` 的子动作拼错。<br>`ctl/__main__.py:1096` |
 | `unknown targets action` | `ERR badrequest` / **1** | `targets` 的子动作拼错。<br>`ctl/__main__.py:831` |
@@ -191,15 +188,16 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 > `python <工作区>/.trellis/tasks/10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`
 > （`--repo D:/gitclone/eclipse-ctl`；判据 = 把模板按 `%s/%d/%r` 切段，取 **≥6 字符**的片段，
 > 只要有**一段**能在本表原样 grep 命中即算覆盖）。
-> **实测（2026-10-03，本轮补入 `is already held by another run` 之后）**：
-> `templates=70 checked=69 exempt=1 missing=10` ⇒ **`coverage: FAIL`**。
-> 余下 10 条**均为本轮之前就在的缺口**：`act` 的按键 / 文本 / 按类寻址一族（5 条，`ctl/__main__.py`）、
-> `ctl run` 的 4 条（`ctl/run.py`）、桥的重建提示（1 条，`ctl/lifecycle.py`）。
-> 具体是哪 10 条**以脚本输出为准**。
+> **实测（2026-10-04，`act` 子命令拆除之后）**：
+> `templates=58 checked=57 exempt=1 missing=6` ⇒ **`coverage: FAIL`**。
+> 余下 6 条**都不是本轮拆门引入的**：`act` 一族的模板随子命令一起消失（本表的对应行已改写成库形态），
+> 缺口是 `ctl run` 的门面三条（`ctl/run.py:448` / `:453` / `:464`）、重试提示（`ctl/run.py:40`）、
+> run-id 校验（`ctl/lifecycle.py:108`）与 `ctl build` 的重试提示（`ctl/lifecycle.py:365`）。
+> 具体是哪 6 条**以脚本输出为准**（脚本会把候选串打出来）。
 > ⚠️ **判据自身的盲区（实测踩到）**：它按**子串**命中 —— 正文里（哪怕是在描述缺口时）
 > **提到**某个候选串，就会把对应模板算成"已覆盖"。所以**别在本段里罗列那些串**，
 > 也别把"提到了"当成"写好了处置行"。
-> **要绿就把这 10 条补上表**；在那之前，别把本表当"全覆盖"用。
+> **要绿就把这 6 条补上表**；在那之前，别把本表当"全覆盖"用。
 
 **退出码**：`0` 成功 / `1` 失败（含用法与查找错误）/ `2` 前置未就绪
 —— `design-obs-ux.md` §14.3。注意 **`rc=0` 不代表没有弹框**：写命令的弹框只在回话的 `dialog=` 负载行里，

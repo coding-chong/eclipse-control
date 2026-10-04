@@ -95,7 +95,7 @@
 | 控制台**危险命令黑名单默认拒绝**（`init` / `close` / `shutdown` / `exit` / `threads -t` / `gc`） | `design-project.md` §15.4 第 3 条 | 待 `ctl/` 落地后复审 |
 | ~~`token` 启用路径（启用后首行 `auth <token>`）~~ | ~~`design-project.md` §15.4 第 4 条 / `protocol.md` §5~~ | **该项不存在，已删**（2026-10-03）：桥侧从未实现该握手，需求条目为 AI 自造、非用户口径；配置键 `token` / 握手首行 / `endpoint.json` 字段一并移除，见 `protocol.md` §5 |
 | 桥内不做任何点击动作（模态框交由外部处置） | `design.md` §5（「桥内不自动点」） | 待桥侧用例落地后复审 |
-| `act click-button` 未声明用例时拒绝执行 | `prd.md` A12b ② | 待 `ctl/` 落地后复审 |
+| 元素寻址原语（`act_click_button` 一族）未声明用例时拒绝执行 | `prd.md` A12b ② | 待 `ctl/` 落地后复审 |
 
 ---
 

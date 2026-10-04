@@ -56,7 +56,7 @@ public class Btn {
       var c = new StringBuilder(256); GetClassNameW(h, c, 256);
       RECT r; GetWindowRect(h, out r);
       outv.Add(string.Format("hwnd=0x{0:X} class={1} vis={2} text=\"{3}\" rect={4},{5},{6},{7}",
-        (long)h, c, IsWindowVisible(h), t, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top));
+        (long)h, c, IsWindowVisible(h), Esc(t.ToString()), r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top));
       return true;
     }, IntPtr.Zero);
     return outv;
@@ -78,6 +78,29 @@ public class Btn {
       return true;
     }, IntPtr.Zero);
     return hits;
+  }
+  // One listing field (`text="…"`) is a JSON string body: `\` and `"` doubled, and
+  // CR/LF/TAB plus every other control character (and U+0085/U+2028/U+2029, which
+  // Python's str.splitlines() also breaks on) written as `\r`/`\n`/`\t`/`\uXXXX`.
+  // Without it a control's text containing a line break would forge a whole extra
+  // `hwnd=… class=…` line for the Python readers, which count lines.
+  public static string Esc(string s) {
+    var b = new StringBuilder(s.Length + 8);
+    foreach (char ch in s) {
+      switch (ch) {
+        case '\\': b.Append("\\\\"); break;
+        case '"': b.Append("\\\""); break;
+        case '\r': b.Append("\\r"); break;
+        case '\n': b.Append("\\n"); break;
+        case '\t': b.Append("\\t"); break;
+        default:
+          if (ch < ' ' || ch == '\u0085' || ch == '\u2028' || ch == '\u2029')
+            b.Append("\\u").Append(((int)ch).ToString("x4"));
+          else b.Append(ch);
+          break;
+      }
+    }
+    return b.ToString();
   }
   public static string TextOf(IntPtr h) {
     var t = new StringBuilder(512); GetWindowTextW(h, t, 512);
@@ -114,11 +137,11 @@ if (-not $ListOnly -and ($Text -ne '' -or $Index -ge 0)) {
         }
     } elseif ($hits.Count -gt 1) {
         Write-Output ("ERR ambiguous: {0} visible Buttons match '{1}' (text addressing must be unique; pass -Index)" -f $hits.Count, $Text)
-        $hits | ForEach-Object { Write-Output ("  candidate hwnd=0x{0:X} class=Button text=""{1}""" -f ([int64]$_), [Btn]::TextOf($_)) }
+        $hits | ForEach-Object { Write-Output ("  candidate hwnd=0x{0:X} class=Button text=""{1}""" -f ([int64]$_), [Btn]::Esc([Btn]::TextOf($_))) }
         exit 1
     }
     $target = if ($Index -ge 0) { $hits[$Index] } else { $hits[0] }
     [Btn]::Click($target)
-    Write-Output ("  BM_CLICK sent to hwnd=0x{0:X} text=""{1}""" -f ([int64]$target), [Btn]::TextOf($target))
+    Write-Output ("  BM_CLICK sent to hwnd=0x{0:X} text=""{1}""" -f ([int64]$target), [Btn]::Esc([Btn]::TextOf($target)))
 }
 exit 0

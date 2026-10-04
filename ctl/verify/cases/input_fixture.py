@@ -9,7 +9,7 @@
 | ②b | **同坐标同消息** → 顶层 Shell | 记录结果 | 定论记录（**对照组**） |
 | ③ | 按键（`WM_KEYDOWN VK_RETURN` → Edit HWND） | 标题**必须变** | 能力 |
 | ④ | 文本输入（`WM_SETTEXT` → Edit HWND） | 标题**必须变** | 能力 |
-| ⑤ | 对**不存在**的控件点（`ctl act click-button`） | **必须失败** | **证伪** |
+| ⑤ | 对**不存在**的控件点（产品库 `act_click_button`） | **必须失败** | **证伪** |
 | ⑥ | 坐标点空白 | **必须无变化** | **证伪** |
 
 ②a 与 ②b 是本域最有价值的一条：两条**坐标相同、消息相同**，只差**收件人**。
@@ -31,10 +31,13 @@ import glob
 import os
 import shutil
 import subprocess
-import sys
+import tempfile
 import zipfile
 from typing import Dict, List, Optional, Tuple
 
+from ... import run as run_door
+from ...client import Client, write_endpoint
+from ...errors import NotFoundError
 from ..runner import Case, Skip
 from ._util import verdict
 
@@ -60,7 +63,6 @@ _PAYLOAD = "P6CASE"
 _READY_SECS = 120
 _PROBE_TIMEOUT = 240
 _BUILD_TIMEOUT = 300
-_CLI_TIMEOUT = 120
 
 #: 期望值。``None`` = **只记录不判定**（②a/②b 是定论记录，不是能力断言）。
 _CHANGED = "CHANGED"
@@ -81,9 +83,33 @@ _PROBES: Tuple[Tuple[str, str, int, Optional[str], Optional[str], str], ...] = (
     ("coord-blank", "coord-blank", 1, _UNCHANGED, None, "⑥ 坐标点空白"),
 )
 
-#: ⑤ 走**产品面**（CLI），不走探针 —— 契约先在 CLI 层成立（研究档 §5）；
-#: 下层 `tools/win-click-button.ps1` 已于 2026-10-02 对齐（**0 命中**与**>1 命中**都 `exit 1`）。
+#: ⑤ 走**产品面**：`ctl run` 脚本命名空间里的 `act_click_button`（`ctl/run.py`），不走探针 ——
+#: 契约就在那一层（研究档 §5）。下层 `tools/win-click-button.ps1` 已于 2026-10-02 对齐
+#: （**0 命中**与**>1 命中**都 `exit 1`）。
 _NONEXISTENT_TEXT = "&NoSuchButton"
+
+
+def _click_nonexistent(pid: int) -> Tuple[int, List[str]]:
+    """⑤ 的载具：**产品库**的 `act_click_button` 对不存在的控件必须失败。
+
+    夹具进程是本用例自己起的，这里没有桥、也没有真的 run；于是搭一个最小的 run 目录
+    （`endpoint.json` 只写夹具的 pid），再把产品面**原样**喂进去 —— `ctl run` 脚本命名空间
+    暴露的就是这一个 `act_click_button`，它解析 pid 走的也是同一条 `endpoint.json` 路径。
+    失败必须是**寻址失败**（`NotFoundError`）：若这里冒出别的 `CtlError`（例如运行记录里
+    没有 pid），那是前置没就绪，不能算 ⑤ 通过。
+    """
+    root = tempfile.mkdtemp(prefix="eclipse-ctl-fixture-endpoint-")
+    try:
+        write_endpoint(root, "fixture", 1, pid)
+        client = Client(port=1, run_root=root, run_id="fixture")
+        namespace = run_door._make_namespace(client, run_door._DoorState(run_id="fixture"))
+        try:
+            namespace["act_click_button"](_NONEXISTENT_TEXT, title=_TITLE, yes=True)
+        except NotFoundError as exc:
+            return 1, [exc.line()]
+        return 0, ["clicked a control that does not exist (unexpected)"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def _find(source_dir: str, pattern: str) -> Optional[str]:
@@ -290,17 +316,6 @@ def _run_probe(assertion: str, pid: int, retries: int) -> Dict[str, object]:
     }
 
 
-def _run_cli(args: List[str]) -> "subprocess.CompletedProcess[str]":
-    """跑产品 CLI 的**子进程**形式（用例本身也跑在 CLI 里，直接调会自己套自己）。
-
-    ``-NoProfile`` 不是为了快，是为了不让 pwsh profile 往 stdout 打代理横幅污染解析 —— 这里用
-    ``sys.executable`` 起的是 Python，于是连 pwsh 都不需要。
-    """
-    return subprocess.run([sys.executable, "-m", "ctl", *args], cwd=_ROOT,
-                          capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=_CLI_TIMEOUT)
-
-
 def _action(ctx) -> Dict[str, object]:
     target = ctx.target
     java, ecj, swt = _resolve(target)
@@ -341,15 +356,15 @@ def _action(ctx) -> Dict[str, object]:
             for ln in res["lines"]:
                 ctx.note("    " + ln)
 
-        # ⑤ 证伪：对**不存在**的控件点，必须失败。走产品面（CLI），因为契约在那一层。
-        cli = _run_cli(["act", "click-button", "--title", _TITLE,
-                        "--text", _NONEXISTENT_TEXT, "--yes"])
-        rows.append({"id": "nonexistent", "rc": cli.returncode,
+        # ⑤ 证伪：对**不存在**的控件点，必须失败。走**产品面**（`ctl run` 的脚本命名空间，
+        # 调的就是 `ctl/run.py` 里那个 `act_click_button`），不走探针。
+        non_rc, non_lines = _click_nonexistent(proc.pid)
+        rows.append({"id": "nonexistent", "rc": non_rc,
                      "expect": None, "shape": None, "retries": 1,
-                     "before": None, "after": None, "verdict": "ERR" if cli.returncode else "OK",
+                     "before": None, "after": None, "verdict": "ERR" if non_rc else "OK",
                      "why": "⑤ 对不存在的控件点（证伪：必须失败）",
-                     "lines": [ln.rstrip() for ln in (cli.stdout or "").splitlines() if ln.strip()]})
-        ctx.note("nonexistent  rc=%d | %s" % (cli.returncode, (cli.stdout or "").strip()[:200]))
+                     "lines": non_lines})
+        ctx.note("nonexistent  rc=%d | %s" % (non_rc, (non_lines or [""])[-1][:200]))
     finally:
         # 夹具是**本用例自己起的**，无论成败都必须收干净 —— 否则下次跑会留下幽灵窗口，
         # 而本用例按 pid 寻址，幽灵窗口会让 `-TitleLike` 命中多扇窗（探针是 fail-closed 的，会直接报错）。

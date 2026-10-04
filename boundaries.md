@@ -70,7 +70,7 @@
   | **点 `Button`** | 窗口标题 + 控件**文本**（必须唯一） | `SendMessage(hwnd, BM_CLICK=0x00F5, 0, 0)` | ✅ 标题 `ctl-fixture` → **`GO n`** | **能力** |
   | **按键** | 窗口标题 + **类名 + 序位** | `WM_KEYDOWN/WM_KEYUP`（`0x0100`/`0x0101`） | ✅ 标题 → **`KEY 13`**（VK_RETURN） | **能力** |
   | **文本输入** | 窗口标题 + **类名 + 序位** | `WM_SETTEXT`（`0x000C`） | ✅ 标题 → **`TEXT <载荷>`** | **能力**（与焦点/键盘布局无关） |
-  | 点**不存在**的控件 | 文本 | `ctl act click-button` | ✅ **退出码 1**（存在控件为 0） | **证伪** |
+  | 点**不存在**的控件 | 文本 | `act_click_button`（库） | ✅ **退出码 1**（存在控件为 0） | **证伪** |
   | 坐标 → **按钮 HWND** | client 坐标 | `WM_LBUTTONDOWN/UP`（`0x0201`/`0x0202`） | ✅ 标题 → `GO n+1`（**有效**） | 定论记录 |
   | 坐标 → **顶层 Shell**（同一坐标、同一消息） | client 坐标 | 同上 | ⚠️ 标题**不变**（**无效**） | 定论记录（**对照组**） |
   | 坐标 → 空白 (5,5) | client 坐标 | 同上 | ✅ 标题**不变** | **证伪** |
@@ -80,28 +80,36 @@
   > 鼠标消息转给子控件）。⇒ **决定成败的是「寻址」，不是「SWT 不认合成输入」。**
 
   **寻址纪律**（`design-project.md` §18.3）：**命中 0 或 >1 一律失败**（fail closed），不允许「挑第一个」——
-  否则同名 `&Save`/`&OK` 会**静默点错**。三个 `act` 动作**都不带 `--yes` 只打印 `DRY-RUN`**（§16.2 的 `act *` 口径）。
+  否则同名 `&Save`/`&OK` 会**静默点错**。三个原语**不带 `yes=True` 时只返回 `DRY-RUN …`**（§16.2 的口径）。
 
-  **CLI 入口**：`act click-button`（文本寻址，或 `--index` 序位）/ `act send-keys --key <名>` / `act set-text --text <载荷>`
-  （后两者按 `--class`（缺省 `Edit`）+ 可选 `--index` 寻址）。命令面定义见 `design-obs-ux.md` §14.3。
+  **库入口**（`ctl run` 脚本命名空间；`deliverable-shape.md` C3 / R10′.1「只有一个门」）：
+  `act_click_button(text, case=None, title=None, yes=False)`（文本寻址）/
+  `act_send_keys(key, title=None, class_="Edit", index=None, yes=False)` /
+  `act_set_text(text, title=None, class_="Edit", index=None, yes=False)`（后两者按**类名** + 可选**序位**寻址）。
+  命令面定义见 `design-obs-ux.md` §14.3；`act` 子命令 **2026-10-04 已整体删除**
+  （现在它是未知子命令：`ERR notfound no such subcommand: act`）。
 
-  **寻址档位现状（2026-10-04）**：三个动作**都支持「文本/类名 + 序位（`--index`）」** ——
-  `--index` 是「命中 >1」时**唯一**的显式解药（不给就 fail closed）。**「路径（`--path`）」已裁决不做**（见 N11）：
-  它不是本层的寻址形态（`act` 打的是 **Win32 子窗**，不是 §18.3 引文里那个**SWT 控件树**的下标路径）。
+  **寻址档位现状（2026-10-04）**：**类名**那一族支持「类名 + 序位（`index=`）」—— `index=` 是「命中 >1」时
+  **唯一**的显式解药（不给就 fail closed）；**标签**那一族（`act_click_button`）**要求标签唯一**，
+  产品面不再暴露序位（底层 `tools/win-click-button.ps1` 的 `-Index` 仍在）。
+  **「路径」已裁决不做**（见 N11），且**参数本身已随子命令消失**：
+  它不是本层的寻址形态（本层打的是 **Win32 子窗**，不是 §18.3 引文里那个**SWT 控件树**的下标路径）。
 
   **已修（2026-10-02）**：下层 `tools/win-click-button.ps1` 曾**违反上面那条寻址纪律** ——
   「命中 0」只打印 `no visible Button matching` 而 **`exit 0`**（静默成功），
   「命中 >1」**静默点第一个**。现改为 **0 命中与 >1 命中都 `exit 1`**（后者列出候选）。
-  CLI 层本来就是这个契约（`_act_click_button` 先 `-ListOnly` 自检），这次是**下层工具对齐上层**，
+  寻址层本来就是这个契约（`ctl/run.py::_click_button` 先 `-ListOnly` 自检），这次是**下层工具对齐上层**，
   免得直接调工具的调用方（如 `ctl/screen.py` 的模态框处置路径）把「没点到」读成「点到了」。
 - **证据**：原语表七行逐条实测 —— `research/p6-input-fixture-2026-10-01.md` §2（六条断言首次实测）、
   §5（下层工具三态）、§7（夹具 v2 五类控件）；下层工具 fail-closed 三态另有 `facts-runtime.md` §12
   （唯一命中 `rc=0` ／ 0 命中 `rc=1` ／ >1 命中 `rc=1` + 候选）。**在真 IDE 主窗上的适用面见 §A6b-2。**
-- **`--index` 的端到端证据（2026-10-04，`implement.md` P6.3）**：对**真模态 `#32770`**（Abort/Retry/Ignore 三个真
+- **序位的端到端证据（2026-10-04，`implement.md` P6.3）**：对**真模态 `#32770`**（Abort/Retry/Ignore 三个真
   `Button`，由一次性测试进程持有）逐个跑通 —— 文本唯一 ⇒ `rc=0` 且**点到 Abort**（Harness 退出码 `3`）；
-  文本 0 命中 ⇒ `rc=1` **不点**；文本 >1 不给 `--index` ⇒ `rc=1` + 3 条候选**不点**；
-  `--text "(" --index 1` ⇒ `rc=0` 且**点到 Retry**（退出码 `4`）；`--index 2`（不给文本）⇒ 点到 **Ignore**（`5`）；
-  `--index 9` ⇒ `rc=1 out of range`。**退出码 3/4/5 分别指认了被按下的那一个按钮** ——「动作 → 回读差」闭环。
+  文本 0 命中 ⇒ `rc=1` **不点**；文本 >1 不给序位 ⇒ `rc=1` + 3 条候选**不点**；
+  给序位 `1` ⇒ `rc=0` 且**点到 Retry**（退出码 `4`）；序位 `2`（不给文本）⇒ 点到 **Ignore**（`5`）；
+  序位 `9` ⇒ `rc=1 out of range`。**退出码 3/4/5 分别指认了被按下的那一个按钮** ——「动作 → 回读差」闭环。
+  当时经 CLI 门驱动；门拆除后**同一套判据**落在寻址层（`tools/win-click-button.ps1` 的 `-ListOnly` 自检 +
+  `-Index`，与 `tools/win-send-input.ps1` 同构）由 `ctl/run.py` 调用。
 
 ### A6b 控件类别的元素寻址结论（P6.4）
 
@@ -141,10 +149,10 @@
 
 ⇒ **三条硬结论**：
 
-1. **`act click-button` 在真 IDE 的「主窗」上没有目标** —— 它按 `Button` 类的**文本**寻址，
+1. **`act_click_button` 在真 IDE 的「主窗」上没有目标** —— 它按 `Button` 类的**文本**寻址，
    而工作台主窗里**一个 `Button` 也没有**。它的真实适用面是**对话框**（`#32770`，那里实测有
    `&Reset Perspective` / `&No` 这类真按钮）。
-2. 同理，`act set-text` / `act send-keys` 的 `--class` 缺省是 `Edit`，**主窗也没有 `Edit`**
+2. 同理，`act_set_text` / `act_send_keys` 的 `class_` 缺省是 `Edit`，**主窗也没有 `Edit`**
    ⇒ 文本输入/按键的**元素寻址**在真 IDE 主窗同样无目标。
 3. 因此 **P6.6 要求的「用 `BM_CLICK` 点主窗一个无害按钮」在真 IDE 上不存在可寻址目标**。
    要按原意做，只能换成**坐标消息打到某个子控件 HWND**（`SWT_Window0` / `ToolbarWindow32`），
@@ -200,7 +208,7 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 - **证据**：`research/p6-input-fixture-2026-10-01.md` §2（六条断言首次实测）与 §7（P6.4 五类控件）；
   **用例化复现（2026-10-02，`target=gs32`）**：`python -m ctl verify --case input.fixture --target gs32` → **PASS**，
   证据逐条给出 ① `ctl-fixture`→`GO 1`、②a `GO 1`→`GO 2`、②b 同坐标同消息发顶层 Shell **不变**、
-  ③ →`KEY 13`、④ →`TEXT P6CASE`、⑤ `ctl act click-button --text &NoSuchButton` **退出码 1**、⑥ (5,5) **不变**。
+  ③ →`KEY 13`、④ →`TEXT P6CASE`、⑤ `act_click_button("&NoSuchButton", …)` **退出码 1**、⑥ (5,5) **不变**。
   夹具源码 `tools/fixture-swt/Fixture.java`；探针 `tools/fixture-swt/probe.ps1`（随夹具走，取证装置，不属产品）；
   用例 `ctl/verify/cases/input_fixture.py`（`requires_bridge=False`，自带夹具启停）。
 - **证据（P6.6 实测，2026-10-04，run `gs32-p66b`）**：`research/batch2-2026-10-04.md` §3（子项 2.2）；
@@ -343,26 +351,30 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <instance-pid> \
 - **证据**：`research/facts-baseline.md` §5「enablement 的两条实测结论」（1、2 两条）；出处 `route-comparison.md` §9.13.1。
 
 ### N10 桥没有 dry-run 概念
-- **不能做**：指望桥自己「先空跑一遍」。dry-run 只能落在**客户端**，且**只作用于会改 IDE 状态的方法**（`cmd.run` / `cmd.runp` / `ui.open` / `ui.close` / `act *`）；只读方法默认真发，dry-run 也不阻止建立连接。不带 `--yes` 时 CLI 的行为是**打印 `DRY-RUN <line>` 到 stdout 并以退出码 0 结束**——**桥侧零请求**。
-- **证据**：`design-project.md` §16.2（含审计修正：「否则 `ctl parts` 会变成空操作」）；`--yes` 只挂在 `cmd` / `open` / `close` / `act` 四个写子命令上。
+- **不能做**：指望桥自己「先空跑一遍」。dry-run 只能落在**客户端**，且**只作用于会改 IDE 状态的方法**（`cmd.run` / `cmd.runp` / `ui.open` / `ui.close` / 元素寻址的三个库原语）；只读方法默认真发，dry-run 也不阻止建立连接。不带 `--yes` 时 CLI **打印 `DRY-RUN <line>` 到 stdout 并以退出码 0 结束**；库原语不带 `yes=True` 时**返回 `DRY-RUN …`**——两条路都**桥侧零请求**。
+- **证据**：`design-project.md` §16.2（含审计修正：「否则 `ctl parts` 会变成空操作」）；`--yes` 只挂在 `cmd` / `open` / `close` 三个写子命令上（元素寻址原语用库参数 `yes=True`）。
 
-### N11 `--path`（SWT 式「下标路径」）**已裁决不做**；`--index` **已实现**（2026-10-04）
-- **不能做**：用 `--path <下标路径>` 寻址。参数**仍在 parser 里但会显式拒绝**，报
-  `--path is not supported by the \`act\` layer …; see boundaries.md N11`（`click-button` 与 `send-keys`/`set-text` 两侧）。
+### N11 「路径（下标）」**已裁决不做**；「序位（`index`）」**已实现**（2026-10-04）
+- **不能做**：用「下标路径」寻址控件。**现在连参数形态都没有** —— `act` 子命令 2026-10-04 被整体拆除
+  （`deliverable-shape.md` C3 / R10′.1：只有一个门），库函数签名里没有它
+  （`act_click_button(text, case, title, yes)` / `act_send_keys(…, index=None, …)` / `act_set_text(…, index=None, …)`）；
+  拆门之前它在 parser 里也只是被**显式拒绝**，从未实现。
 - **为什么不做（裁决，不是「没空做」）**：`design-project.md` §18.3 把「路径（下标）」列为首选，出处是调研里
   **SWT 控件树**的下标路径（`routes/eclipse-mcp-vogella.md:58`，`0/i2` 那种，由**IDE 进程内**读 SWT 对象模型得到）。
-  而 `act` 层是**进程外**的：它通过 `EnumChildWindows` 打 **Win32 子窗**，两者**不是同一棵树** ——
+  而本层是**进程外**的：它通过 `EnumChildWindows` 打 **Win32 子窗**，两者**不是同一棵树** ——
   §A6b-2 实测工作台主窗的 Win32 子窗里有 **52 个 `SWT_Window0`**（SWT 的 `Composite`/`Canvas` 共享同一窗口类），
   即某一个 SWT 控件的「下标路径」在 Win32 侧无从计算，而 Win32 同级序位**没有任何稳定性契约**
   （`EnumChildWindows`/`GetWindow(GW_HWNDNEXT)` 的顺序是实现细节）。要**诚实**地支持 §18.3 那个语义，
-  只能在**桥里**新增一个「SWT 控件路径 → 目标」的读方法（协议面变更）—— 那是另一件事，不在 `act` 这一档。
-  ⇒ 在 `act` 层**硬造**一个 Win32 版 `--path` 就是「名字与理由都换了的新 flag」，故**不做**。
-- **改做**：`--index`（**「文本 / 类名」命中 >1 时的显式序位**）—— 与 `send-keys` / `set-text` 的 `--class`+`--index` 同一条契约，
-  已在 `click-button` 上**实现并端到端实测**（§A6 末条：文本唯一 / 0 命中 / >1 不给 index / >1 给 index，
-  分别得到「点到 Abort(3)」「不点」「不点」「点到 Retry(4)」）。**原位序只在同一会话内稳定**，故**永不自动挑**。
-- **证据**：产品侧 `ctl/__main__.py:_act_click_button`（`--path` 拒绝 + `--index` 分支）、
-  `tools/win-click-button.ps1` 的 `-Index`、`tests/unit/test_act_addressing.py`（11 例，含「工具自身的 markup 不算命中」
-  与「不可见 `Button` 不可寻址」两条回归）；任务侧 `research/` 的 P6.3 实测记录与 `design-project.md` §18.3 的原文出处。
+  只能在**桥里**新增一个「SWT 控件路径 → 目标」的读方法（协议面变更）—— 那是另一件事，不在本层这一档。
+  ⇒ 在本层**硬造**一个 Win32 版「路径」就是「名字与理由都换了的新 flag」，故**不做**。
+- **改做**：`index`（**「类名」命中 >1 时的显式序位**）—— 由 `act_send_keys` / `act_set_text` 暴露
+  （`act_click_button` 的标签寻址要求**唯一**，不再有序位档）。真模态上端到端实测见上（§A6 末条：
+  文本唯一 / 0 命中 / >1 不给序位 / >1 给序位，分别得到「点到 Abort(3)」「不点」「不点」「点到 Retry(4)」）。
+  **原位序只在同一会话内稳定**，故**永不自动挑**。
+- **证据**：产品侧 `ctl/run.py`（`_click_button` / `_send_input`：寻址唯一性 + `-ListOnly` 先自检）、
+  `tools/win-click-button.ps1` 的 `-Index`、`tests/unit/test_act_addressing.py`（13 例，含「工具自身的 markup
+  不算命中」「不可见控件不参与计数」「标签里的一个换行不是两个控件」三条回归）；任务侧 `research/` 的 P6.3
+  实测记录与 `design-project.md` §18.3 的原文出处。
 - **本条的旧表述**（「`--index`/`--path` 都未实现，差别只是 index 也缺」）**已作废** —— 那时 `--index` 确实未实现。
 
 ---

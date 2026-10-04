@@ -83,7 +83,6 @@ SUBCOMMANDS = (
     "verify",
     "build",
     "preflight",
-    "act",
     "shadow",
     # The one door (`deliverable-shape.md` §7): a script on stdin, the library
     # pre-imported.  Every other subcommand above stays exactly as it was.
@@ -214,7 +213,6 @@ def build_parser() -> CtlParser:
     add("verify", "acceptance cases")
     add("build", "compile and package the bridge jar")
     add("preflight", "doctor + verify + doc/CLI consistency + CHANGELOG entry")
-    p_act = add("act", "element-addressed input primitives", parents=(common, write))
     p_shadow = add("shadow", "shadow shots: what the screen looked like after each write")
     p_run = add("run", "one door: run a Python script from stdin against the bridge")
 
@@ -299,19 +297,6 @@ def build_parser() -> CtlParser:
 
     # -- preflight ----------------------------------------------------------- #
     # (options come from `common`)
-
-    # -- act ----------------------------------------------------------------- #
-    p_act.add_argument("act_action", choices=["click-button", "send-keys", "set-text"])
-    p_act.add_argument("--title", required=True)
-    p_act.add_argument("--text")
-    p_act.add_argument("--index", type=int,
-                       help="ordinal of the match to drive (0-based); required when the "
-                            "text/class addressing resolves to more than one control "
-                            "(only stable within one session)")
-    p_act.add_argument("--path", help="not supported: see boundaries.md N11")
-    p_act.add_argument("--key", help="key name for send-keys (RETURN / TAB / ESCAPE / F5 / A / 1 ...)")
-    p_act.add_argument("--class", dest="class_", default="Edit",
-                       help="target child window class for send-keys / set-text (default: Edit)")
 
     # -- shadow -------------------------------------------------------------- #
     p_shadow.set_defaults(shadow_action="summary")
@@ -1628,229 +1613,6 @@ def _cmd_preflight(args) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# act
-# --------------------------------------------------------------------------- #
-
-def _tool_script(name: str) -> str:
-    return os.path.join(REPO_ROOT, "tools", name)
-
-
-#: One re-runnable command per error (`A12`), the way `run.py` carries one.
-ACT_RETRY = ('retry: python -m ctl act click-button --run-id <run_id> '
-             '--title "<title>" [--text "<button>"] [--index <n>]')
-
-
-def _act_argv(pwsh: str, script: str, flags: Sequence[str], pid: int) -> List[str]:
-    """One ``tools/*.ps1`` invocation, always ``-ProcId``-scoped (`A4-1b`).
-
-    Without the pid the helper finds the *first* visible window whose title
-    matches -- which, with two instances on screen (both showing ``OK`` /
-    ``Reset Perspective``), is another workbench's window.  Building the argv in
-    one place is what keeps the listing pass and the writing pass on the same
-    process set.
-    """
-    return ([pwsh, "-NoProfile", "-NonInteractive", "-File", script]
-            + list(flags) + ["-ProcId", str(int(pid))])
-
-
-def _act_pid(args) -> int:
-    """The pid recorded for this run -- resolved like ``run.py::_click_button``.
-
-    ``act`` addresses a control *inside a process*: ``-ProcId`` is what separates
-    this instance's ``OK`` button from a second instance's.  The number comes from
-    ``<run_root>/<run_id>/endpoint.json``, the same single source the run door
-    uses, and a run that records none fails closed (exit 2) instead of silently
-    addressing any process (``A4-1b``).
-    """
-    config = _load_config(args)
-    target = _single_target(args, config)
-    rid = getattr(args, "run_id", None) or latest_run_id(config.run_root, target.name)
-    pid = 0
-    if rid:
-        try:
-            pid = int(discover_endpoint(config.run_root, rid).get("pid") or 0)
-        except (CtlError, TypeError, ValueError):
-            pid = 0
-    if not pid:
-        raise PrereqNotReady(
-            "run %s records no pid, so the IDE window cannot be addressed; %s"
-            % (rid or "<none>", ACT_RETRY))
-    return pid
-
-
-def _cmd_act(args) -> int:
-    """Element-addressed input primitives (`design-project.md` §18.3).
-
-    Every action addresses a *control inside a window*: the message goes to the
-    control's own HWND, so nothing depends on where it sits on screen or on which
-    window holds the foreground.  Addressing must resolve to exactly one control
-    -- a silent pick is what lets two same-labelled widgets be confused.
-    """
-    if args.act_action == "click-button":
-        return _act_click_button(args)
-    if args.act_action in ("send-keys", "set-text"):
-        return _act_send_input(args)
-    raise UsageError("unknown act action: %s; retry: python -m ctl --help" % args.act_action)
-
-
-#: One ``tools/win-click-button.ps1 -ListOnly`` child line, with the visibility and
-#: the ``text="…"`` field captured.  Three ways the raw line would lie about what
-#: the tool clicks: its own markup (``Button`` / ``rect``) counts as a hit; an
-#: invisible Button is not clickable (the tool filters on ``IsWindowVisible``); and
-#: the addressable label is the ``text="…"`` field alone.  Any of the three would
-#: desynchronise the ordinal computed here from the one the tool derives from the
-#: same window (`design-project.md` §18.3).
-_ACT_BUTTON_LINE = re.compile(r'\s*hwnd=0x[0-9A-Fa-f]+ class=Button vis=(True|False) text="(.*?)" rect=')
-
-
-def _act_button_label(line: str) -> Optional[str]:
-    """The label of a *visible* Button line, or ``None`` for anything else."""
-    match = _ACT_BUTTON_LINE.match(line)
-    if match is None or match.group(1) != "True":
-        return None
-    return match.group(2)
-
-
-def _act_click_button(args) -> int:
-    if args.path:
-        raise UsageError(
-            "--path is not supported by the `act` layer (it addresses the Win32 child windows by "
-            'text, or by ordinal with --index; see boundaries.md N11); retry: python -m ctl act click-button '
-            '--title "<title>" [--text "<button>"] [--index <n>]')
-    if not args.text and args.index is None:
-        raise UsageError('click-button needs --text <button label> or --index <n>; '
-                         'retry: python -m ctl --help')
-    script = _tool_script("win-click-button.ps1")
-    if not os.path.isfile(script):
-        raise PrereqNotReady("missing tool: %s; retry: python -m ctl --help" % script)
-    pwsh = shutil.which("pwsh") or shutil.which("powershell")
-    if not pwsh:
-        raise PrereqNotReady("pwsh not found; retry: python -m ctl --help")
-
-    # Same pid contract as `run.py::_click_button`: address this run's process,
-    # never "whatever window happens to match first" (`A4-1b`).
-    pid = _act_pid(args)
-    base = _act_argv(pwsh, script, ["-TitleLike", args.title], pid)
-
-    # First enumerate (no click) so ambiguous addressing fails closed.  Text must
-    # resolve to exactly one Button *unless* `--index` pins one -- the ordinal is
-    # taken over the same set the tool's `-Text` filter selects, in the same
-    # `EnumChildWindows` order (`design-project.md` section 18.3: the ordinal is
-    # only stable within one session, hence never an automatic pick).
-    code, listing = _run(base + ["-ListOnly"])
-    if code != 0:
-        raise NotFoundError("no visible window matching %r in pid %d; retry: python -m ctl --help"
-                            % (args.title, pid))
-    needle = (args.text or "").lower()
-    matches = []
-    for line in listing.splitlines():
-        label = _act_button_label(line)
-        if label is not None and needle in label.lower():
-            matches.append(line.strip())
-    if not matches:
-        raise NotFoundError(
-            'no Button containing %r in pid %d; retry: python -m ctl act click-button '
-            '--title "%s" --text "%s"' % (args.text, pid, args.title, args.text))
-    if args.index is not None:
-        if args.index < 0 or args.index >= len(matches):
-            raise UsageError("--index %d out of range (%d Button(s) matched); retry: python -m ctl --help"
-                             % (args.index, len(matches)))
-    elif len(matches) > 1:
-        raise UsageError("ambiguous: %d Buttons contain %r (text addressing must be unique; pass --index); "
-                         "retry: python -m ctl --help" % (len(matches), args.text))
-    # `design-project.md` §16.2: dry-run covers `act *` too -- pressing a button
-    # decides for the user, so it must not happen without an explicit --yes.
-    if not args.yes:
-        return _dry_run(args, "click-button title=%r text=%r index=%s pid=%d"
-                        % (args.title, args.text, -1 if args.index is None else args.index, pid))
-    extra = (["-Text", args.text] if args.text else []) + \
-            (["-Index", str(args.index)] if args.index is not None else [])
-    code, output = _run(base + extra)
-    if args.json:
-        _emit_json({"title": args.title, "text": args.text,
-                    "index": -1 if args.index is None else args.index,
-                    "matched": matches, "rc": code, "output": output})
-    else:
-        print(output.rstrip())
-    return 0 if code == 0 else 1
-
-
-def _act_send_input(args) -> int:
-    """``send-keys`` / ``set-text`` -- element-addressed keyboard and text input.
-
-    Keys go out as ``WM_KEYDOWN``/``WM_KEYUP`` and text as ``WM_SETTEXT``, both to
-    the addressed child's own HWND (`design-project.md` §18.3).  ``WM_SETTEXT``
-    replaces the control's text outright, which makes it independent of focus and
-    of keyboard layout -- this addresses fields, it does not imitate a typist.
-    """
-    action = args.act_action
-    script = _tool_script("win-send-input.ps1")
-    if not os.path.isfile(script):
-        raise PrereqNotReady("missing tool: %s; retry: python -m ctl --help" % script)
-    if args.path:
-        raise UsageError(
-            "--path is not supported by the `act` layer (class + ordinal addressing only; "
-            'see boundaries.md N11); retry: python -m ctl act %s --title "<title>" --class <class>'
-            % action)
-    pwsh = shutil.which("pwsh") or shutil.which("powershell")
-    if not pwsh:
-        raise PrereqNotReady("pwsh not found; retry: python -m ctl --help")
-
-    # Usage errors first: they must not be masked by "the run records no pid".
-    if action == "send-keys" and not args.key:
-        raise UsageError('send-keys needs --key <name>; retry: python -m ctl act send-keys '
-                         '--title "<title>" --key RETURN')
-    if action != "send-keys" and args.text is None:
-        raise UsageError('set-text needs --text <payload>; retry: python -m ctl act set-text '
-                         '--title "<title>" --text "<payload>"')
-
-    # Same pid contract as `run.py::_click_button` (`A4-1b`): keys and text must
-    # land in *this* instance's window, not in a same-titled window of another.
-    pid = _act_pid(args)
-    base = _act_argv(pwsh, script, ["-TitleLike", args.title, "-Class", args.class_], pid)
-
-    if action == "send-keys":
-        request = ("send-keys title=%r class=%s index=%s key=%s pid=%d"
-                   % (args.title, args.class_, args.index, args.key, pid))
-        extra = ["-Action", "key", "-Key", args.key]
-    else:
-        request = ("set-text title=%r class=%s index=%s payload=%r pid=%d"
-                   % (args.title, args.class_, args.index, args.text, pid))
-        extra = ["-Action", "text", "-Payload", args.text]
-
-    index = -1 if args.index is None else args.index
-    # Enumerate first (no side effect) so ambiguous class addressing fails closed
-    # *before* anything is typed -- the same rule click-button applies to text.
-    code, listing = _run(base + ["-Index", str(index), "-ListOnly"])
-    if code != 0:
-        raise NotFoundError("no visible window matching %r in pid %d; retry: python -m ctl --help"
-                            % (args.title, pid))
-    matches = [line.strip() for line in listing.splitlines()
-               if ("class=%s " % args.class_) in line]
-    if not matches:
-        raise NotFoundError(
-            'no visible child of class %r in %r (pid %d); retry: python -m ctl act %s '
-            '--title "%s" --class <class>'
-            % (args.class_, args.title, pid, action, args.title))
-    if index < 0 and len(matches) > 1:
-        raise UsageError("ambiguous: %d visible children of class %r (addressing must be unique; "
-                         "pass --index); retry: python -m ctl --help" % (len(matches), args.class_))
-    if index >= len(matches):
-        raise UsageError("--index %d out of range (%d match(es)); retry: python -m ctl --help"
-                         % (index, len(matches)))
-
-    if not args.yes:
-        return _dry_run(args, request)
-    code, output = _run(base + ["-Index", str(index)] + extra)
-    if args.json:
-        _emit_json({"action": action, "title": args.title, "class": args.class_,
-                    "matched": matches, "rc": code, "output": output})
-    else:
-        print(output.rstrip())
-    return 0 if code == 0 else 1
-
-
-# --------------------------------------------------------------------------- #
 # dispatch
 # --------------------------------------------------------------------------- #
 
@@ -1902,7 +1664,6 @@ HANDLERS = {
     "verify": _cmd_verify,
     "build": _cmd_build,
     "preflight": _cmd_preflight,
-    "act": _cmd_act,
     "shadow": _cmd_shadow,
     "run": _cmd_run_door,
 }

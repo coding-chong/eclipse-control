@@ -29,6 +29,7 @@ profile (which sets proxies and prints to stdout) cannot contaminate the output.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -293,8 +294,37 @@ def close(title_like: str, cls: str = "", pids: Optional[Iterable[int]] = None,
     return out.strip()[:400]
 
 
-#: ``  hwnd=0x… class=Button vis=True text="…" rect=…`` from ``win-click-button.ps1``.
-_BUTTON = re.compile(r'^\s*hwnd=(0x[0-9A-Fa-f]+)\s+class=(\S+)\s+vis=(\w+)\s+text="(.*)"\s+rect=')
+#: ``  hwnd=0x… class=… vis=… text="…" rect=…`` -- one child window line from the
+#: Win32 helper tools (``win-click-button.ps1`` / ``win-send-input.ps1``).
+#:
+#: The ``text`` field is a **JSON string body** -- the tools' ``Esc`` escapes ``\``
+#: and ``"`` and turns CR/LF/TAB (and every other control character) into
+#: ``\r``/``\n``/``\t``/``\uXXXX``.  That is what keeps a label with a line break
+#: from forging a second ``hwnd=…`` line for the line-based readers below, and it
+#: is why the field must be decoded with :func:`text_field` rather than handed on
+#: raw.  Writer and readers move in one commit (`R5-3`).
+_CHILD = re.compile(
+    r'^\s*hwnd=(0x[0-9A-Fa-f]+)\s+class=(\S+)\s+vis=(\w+)\s+text="((?:[^"\\]|\\.)*)"\s+rect=')
+
+
+def text_field(raw: str) -> str:
+    """Decode one ``text="…"`` field written by the Win32 helper tools."""
+    return json.loads('"%s"' % raw)
+
+
+def child_record(line: str) -> Optional[Tuple[str, str, bool, str]]:
+    """``(hwnd, class, visible, text)`` for one *well-formed* child line, else ``None``.
+
+    The tools always print the whole tuple, so a line with an unterminated ``text``
+    field (or without ``rect``) is not a control record -- it is a continuation of
+    the previous record's label.  Counting it would desynchronise the ordinal the
+    tools derive from the same listing.
+    """
+    match = _CHILD.match(line)
+    if match is None:
+        return None
+    return (match.group(1), match.group(2), match.group(3).lower() == "true",
+            text_field(match.group(4)))
 
 
 def buttons_argv(title_like: str,
@@ -315,9 +345,9 @@ def buttons(title_like: str, pids: Optional[Iterable[int]] = None,
     _code, out = _pwsh(buttons_argv(title_like, pids), timeout=timeout)
     found: List[Tuple[str, str]] = []
     for line in out.splitlines():
-        match = _BUTTON.match(line)
-        if match and match.group(3).lower() == "true" and match.group(2) == "Button":
-            found.append((match.group(1).upper(), match.group(4)))
+        record = child_record(line)
+        if record and record[2] and record[1] == "Button":
+            found.append((record[0].upper(), record[3]))
     return found
 
 

@@ -9,9 +9,10 @@ process is unknown the addressing must fail rather than widen.
   workbench to a child JVM) silently dropped the constraint, so a same-titled
   window of **any** process became fair game -- a silent wrong-target close or
   button press.
-* ``A4-1b`` -- ``ctl act click-button`` / ``send-keys`` / ``set-text`` never
-  passed a pid at all, while the run door's ``run.py::_click_button`` always
-  did.
+* ``A4-1b`` -- the element-addressed input primitives (``act_click_button`` /
+  ``act_send_keys`` / ``act_set_text``; the ``ctl act`` CLI subcommand that once
+  fronted them is gone, ``deliverable-shape.md`` C3) never passed a pid at all,
+  while the run door's ``run.py::_click_button`` always did.
 
 The helpers here are pure argv builders plus one in-process call with the tool
 runner replaced by a mock: **no window is ever touched**.
@@ -19,9 +20,6 @@ runner replaced by a mock: **no window is ever touched**.
 
 from __future__ import annotations
 
-import argparse
-import contextlib
-import io
 import json
 import os
 import shutil
@@ -29,8 +27,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-from ctl import __main__ as cli
+from ctl import run
 from ctl import screen
+from ctl.client import Client
+from ctl.errors import PrereqNotReady, UsageError
 
 _LISTING = ('dialog hwnd=0x1\n-- child windows --\n'
             '  hwnd=0x2 class=Button vis=True text="OK" rect=0,0,10,10\n'
@@ -123,17 +123,31 @@ class ShotPidScopeTest(unittest.TestCase):
         self.assertEqual(_proc_id(calls[-1]), "5150")
 
 
-class ActPidResolutionTest(unittest.TestCase):
-    """``ctl act *`` addresses the run recorded in ``endpoint.json`` (`A4-1b`)."""
+class _Recorder:
+    """A ``run._tool`` stand-in: records argv, answers one fixed listing."""
+
+    def __init__(self, listing=_LISTING):
+        self.listing = listing
+        self.calls = []
+
+    def __call__(self, argv):
+        self.calls.append(list(argv))
+        return (0, self.listing)
+
+
+class RunDoorPidTest(unittest.TestCase):
+    """The library input primitives address the run recorded in ``endpoint.json``.
+
+    They used to live behind ``ctl act`` (``A4-1b``); the door is gone and the rule
+    is unchanged -- the pid comes from ``<run_root>/<run_id>/endpoint.json``, and a
+    run that records none fails closed instead of addressing any process's window.
+    """
 
     RUN = "gs32-20261004-1010"
 
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="eclipse-ctl-pid-")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-        self.config = os.path.join(self.root, "config.json")
-        with open(self.config, "w", encoding="utf-8") as fh:
-            json.dump({"run_root": self.root, "default_target": "gs32"}, fh)
         # The environment layer sits above the file layer; a machine with
         # ECLIPSE_CTL_RUN_ROOT set must not redirect this test at its real runs.
         removed = {}
@@ -141,64 +155,82 @@ class ActPidResolutionTest(unittest.TestCase):
             if key in os.environ:
                 removed[key] = os.environ.pop(key)
         self.addCleanup(os.environ.update, removed)
+        self.tool = _Recorder()
+        self._tool = run._tool
+        run._tool = self.tool
+        self.addCleanup(setattr, run, "_tool", self._tool)
+        which = mock.patch.object(run.shutil, "which", return_value="pwsh")
+        which.start()
+        self.addCleanup(which.stop)
 
     def _endpoint(self, pid):
-        run = os.path.join(self.root, self.RUN)
-        os.makedirs(run, exist_ok=True)
-        with open(os.path.join(run, "endpoint.json"), "w", encoding="utf-8") as fh:
+        run_dir = os.path.join(self.root, self.RUN)
+        os.makedirs(run_dir, exist_ok=True)
+        with open(os.path.join(run_dir, "endpoint.json"), "w", encoding="utf-8") as fh:
             json.dump({"port": 50999, "pid": pid}, fh)
 
-    def _args(self, **kw):
-        base = dict(config=self.config, target=None, run_id=self.RUN, port=None,
-                    json=False, yes=True, act_action="click-button", title="T",
-                    text="OK", index=None, path=None, key=None, class_="Edit")
-        base.update(kw)
-        return argparse.Namespace(**base)
+    def _client(self, run_id=None):
+        return Client(port=50999, run_root=self.root, run_id=run_id or self.RUN)
 
-    def _call(self, args):
-        buf = io.StringIO()
-        with mock.patch.object(cli.shutil, "which", return_value="pwsh"), \
-                mock.patch.object(cli, "_run", return_value=(0, _LISTING)) as run, \
-                contextlib.redirect_stdout(buf):
-            rc = cli._cmd_act(args)
-        return rc, [call.args[0] for call in run.call_args_list]
-
-    def test_act_reaches_the_tool_with_the_recorded_pid(self):
+    def test_every_call_carries_the_recorded_pid(self):
         self._endpoint(4242)
-        cases = (self._args(),
-                 self._args(act_action="send-keys", text=None, key="RETURN"),
-                 self._args(act_action="set-text", text="hello", key=None))
-        for args in cases:
-            with self.subTest(action=args.act_action):
-                rc, argvs = self._call(args)
-                self.assertEqual(rc, 0)
-                self.assertTrue(argvs)
-                for argv in argvs:
-                    self.assertEqual(_proc_id(argv), "4242")
+        run._click_button(self._client(), "OK", None, "T", True)
+        run._send_input(self._client(), "send-keys", "T", "Edit", None, "RETURN", None, True)
+        run._send_input(self._client(), "set-text", "T", "Edit", None, None, "hello", True)
+        self.assertTrue(self.tool.calls)
+        for argv in self.tool.calls:
+            self.assertEqual(_proc_id(argv), "4242")
 
-    def test_act_fails_closed_when_the_run_records_no_pid(self):
+    def test_a_run_recording_no_pid_fails_closed(self):
         self._endpoint(None)
-        with mock.patch.object(cli, "_run") as run:
-            with self.assertRaises(cli.PrereqNotReady) as caught:
-                cli._cmd_act(self._args())
+        with mock.patch.object(run, "_tool") as tool:
+            with self.assertRaises(PrereqNotReady) as caught:
+                run._click_button(self._client(), "OK", None, "T", True)
         self.assertIn("records no pid", str(caught.exception))
         self.assertIn("retry:", str(caught.exception))
-        run.assert_not_called()
+        tool.assert_not_called()
+
+    def test_a_missing_run_fails_closed(self):
+        with mock.patch.object(run, "_tool") as tool:
+            with self.assertRaises(PrereqNotReady):
+                run._click_button(self._client(run_id="gs32-nope"), "OK", None, "T", True)
+        tool.assert_not_called()
 
     def test_usage_errors_win_over_the_missing_pid(self):
-        # A missing --key is the caller's mistake and must be reported as such,
-        # not masked by "this run records no pid" (no pid is resolvable here).
-        with mock.patch.object(cli, "_run") as run:
-            with self.assertRaises(cli.UsageError):
-                cli._cmd_act(self._args(act_action="send-keys", text=None, key=None,
-                                        run_id=None))
-        run.assert_not_called()
+        # A missing key is the caller's mistake and must be reported as such, not
+        # masked by "this run records no pid" (no pid is resolvable here).
+        with mock.patch.object(run, "_tool") as tool:
+            with self.assertRaises(UsageError):
+                run._send_input(self._client(run_id="gs32-nope"), "send-keys", "T",
+                                "Edit", None, None, None, True)
+        tool.assert_not_called()
 
-    def test_act_fails_closed_when_the_run_does_not_exist(self):
-        with mock.patch.object(cli, "_run") as run:
-            with self.assertRaises(cli.PrereqNotReady):
-                cli._cmd_act(self._args(run_id="gs32-nope"))
-        run.assert_not_called()
+
+class ButtonListingTest(unittest.TestCase):
+    """``screen.buttons`` reads the same listing; a label stays one control.
+
+    ``text="…"`` is a JSON string body written by ``tools/win-click-button.ps1``
+    (its ``Esc``), so the label comes back exactly as ``GetWindowTextW`` gave it --
+    line breaks included, and never as a second ``hwnd=…`` control line.
+    """
+
+    LABEL = 'x\r\n  hwnd=0x3 class=Button vis=True text="y" rect=0,0,1,1'
+    ESCAPED = r'x\r\n  hwnd=0x3 class=Button vis=True text=\"y\" rect=0,0,1,1'
+
+    def _listing(self, field):
+        return ('window hwnd=0x1\n-- child windows --\n'
+                '  hwnd=0x2 class=Button vis=True text="%s" rect=0,0,10,10\n' % field)
+
+    def _buttons(self, listing):
+        with mock.patch.object(screen, "_pwsh", return_value=(0, listing)):
+            return screen.buttons("T", [4242])
+
+    def test_a_label_with_a_line_break_decodes_to_one_button(self):
+        self.assertEqual(self._buttons(self._listing(self.ESCAPED)),
+                         [("0X2", self.LABEL)])
+
+    def test_an_unescaped_line_break_is_not_a_second_button(self):
+        self.assertEqual(len(self._buttons(self._listing(self.LABEL))), 1)
 
 
 if __name__ == "__main__":

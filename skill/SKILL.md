@@ -126,8 +126,6 @@ python -m ctl run --target gs32 < job.py
 
    > 同名按钮不止一个时**不要挑第一个**：`-Text` 命中 **0 或 >1 都 `exit 1`**（后者列出候选）。
    > 确实要选第 n 个，就**显式**给 `-Index <n>`（0 基；序位**只在同一会话内**稳定，跨运行会漂移）。
-   > 同一动作的 CLI 形式：`python -m ctl act click-button --title "<真标题>" --text "&No" --yes`
-   > （`act` 是写操作，**必须带 `--yes`**，否则只打印 `DRY-RUN`）。
 
 4. **探活 —— 但「ping 得通」证明不了「界面没卡」**：模态框在屏上时，**另一条连接**的
    `ui.parts` / `ui.tree` / `sys.ping` **全都正常返回**（SWT 模态框跑的是嵌套事件循环）；

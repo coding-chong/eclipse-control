@@ -28,6 +28,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import screen as _screen
 from . import shadow as _shadow
 from .client import Client, discover_endpoint
 from .errors import CtlError, NotFoundError, PrereqNotReady, UsageError
@@ -204,12 +205,19 @@ def _tool(argv: List[str]) -> Tuple[int, str]:
 
 
 def _button_rows(listing: str, text: str, case: Optional[bool]) -> List[str]:
+    """The *visible* Button records whose label matches ``text``.
+
+    Parsed through :func:`ctl.screen.child_record`, so a label carrying a line break
+    cannot contribute a second (or phantom) Button, and an invisible Button cannot
+    make a unique label look ambiguous -- the tool's own ``MatchButtons`` filters on
+    ``IsWindowVisible``, and the ordinal has to be derived from the same set.
+    """
     rows: List[str] = []
     for line in listing.splitlines():
-        if "class=Button" not in line:
+        record = _screen.child_record(line)
+        if record is None or record[1] != "Button" or not record[2]:
             continue
-        found = re.search(r'text="([^"]*)"', line)
-        label = found.group(1) if found else ""
+        label = record[3]
         if (text in label) if case else (text.lower() in label.lower()):
             rows.append(line.strip())
     return rows
@@ -281,18 +289,25 @@ def _send_input(client: Client, action: str, title: Optional[str], class_: str,
                 yes: bool) -> str:
     """Send a key or set a control's text through the run's own process.
 
-    The library form of ``ctl act send-keys`` / ``ctl act set-text``: keys go out
-    as ``WM_KEYDOWN``/``WM_KEYUP`` and text as ``WM_SETTEXT`` to the addressed
-    child's own HWND (`design-project.md` §18.3).  The class must resolve to
-    exactly one visible child unless ``index`` pins one -- the same rule
-    ``act_click_button`` applies to a label, checked **before** anything is typed
-    so an ambiguous field is never silently written.
+    Keys go out as ``WM_KEYDOWN``/``WM_KEYUP`` and text as ``WM_SETTEXT`` to the
+    addressed child's own HWND (`design-project.md` §18.3).  The class must resolve
+    to exactly one *visible* child unless ``index`` pins one -- the same rule
+    ``act_click_button`` applies to a label, and the same set the tool derives its
+    own ordinal from, checked **before** anything is typed so an ambiguous field is
+    never silently written.
     """
     if not os.path.isfile(_SEND_TOOL):
         raise PrereqNotReady("missing tool: %s; %s" % (_SEND_TOOL, RUN_RETRY))
     pwsh = shutil.which("pwsh")
     if not pwsh:
         raise PrereqNotReady("pwsh not found (PowerShell 5.1 is not supported); %s" % RUN_RETRY)
+    # Usage errors first: a missing key/text is the caller's mistake and must not be
+    # masked by "this run records no pid" (the order the CLI layer had, kept here so
+    # the fail-closed rule does not depend on which entry point is used).
+    if action == "send-keys" and not key:
+        raise UsageError("send-keys needs key=... (RETURN / TAB / F5 / A ...); %s" % RUN_RETRY)
+    if action != "send-keys" and text is None:
+        raise UsageError("set-text needs text=...; %s" % RUN_RETRY)
     try:
         pid = int(discover_endpoint(client.run_root, client.run_id).get("pid") or 0)
     except (CtlError, TypeError, ValueError):
@@ -303,14 +318,10 @@ def _send_input(client: Client, action: str, title: Optional[str], class_: str,
             % (client.run_id or "<none>", RUN_RETRY))
     window = title if title else _window_title(client)
     if action == "send-keys":
-        if not key:
-            raise UsageError("send-keys needs key=... (RETURN / TAB / F5 / A ...); %s" % RUN_RETRY)
         request = ("send-keys title=%r pid=%d class=%s index=%s key=%s"
                    % (window, pid, class_, index, key))
         extra = ["-Action", "key", "-Key", key]
     else:
-        if text is None:
-            raise UsageError("set-text needs text=...; %s" % RUN_RETRY)
         request = ("set-text title=%r pid=%d class=%s index=%s payload=%r"
                    % (window, pid, class_, index, text))
         extra = ["-Action", "text", "-Payload", text]
@@ -322,8 +333,11 @@ def _send_input(client: Client, action: str, title: Optional[str], class_: str,
     if code != 0:
         raise NotFoundError("no visible window matching %r in pid %d (pass title=...); %s"
                             % (window, pid, RUN_RETRY))
-    matches = [line.strip() for line in listing.splitlines()
-               if ("class=%s " % class_) in line]
+    matches = []
+    for line in listing.splitlines():
+        record = _screen.child_record(line)
+        if record is not None and record[2] and record[1] == class_:
+            matches.append(line.strip())
     if not matches:
         raise NotFoundError("no visible child of class %r in pid %d; %s"
                             % (class_, pid, RUN_RETRY))
