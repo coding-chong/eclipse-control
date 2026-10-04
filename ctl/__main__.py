@@ -14,6 +14,7 @@ stdout carries results only; every diagnostic goes to stderr.
 from __future__ import annotations
 
 import argparse
+import ast
 import glob
 import json
 import os
@@ -1571,6 +1572,70 @@ def _doc_command_consistency() -> Tuple[bool, str]:
     return (True, "%d doc file(s) scanned" % checked)
 
 
+#: Directories whose Python must stay stdlib-only (R11'.3 / deliverable-shape.md C3).
+_STDLIB_ONLY_DIRS = ("ctl", "bridge", "tools")
+
+#: Import roots that resolve inside this repo rather than to a distribution.
+_STDLIB_ONLY_LOCAL = ("ctl",)
+
+
+def _import_roots(source: str) -> List[Tuple[str, int]]:
+    """Import roots in ``source`` -> ``[(root, lineno), …]``, in source order.
+
+    Only the *root* of each dotted name is kept (``from urllib.parse import
+    quote`` -> ``urllib``).  Every ``Import`` / ``ImportFrom`` is inspected --
+    module level *and* nested -- because a lazy ``import requests`` inside a
+    function is still a third-party dependency.  Relative imports (``from .
+    import x``) resolve inside this package and are skipped.
+    """
+    roots: List[Tuple[str, int]] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                roots.append((alias.name.split(".")[0], node.lineno))
+        elif isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            roots.append((node.module.split(".")[0], node.lineno))
+    return sorted(roots, key=lambda row: row[1])
+
+
+def _stdlib_only_check() -> Tuple[bool, str]:
+    """Every shipped Python module must import stdlib (or ``ctl``) only.
+
+    This is the runnable judge `R11'.3` never had: until 2026-10-04 the
+    "standard library only" dependency policy lived in two module docstrings
+    and nothing checked it, so a stray ``import requests`` would have shipped
+    silently.  Each file's imports are parsed and any root that is
+    neither in ``sys.stdlib_module_names`` nor part of this package is
+    reported with ``file:line``.
+    """
+    problems: List[str] = []
+    checked = 0
+    for root_dir in _STDLIB_ONLY_DIRS:
+        base = os.path.join(REPO_ROOT, root_dir)
+        if not os.path.isdir(base):
+            continue
+        for path in sorted(glob.glob(os.path.join(base, "**", "*.py"), recursive=True)):
+            if "__pycache__" in path.split(os.sep):
+                continue
+            rel = os.path.relpath(path, REPO_ROOT)
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    imports = _import_roots(fh.read())
+            except (OSError, SyntaxError) as exc:
+                problems.append("%s: unreadable/unparsable (%s)" % (rel, exc))
+                continue
+            checked += 1
+            for module, lineno in imports:
+                if module in sys.stdlib_module_names or module in _STDLIB_ONLY_LOCAL:
+                    continue
+                problems.append("%s:%d: %s" % (rel, lineno, module))
+    if problems:
+        return (False, "non-stdlib import(s): %s" % "; ".join(problems))
+    return (True, "%d module(s) scanned in %s" % (checked, "/".join(_STDLIB_ONLY_DIRS)))
+
+
 def _changelog_has_version() -> Tuple[bool, str]:
     path = os.path.join(REPO_ROOT, "CHANGELOG.md")
     if not os.path.isfile(path):
@@ -1619,6 +1684,11 @@ def _cmd_preflight(args) -> int:
 
     ok, detail = _doc_command_consistency()
     print("[%s] doc/CLI command consistency: %s" % ("PASS" if ok else "FAIL", detail))
+    if not ok:
+        problems += 1
+
+    ok, detail = _stdlib_only_check()
+    print("[%s] stdlib-only imports: %s" % ("PASS" if ok else "FAIL", detail))
     if not ok:
         problems += 1
 

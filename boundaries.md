@@ -86,7 +86,9 @@
   `act_click_button(text, case=None, title=None, yes=False)`（文本寻址）/
   `act_send_keys(key, title=None, class_="Edit", index=None, yes=False)` /
   `act_set_text(text, title=None, class_="Edit", index=None, yes=False)`（后两者按**类名** + 可选**序位**寻址）。
-  命令面定义见 `design-obs-ux.md` §14.3；`act` 子命令 **2026-10-04 已整体删除**
+  命令面定义见本仓 `python -m ctl --help`（实现）与 `protocol.md`（对外形状）—— 两者都在本仓闸门
+  `_doc_command_consistency` 的扫描范围内；`design-obs-ux.md` §14.3 已降为**历史设计记录**（2026-10-04，
+  `deliverable-shape.md` C8：闸门必须能看见它守的东西）。`act` 子命令 **2026-10-04 已整体删除**
   （现在它是未知子命令：`ERR notfound no such subcommand: act`）。
 
   **寻址档位现状（2026-10-04）**：**类名**那一族支持「类名 + 序位（`index=`）」—— `index=` 是「命中 >1」时

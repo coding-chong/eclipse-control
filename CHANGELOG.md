@@ -10,6 +10,15 @@
 
 ### Added
 
+- **`preflight` 第五项：标准库-only 门禁**（2026-10-04）：`R11'.3` 的「Python 只用标准库」此前
+  **只有纪律、没有门禁**（全仓唯一相关文字是 `ctl/__init__.py:11` / `ctl/targets.py:9` 两行
+  docstring）。新增 `_stdlib_only_check()`（与 `_doc_command_consistency` 同形，`ctl/__main__.py`），
+  解析 `ctl/` · `bridge/` · `tools/` 下每个 `.py` 的 import（模块级与函数内**都扫**），根名既不在
+  `sys.stdlib_module_names`、也不是本包 `ctl` 者一律报出（带 `file:line`），并接进 `_cmd_preflight`
+  的报告（成功也打印 `[PASS] stdlib-only imports: 44 module(s) scanned …`）。
+  单测 `tests/unit/test_stdlib_gate.py` 含**变异实验**：往三个被扫目录各放一个 `import requests`
+  探针必须变红（跑完删除还原）；相对 import 与 `from ctl.… import …` 不误报。现仓实测 `(True, …)`。
+
 - **验收用例组 `realflow` 与新用例 `realflow.build_artifact`**：把「真实工作流」——**建工程 →
   写几行代码 → IDE 认它 → 构建出产物**——固化成一条可复跑的用例（`python -m ctl verify
   --group realflow`）。两个 target（GS32 / CCS）跑**同一段用例代码、同一组判据**，只有配方是
