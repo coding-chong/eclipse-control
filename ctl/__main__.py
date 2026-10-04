@@ -14,7 +14,6 @@ stdout carries results only; every diagnostic goes to stderr.
 from __future__ import annotations
 
 import argparse
-import ast
 import glob
 import json
 import os
@@ -1547,16 +1546,26 @@ def _doc_commands(text: str) -> List[str]:
 
 
 def _doc_command_consistency() -> Tuple[bool, str]:
-    """Every subcommand the repo docs mention must be a real one.
+    """Every subcommand the repo docs *invoke* must be a real one.
 
-    That covers ``ctl <word>`` / ``python -m ctl <word>`` *and* a bare
-    ``\\`shell\\` / \\`status\\` / … 等子命令`` list, so prose that enumerates
-    subcommands by name alone can no longer name a removed one (F5).
+    Scan surface (what "the repo docs" means here -- ``deliverable-shape.md``
+    C8, "the gate must be able to see what it guards"): the root-level
+    ``*.md`` plus ``skill/*.md`` and ``recipes/*.md``.  Recognised invocation
+    shapes are ``ctl <word>`` / ``python -m ctl <word>`` inside a code span or
+    at the start of a line, and a bare ``shell`` / ``status`` / … 等子命令
+    enumeration.
+
+    Known blind spots -- shapes this gate does *not* see, so a green result is
+    not "every doc is consistent": a bare subcommand name in prose with no
+    ``ctl`` prefix and no slash-joined enumeration (e.g. "运行 `act` 即可"),
+    and such a name in a heading (e.g. "### act 子命令").  ``.md`` files
+    outside the surface above (e.g. ``bridge/``) are likewise invisible.
     """
     problems: List[str] = []
     checked = 0
     for path in sorted(glob.glob(os.path.join(REPO_ROOT, "*.md"))) + \
-            sorted(glob.glob(os.path.join(REPO_ROOT, "skill", "*.md"))):
+            sorted(glob.glob(os.path.join(REPO_ROOT, "skill", "*.md"))) + \
+            sorted(glob.glob(os.path.join(REPO_ROOT, "recipes", "*.md"))):
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 text = fh.read()
@@ -1588,6 +1597,13 @@ def _import_roots(source: str) -> List[Tuple[str, int]]:
     function is still a third-party dependency.  Relative imports (``from .
     import x``) resolve inside this package and are skipped.
     """
+    # Imported here, not at module scope: this helper is the only user, so
+    # ``__main__`` need not bind ``ast`` at import time.  This does *not* remove
+    # ast's cost from ``python -m ctl`` overall -- ``dataclasses`` (already used
+    # by lifecycle/run/shadow/targets) pulls in ``inspect`` -> ``dis`` -> ``ast``
+    # unconditionally (measured 2026-10-04 with ``-X importtime``).
+    import ast
+
     roots: List[Tuple[str, int]] = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
@@ -1609,6 +1625,17 @@ def _stdlib_only_check() -> Tuple[bool, str]:
     silently.  Each file's imports are parsed and any root that is
     neither in ``sys.stdlib_module_names`` nor part of this package is
     reported with ``file:line``.
+
+    Scan surface (``deliverable-shape.md`` C8, "the gate must be able to see
+    what it guards"): every ``*.py`` under ``_STDLIB_ONLY_DIRS`` (``ctl`` /
+    ``bridge`` / ``tools``), ``__pycache__`` excluded, three trees pinned by
+    ``tests/unit/test_stdlib_gate.py`` against an independent literal.
+
+    Known blind spots -- green here is not "no third-party dependency":
+    ``*.pyi`` stubs are not scanned, and dynamic imports such as
+    ``__import__("requests")`` or ``importlib.import_module("requests")`` are
+    not recognised (only ``ast.Import`` / ``ast.ImportFrom`` are read, so the
+    module name never appears as an import node).
     """
     problems: List[str] = []
     checked = 0

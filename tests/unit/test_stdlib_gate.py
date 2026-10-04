@@ -33,6 +33,12 @@ _PROBE = "_gate_probe_nonstdlib.py"
 _VIOLATION = "import requests\n"
 
 
+#: 门禁**必须**覆盖的三棵树（`prd.md` A11′③）。以**独立字面量**钉住，而不是复用
+#: `_STDLIB_ONLY_DIRS`：否则把模块常量摘成 `("ctl", "tools")` 时，用例会跟着一起缩，
+#: `bridge/` 掉出扫描面却仍全绿（2026-10-04 复核 Required-1 实测）。
+_REQUIRED_DIRS = ("ctl", "bridge", "tools")
+
+
 class StdlibOnlyGateTest(unittest.TestCase):
     """The gate must be green on the real repo and red on a real violation."""
 
@@ -44,7 +50,11 @@ class StdlibOnlyGateTest(unittest.TestCase):
     def test_every_scanned_dir_is_actually_scanned(self):
         # 探针放在哪个被扫目录，门禁都必须看得见 —— 否则「bridge/、tools/ 也扫」
         # 只是一句空话。逐个目录造变异，逐个还原。
-        for root_dir in _STDLIB_ONLY_DIRS:
+        # 扫描面先按独立字面量钉住：模块常量被缩小必须在**此处**失败，而不能把
+        # 测试面一起带着缩小（这正是复核 Required-1 的漏洞）。
+        self.assertEqual(tuple(_STDLIB_ONLY_DIRS), _REQUIRED_DIRS,
+                         "_STDLIB_ONLY_DIRS shrank away from the mandated scan surface")
+        for root_dir in _REQUIRED_DIRS:
             with self.subTest(root_dir=root_dir):
                 probe = _ROOT / root_dir / _PROBE
                 probe.write_text(_VIOLATION, encoding="utf-8")
