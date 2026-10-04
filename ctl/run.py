@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import screen as _screen
 from . import shadow as _shadow
-from .client import Client, discover_endpoint
+from .client import Client, discover_endpoint, resolve_pid
 from .errors import CtlError, NotFoundError, PrereqNotReady, UsageError
 from .lifecycle import REPO_ROOT, install as lifecycle_install, latest_run_id, make_run_id
 from .parse import command_ids
@@ -255,10 +255,7 @@ def _click_button(client: Client, text: str, case: Optional[bool],
     pwsh = shutil.which("pwsh")
     if not pwsh:
         raise PrereqNotReady("pwsh not found (PowerShell 5.1 is not supported); %s" % RUN_RETRY)
-    try:
-        pid = int(discover_endpoint(client.run_root, client.run_id).get("pid") or 0)
-    except (CtlError, TypeError, ValueError):
-        pid = 0
+    pid = resolve_pid(client.run_root, client.run_id)
     if not pid:
         raise PrereqNotReady(
             "run %s records no pid, so the IDE window cannot be addressed; %s"
@@ -308,10 +305,7 @@ def _send_input(client: Client, action: str, title: Optional[str], class_: str,
         raise UsageError("send-keys needs key=... (RETURN / TAB / F5 / A ...); %s" % RUN_RETRY)
     if action != "send-keys" and text is None:
         raise UsageError("set-text needs text=...; %s" % RUN_RETRY)
-    try:
-        pid = int(discover_endpoint(client.run_root, client.run_id).get("pid") or 0)
-    except (CtlError, TypeError, ValueError):
-        pid = 0
+    pid = resolve_pid(client.run_root, client.run_id)
     if not pid:
         raise PrereqNotReady(
             "run %s records no pid, so the IDE window cannot be addressed; %s"

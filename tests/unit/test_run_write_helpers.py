@@ -51,13 +51,13 @@ class RunWriteHelperDryRun(unittest.TestCase):
             self.skipTest("pwsh not available (element-addressed input needs it)")
         self.tool = _Recorder()
         self._tool = run._tool
-        self._discover = run.discover_endpoint
+        self._pid = run.resolve_pid
         run._tool = self.tool
-        run.discover_endpoint = lambda root, rid: {"pid": 4242}
+        run.resolve_pid = lambda root, rid, on_error=None: 4242
 
     def tearDown(self):
         run._tool = self._tool
-        run.discover_endpoint = self._discover
+        run.resolve_pid = self._pid
 
     def _namespace(self):
         return run._make_namespace(_FakeClient(), run._DoorState(run_id="fake-run"))

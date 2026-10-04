@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .. import screen
-from ..client import Client
+from ..client import Client, resolve_pid
 from ..errors import CtlError, EndpointNotFound, NotFoundError, PrereqNotReady
 from ..lifecycle import latest_run_id, list_processes, run_paths
 from ..targets import Config
@@ -191,16 +191,16 @@ class Runner:
                             self.run_id or "adhoc")
 
     def instance_pid(self) -> int:
-        """The pid recorded in ``endpoint.json`` (0 when unknown)."""
-        path = self.paths.endpoint if self.paths is not None else ""
-        if not path or not os.path.isfile(path):
+        """The pid recorded in ``endpoint.json`` (0 when unknown).
+
+        Reads through :func:`ctl.client.resolve_pid`, so this path gets the same
+        type/range validation as every other reader (R5-7) instead of its own
+        ``int()`` coercion, which turned ``pid: true`` into ``1`` and would scope
+        the screen guard to the wrong process (F2).
+        """
+        if self.paths is None:
             return 0
-        try:
-            import json
-            with open(path, "r", encoding="utf-8") as fh:
-                return int(json.load(fh).get("pid") or 0)
-        except (OSError, ValueError, TypeError):
-            return 0
+        return resolve_pid(self.config.run_root, self.run_id)
 
     def screen_pids(self) -> Optional[List[int]]:
         """Process set whose windows count as "this instance's".

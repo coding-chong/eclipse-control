@@ -307,7 +307,7 @@ SR-2026-10-01-01 的「条件」字段里（多用户共享机器不得使用本
 python -m ctl status --target gs32 --json
 ```
 
-**用法**：`shell` / `status` / `parts` / `act` 等子命令按 `--run-id` 去读这个文件解析端口；
+**用法**：`shell` / `status` / `parts` 等子命令按 `--run-id` 去读这个文件解析端口；
 **不读它就无法知道本次运行实际绑在哪一个端口**（target 固定值，或被 flag/config 覆盖后的值）。
 
 ---

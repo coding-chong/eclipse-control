@@ -1513,11 +1513,21 @@ def _cmd_build(args) -> int:
     return _build_bridge(target.name, getattr(args, "out", None), config, args)
 
 
+#: A slash-joined run of ≥2 backticked bare names -- the shape a doc uses to
+#: enumerate subcommands without repeating the ``ctl`` prefix, e.g.
+#: ``\`shell\` / \`status\` / \`parts\```.
+_BARE_ENUM = re.compile(r"`[a-z][a-z0-9\-]*`(?:\s*/\s*`[a-z][a-z0-9\-]*`)+")
+
+
 def _doc_commands(text: str) -> List[str]:
     """Command words that the docs actually *invoke* (code spans / shell lines).
 
     Prose like "the ctl description" must not be mistaken for a command, so only
-    backticked spans and lines beginning with ``ctl`` / ``python -m ctl`` count.
+    backticked spans and lines beginning with ``ctl`` / ``python -m ctl`` count
+    as invocations.  A *bare* slash-joined list of backticked names is read as
+    subcommands only when the line says so (``… 等子命令``): elsewhere
+    ``port`` / ``pid``, ``undo`` / ``redo`` and the frozen error codes are all
+    slash-listed too, and none of them is a command.
     """
     pattern = re.compile(r"(?:python -m ctl|ctl)\s+([a-z][a-z0-9\-]+)")
     found: List[str] = []
@@ -1529,11 +1539,19 @@ def _doc_commands(text: str) -> List[str]:
         match = pattern.match(re.sub(r"^\s*\$?\s*", "", line))
         if match:
             found.append(match.group(1))
+        if "子命令" in line or "subcommand" in line.lower():
+            for enumeration in _BARE_ENUM.findall(line):
+                found.extend(re.findall(r"`([^`]+)`", enumeration))
     return found
 
 
 def _doc_command_consistency() -> Tuple[bool, str]:
-    """Every ``ctl <word>`` mentioned in the repo docs must be a real subcommand."""
+    """Every subcommand the repo docs mention must be a real one.
+
+    That covers ``ctl <word>`` / ``python -m ctl <word>`` *and* a bare
+    ``\\`shell\\` / \\`status\\` / … 等子命令`` list, so prose that enumerates
+    subcommands by name alone can no longer name a removed one (F5).
+    """
     problems: List[str] = []
     checked = 0
     for path in sorted(glob.glob(os.path.join(REPO_ROOT, "*.md"))) + \

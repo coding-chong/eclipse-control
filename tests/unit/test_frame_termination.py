@@ -6,6 +6,12 @@ frame short: everything after it was dropped while the status line still read
 ``OK``.  The driver here is a scripted fake socket, so the chunk boundary that
 exposes the defect is deterministic -- a real ``socketpair`` lets the OS coalesce
 the writes and hides it.
+
+Two follow-ups are pinned here too: a terminator must match the line
+*byte-for-byte* (the bridge prefixes every payload line with two spaces, so a
+console line whose text is ``END`` arrives as ``  END`` and stays payload), and
+a frame that reaches the size ceiling without an ``END`` is refused rather than
+returned as a half frame that would read as ``ok=True``.
 """
 
 from __future__ import annotations
@@ -60,6 +66,26 @@ class FrameTerminationTest(unittest.TestCase):
             _ScriptedSocket([b"OK\nline END\nlast END\nEND\n"]), 1.0)
         self.assertEqual(raw, b"OK\nline END\nlast END\nEND\n")
 
+    def test_bridge_prefixed_payload_line_whose_text_is_end_is_kept(self):
+        # The bridge prefixes *every* payload line with two spaces
+        # (`LiveBridge.java`: ``out.add("  " + ln)``), so a Console line whose
+        # content is END arrives as "  END".  A strip()-ing terminator test
+        # swallowed it and cut the frame early while the status still read OK.
+        stream = [b"OK\n  text lines=3 returned=3 truncated=false\n"
+                  b"  build started\n  END\n  build finished\nEND\n"]
+        raw = client._recv_until_end(_ScriptedSocket(stream), 1.0)
+        self.assertEqual(raw, b"OK\n  text lines=3 returned=3 truncated=false\n"
+                              b"  build started\n  END\n  build finished\nEND\n")
+        body = client.Response(raw.decode("utf-8")).payload
+        self.assertEqual(body, ["  text lines=3 returned=3 truncated=false",
+                                "  build started", "  END", "  build finished"])
+
+    def test_crlf_terminator_line_still_ends_the_frame(self):
+        # The bridge writes with PrintWriter.println, so on Windows the line is
+        # "END\r\n"; only the \r may be dropped, not arbitrary whitespace.
+        raw = client._recv_until_end(_ScriptedSocket([b"OK\r\nrow\r\nEND\r\n"]), 1.0)
+        self.assertEqual(raw, b"OK\r\nrow\r\nEND\r\n")
+
     def test_lone_end_line_still_terminates_the_frame(self):
         sock = _ScriptedSocket([b"OK\n", b"payload\n", b"END\n", b"trailing junk\n"])
         raw = client._recv_until_end(sock, 1.0)
@@ -67,11 +93,15 @@ class FrameTerminationTest(unittest.TestCase):
         self.assertEqual(client.Response(raw.decode("utf-8")).payload, ["payload"])
 
     def test_reads_stop_at_the_frame_cap(self):
-        # A peer that never writes END must not grow the buffer without bound.
+        # A peer that never writes END must not grow the buffer without bound,
+        # and the half frame must not come back as if it were a frame: a
+        # truncated body would read as ok=True with its last line dropped (F7).
         chunk = b"x" * client._RECV_CHUNK + b"\n"
         sock = _EndlessSocket(chunk)
-        raw = client._recv_until_end(sock, 1.0)
-        self.assertLessEqual(len(raw), client.MAX_FRAME_BYTES + len(chunk))
+        with self.assertRaises(CtlError) as caught:
+            client._recv_until_end(sock, 1.0)
+        self.assertEqual(caught.exception.code, "internal")
+        self.assertIn("truncated frame", str(caught.exception))
 
     def test_oversized_request_is_refused_before_connecting(self):
         # No port/run_id: if the cap were checked after connect this would raise

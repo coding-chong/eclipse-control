@@ -630,13 +630,11 @@ def _first_json(raw: bytes) -> Optional[dict]:
 
 
 def _instance_pid(cfg: ShadowConfig) -> int:
-    from .client import discover_endpoint
-    try:
-        endpoint = discover_endpoint(cfg.run_root, cfg.run_id)
-    except Exception as exc:
-        warn("no endpoint.json for run %s (%s)" % (cfg.run_id or "<none>", exc))
-        return 0
-    return int(endpoint.get("pid") or 0)
+    from .client import resolve_pid
+    return resolve_pid(
+        cfg.run_root, cfg.run_id,
+        on_error=lambda exc: warn("no endpoint.json for run %s (%s)"
+                                  % (cfg.run_id or "<none>", exc)))
 
 
 # --------------------------------------------------------------------------- #

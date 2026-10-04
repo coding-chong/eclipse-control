@@ -24,6 +24,8 @@ from unittest import mock
 
 from ctl import client, lifecycle, shadow
 from ctl.errors import EndpointNotFound, UsageError
+from ctl.targets import Config
+from ctl.verify.runner import Runner
 
 
 class _TmpRun:
@@ -84,6 +86,26 @@ class EndpointFieldValidationTest(_TmpRun, unittest.TestCase):
         cfg = shadow.ShadowConfig(run_root=self.root, run_id=self.run_id)
         with mock.patch.object(shadow, "warn"):
             self.assertEqual(shadow._instance_pid(cfg), 0)
+
+    def test_runner_and_live_pid_readers_go_through_the_same_validation(self):
+        # `Runner.instance_pid` used to json.load + int() the field itself, so
+        # `pid: true` read as 1 and the screen guard could be scoped to pid 1;
+        # it now shares `resolve_pid`, as does `lifecycle.run_live_pid` (F2/R5-9).
+        self._write_endpoint({"port": 8777, "pid": True})
+        runner = Runner(Config(run_root=self.root), target_name="gs32",
+                        run_id=self.run_id)
+        self.assertEqual(runner.instance_pid(), 0)
+        self.assertIsNone(lifecycle.run_live_pid(os.path.join(self.root, self.run_id)))
+
+    def test_resolve_pid_is_the_single_numeric_reader(self):
+        self._write_endpoint({"port": 8777, "pid": 4242})
+        self.assertEqual(client.resolve_pid(self.root, self.run_id), 4242)
+        # A missing run has no pid (0), never a guessed/coerced one.
+        self.assertEqual(client.resolve_pid(self.root, "no-such-run"), 0)
+        self.assertEqual(client.resolve_pid(self.root, None), 0)
+        seen = []
+        client.resolve_pid(self.root, "no-such-run", on_error=seen.append)
+        self.assertEqual(len(seen), 1)
 
 
 class RunIdPathValidationTest(unittest.TestCase):

@@ -23,7 +23,7 @@ import os
 import re
 import socket
 import time
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from .errors import (
     ERROR_CODE_SET,
@@ -129,6 +129,29 @@ def discover_endpoint(run_root: str, run_id: str) -> dict:
     return data
 
 
+def resolve_pid(run_root: str, run_id: Optional[str],
+                on_error: Optional[Callable[[Exception], None]] = None) -> int:
+    """The pid recorded for ``run_id``, or ``0`` when there is none usable.
+
+    The single pid reader for consumers that only want the number: every call
+    site used to hand-roll ``int(discover_endpoint(...).get("pid") or 0)``
+    (R5-9), which both duplicated the coercion and let a reader bypass
+    :func:`discover_endpoint`'s type/range validation (R5-7).  Everything now
+    goes through that one validated read, and a missing/malformed file reads as
+    "no pid" (``0``) -- never as a coerced value like ``pid: true`` -> ``1``.
+    ``on_error`` (optional) is handed the rejected read so a caller that wants to
+    say *why* there is no pid can still warn.
+    """
+    try:
+        endpoint = discover_endpoint(run_root, run_id)
+    except (CtlError, TypeError, ValueError) as exc:
+        if on_error is not None:
+            on_error(exc)
+        return 0
+    pid = endpoint.get("pid")
+    return pid if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else 0
+
+
 def write_endpoint(run_root: str, run_id: str, port: int, pid: Optional[int] = None,
                    configuration: str = "") -> str:
     """Record the live instance under ``<run_root>/<run_id>/endpoint.json``."""
@@ -226,17 +249,21 @@ def _frame_end_offset(data: bytes, start: int = 0) -> Tuple[Optional[int], int]:
 
     Returns ``(end_offset, resume)``: ``end_offset`` is the byte just past the
     terminating line's ``\\n`` (``None`` while no whole ``END`` line is present),
-    and ``resume`` is where the next call continues scanning.  Only a line that
-    is *entirely* ``END`` (whitespace tolerated) ends a frame; a payload line
-    that merely ends with those bytes -- ``"build END"`` -- does not
-    (`protocol.md` §2.2: "读到 END 才算一帧结束").
+    and ``resume`` is where the next call continues scanning.  A line ends a
+    frame only when it is ``END`` **byte-for-byte** after dropping the ``\\r`` of
+    a Windows ``\\r\\n`` (the bridge writes with ``PrintWriter.println``): no
+    other whitespace may be absorbed.  ``strip()`` here would be wrong -- the
+    bridge prefixes every payload line with two spaces
+    (``LiveBridge.java`` ``out.add("  " + ln)``), so a console line whose content
+    is ``END`` arrives as ``  END`` and must stay payload, not become a
+    terminator (`protocol.md` §2.2: "最后一行是单独的 END").
     """
     pos = start
     while True:
         nl = data.find(b"\n", pos)
         if nl < 0:
             return None, pos
-        if data[pos:nl].strip() == b"END":
+        if data[pos:nl].rstrip(b"\r") == b"END":
             return nl + 1, nl + 1
         pos = nl + 1
 
@@ -247,8 +274,13 @@ def _recv_until_end(sock: socket.socket, timeout: float) -> bytes:
     The legacy loop broke on the *substring* ``b"END\\n"``: a payload line that
     ended in ``END`` cut the frame short, dropping everything after it while the
     status line still read ``OK`` (R5-2).  Termination is now per line, and the
-    buffer is bounded by :data:`MAX_LINE_BYTES` / :data:`MAX_FRAME_BYTES` so a
-    peer that never writes ``END`` cannot grow it without limit.
+    buffer is bounded by :data:`MAX_LINE_BYTES` / :data:`MAX_FRAME_BYTES`.  A
+    peer that reaches a ceiling without writing ``END`` is refused with a
+    :class:`CtlError` rather than handed back as a half frame -- a truncated
+    body would read as ``ok=True`` with its last line silently dropped, the same
+    defect class as R5-2.  (A socket *timeout* is different: it is an expected
+    transport outcome the protocol models as ``<client timeout>`` and callers
+    inspect, so it still returns the bytes seen so far.)
     """
     data = b""
     cursor = 0
@@ -257,7 +289,12 @@ def _recv_until_end(sock: socket.socket, timeout: float) -> bytes:
         if end is not None:
             return data[:end]
         if len(data) - cursor > MAX_LINE_BYTES or len(data) >= MAX_FRAME_BYTES:
-            break
+            raise CtlError(
+                "internal",
+                "response frame exceeded the client cap (line %d / frame %d bytes) "
+                "without an END line; refusing to return a truncated frame "
+                "(the peer is not speaking this protocol)"
+                % (MAX_LINE_BYTES, MAX_FRAME_BYTES))
         try:
             chunk = sock.recv(_RECV_CHUNK)
         except socket.timeout:

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import BUNDLE_SYMBOLIC_NAME
-from .client import Client, discover_endpoint, write_endpoint
+from .client import Client, discover_endpoint, resolve_pid, write_endpoint
 from .console import Console
 from .errors import CtlError, EndpointNotFound, NotFoundError, PrereqNotReady, UsageError
 from .targets import Target, Config
@@ -906,16 +906,14 @@ def pid_alive(pid: int) -> bool:
 def run_live_pid(run_dir: str) -> Optional[int]:
     """The pid recorded in ``<run_dir>/endpoint.json``, if that process is alive.
 
-    Reads through :func:`ctl.client.discover_endpoint`, so the recorded pid gets
-    the same range/type validation as every other reader (R5-7): a bogus pid
+    Reads through :func:`ctl.client.resolve_pid` (hence
+    :func:`ctl.client.discover_endpoint`), so the recorded pid gets the same
+    range/type validation as every other reader (R5-7): a bogus pid
     (``true`` / ``-1`` / ``1e10``) reads as "not alive" instead of being coerced
     into a value that would let :func:`gc` delete a running instance.
     """
     run_dir = os.path.abspath(run_dir)
-    try:
-        pid = discover_endpoint(os.path.dirname(run_dir), os.path.basename(run_dir)).get("pid") or 0
-    except CtlError:
-        return None
+    pid = resolve_pid(os.path.dirname(run_dir), os.path.basename(run_dir))
     return pid if pid_alive(pid) else None
 
 

@@ -67,14 +67,14 @@ class _Harness(unittest.TestCase):
     def setUp(self):
         self.tool = _Recorder()
         self._tool = run._tool
-        self._endpoint = run.discover_endpoint
+        self._pid = run.resolve_pid
         run._tool = self.tool
-        run.discover_endpoint = lambda root, rid: {"pid": 4242}
+        run.resolve_pid = lambda root, rid, on_error=None: 4242
         self.client = _FakeClient()
 
     def tearDown(self):
         run._tool = self._tool
-        run.discover_endpoint = self._endpoint
+        run.resolve_pid = self._pid
 
     def click(self, text, case=None, yes=True):
         return run._click_button(self.client, text, case, "T", yes)
