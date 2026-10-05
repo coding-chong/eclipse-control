@@ -115,8 +115,10 @@ python -m ctl targets add gs32 --source-dir <你的 GS32_Studio 安装根>
 ### 几条容易踩的
 
 - **参数别硬编码**：跑某条命令前先 `cmd.query <id>` 取 `parameters[]`，再拼 `cmd(id, **params)`。
-- **`ToolItem` / `MenuItem` / `CTabItem` / `TreeItem` 不是 `Control`**：`getChildren()` **拿不到**它们，
-  要走 `getItems()`。工具栏按钮的语义常在 `getToolTipText()`（`getText()` 可能是空的）。
+- **`ToolItem` / `MenuItem` / `CTabItem` 不是 `Control`**：`getChildren()` **拿不到**它们，桥走 `getItems()`
+  读它们的文本。**`TreeItem` / `TableItem` 的文本桥读不到** —— 它只输出条目数
+  （`[TreeItems=N]` / `[TableItems=N]`），不迭代 `TreeItem`（`boundaries.md` §A3）。工具栏按钮的语义常在
+  `getToolTipText()`（`getText()` 可能是空的）。
 - **读控件树要给够深度**：默认 `tree(3)` 只到深度 3，很容易停在 `Composite` 上被误判成「读不到」。
   实测（2026-10-05，CCS 12.8.1 与 GS32 1.2.5.2 同值，**主可见 shell 域**）：编辑器内部的 `StyledText` 在**深度 15**，
   视图内部更浅（Project Explorer 的 `Tree` 深度 8 / Outline 的 12）⇒ **要读部件内部，给 `tree(15)` 起步**。

@@ -8,6 +8,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`ctl install --keep-workspace`：保留已有 run 工作区**（2026-10-06）：
+  `install` 此前每次都在 `prepare_run(paths, fresh_workspace=True)` 处清空工作区
+  （改动前 `ctl/lifecycle.py:736`；`git show HEAD:ctl/lifecycle.py | grep -n fresh_workspace=True`），
+  于是**预置在 `-data` 里的工程**必然被删。该选项把
+  `prepare_run(..., fresh_workspace=not keep_workspace)` 接出来，用于「先把工程落进工作区、
+  再启动 IDE」的场景 —— 桥只有 `ui.close`/`ui.open`/`cmd.run`/`cmd.runp` 四个写方法，
+  **没有文本输入**，工程因此**无法**在 IDE 起来之后再导入。
+  **默认逐字不变**：不给该选项时 `fresh_workspace=True`，工作区照旧每次清空；
+  `uninstall` / `upgrade` 不继承该语义（`upgrade` 复用 `_cmd_install` 时显式钉死
+  `keep_workspace=False`，见 `ctl/__main__.py:856`），`ctl run` 的自动起实例路径也不受影响。
+  回归门：`tests/unit/test_keep_workspace.py`（10 条：`prepare_run` 原语 / `install` 接线 /
+  CLI 与 `upgrade` 三层的**逐项变异**，临时目录 + sentinel，不连 IDE）。
+
 ### Fixed
 
 - **`ccs12` 的 ECJ 发现不再依赖 gs32 兄弟树**（2026-10-06）：CCS 12.8.1 **不带 JDT**，

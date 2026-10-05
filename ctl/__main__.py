@@ -245,6 +245,11 @@ def build_parser() -> CtlParser:
         if name == "uninstall":
             sp.add_argument("--verify-clean", dest="verify_clean", action="store_true",
                             help="check the four-way clean predicate afterwards")
+        if name == "install":
+            sp.add_argument("--keep-workspace", dest="keep_workspace", action="store_true",
+                            help="keep the existing run workspace instead of wiping it "
+                                 "(for a pre-seeded project that must be there before the "
+                                 "IDE starts; default: wipe on every install)")
 
     # -- targets ------------------------------------------------------------ #
     p_targets.set_defaults(targets_action="list")
@@ -749,7 +754,8 @@ def _cmd_install(args) -> int:
     target = _single_target(args, config)
     instance = lifecycle_install(config, target.name, getattr(args, "run_id", None),
                                  getattr(args, "port", None),
-                                 getattr(args, "ensure_clean", False))
+                                 getattr(args, "ensure_clean", False),
+                                 getattr(args, "keep_workspace", False))
     info = instance.info()
     if args.json:
         _emit_json(info)
@@ -843,6 +849,11 @@ def _cmd_upgrade(args) -> int:
     except (NotFoundError, CtlError):
         pass
     args.port = carried_port
+    # `upgrade` ends in `_cmd_install`, and a rebuild must NOT inherit the
+    # "keep the workspace" semantics: an upgrade is a controlled restart, so it
+    # pins a fresh workspace exactly as it always has.  Set explicitly rather
+    # than relying on `upgrade`'s parser simply not defining the flag.
+    args.keep_workspace = False
     # The bridge cannot be reached over the console from outside the process, so
     # "upgrade" is a rebuild plus a controlled restart rather than a hot update.
     print("restarting instance on the rebuilt jar (hot console update is not reachable externally)",

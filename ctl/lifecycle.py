@@ -671,9 +671,15 @@ def wait_for_workbench(port: int, timeout: float = 180.0, poll: float = 2.0) -> 
 
 def install(config: Config, target_name: Optional[str] = None, run_id: Optional[str] = None,
             port: Optional[int] = None, ensure_clean_requested: bool = False,
+            keep_workspace: bool = False,
             startup_wait: float = 15.0, ping_timeout: float = 120.0,
             workbench_timeout: float = 180.0) -> Instance:
     """Full install: isolate -> build check -> launch -> hot-install -> probe.
+
+    The run workspace (``-data``) is wiped and recreated unless
+    ``keep_workspace`` is set; keep it when a project must already be sitting in
+    the workspace *before* the IDE starts (the bridge has no text input, so a
+    project cannot be imported into a running IDE).
 
     Raises :class:`PrereqNotReady` (exit 2) when the machine is not ready, and
     :class:`CtlError` (exit 1) when something that *did* start misbehaves.
@@ -733,7 +739,7 @@ def install(config: Config, target_name: Optional[str] = None, run_id: Optional[
         ensure_clean(port=effective_port, configuration=paths.configuration,
                      install_dir=target.install_dir)
 
-    prepare_run(paths, fresh_workspace=True)
+    prepare_run(paths, fresh_workspace=not keep_workspace)
     pre_fp = dir_fingerprint(paths.configuration)
 
     instance = Instance(target=target, paths=paths, port=effective_port, jar=jar,

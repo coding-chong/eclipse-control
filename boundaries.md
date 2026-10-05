@@ -32,8 +32,15 @@
 - **证据**：`prd.md` F3；`research/facts-baseline.md` §3 方法面表（标注「待实现 ⇒ 不计入已通」）；源码实现见桥的方法注册表（`sys.wait` / `ui.console` 两条 `add(...)`）。
 
 ### A3 SWT 控件树的正确读法
-- **能力**：能读到 `ToolItem` / `MenuItem` / `CTabItem` / `TreeItem` / `TableItem`（它们**不是** `Control`，必须走 `getItems()`）；`ToolItem.getToolTipText()` 是按钮语义的权威来源。
-- **证据**：`research/facts-baseline.md` §4 容器/成员读法表与 `ui.tree 7` 实测结构。
+- **能力**：`ToolItem` / `MenuItem` / `CTabItem` 的**文本**能读到（它们**不是** `Control`，必须走 `getItems()`）；
+  `Tree` / `Table` **只读到条目数**（`[TreeItems=N]` / `[TableItems=N]`），**条目的文本读不到**
+  —— `walk()` 不迭代 `TreeItem` / `TableItem`（`bridge/src/ctl/bridge/LiveBridge.java:852-853`）。
+  `ToolItem.getToolTipText()` 是按钮语义的权威来源。
+- **证据**：`bridge/src/ctl/bridge/LiveBridge.java:836-853`（`getItems()` 的三个调用点 vs `Tree`/`Table` 的计数）；
+  `research/facts-baseline.md` §4 容器/成员读法表与 `ui.tree 7` 实测结构。
+  **2026-10-06 更正**：在 CCS 12.8 上做的全量树转储里 `TreeItem text=` / `TableItem text=` **零命中**
+  （复跑：对任一 `ui.tree` 输出 `grep -c "TreeItem text="` ⇒ 0）。本行此前把 `TreeItem` / `TableItem`
+  与前三者并列成「能读到」，与实际不符 —— 故改判：**读得到的是它们的数量，不是内容**。
 
 ### A4 桥写面四类（各有回读差）
 - **能力**：开厂商视图（5 个逐个 added：views 8→9→10→11→12→13）、关视图（13→12→…→8，`stillOpen=False`；此处 `…` 表示逐个递减）、切透视图（id 如实变化）、开文件进 CDT 编辑器（editors 0→1→2，class=`org.eclipse.cdt.internal.ui.editor.CEditor`）。
