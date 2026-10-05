@@ -8,9 +8,10 @@
 
 **本文件条目数**（2026-10-05 复算；判据 = §1–§3 内每个条目小节各计一条，
 `grep -cE '^### (A|N|U)[0-9]'`）：能做（`A*`）**19** 条 / 不能做（`N*`）**15** 条 /
-「未验证」区（`U*`）**12** 条（其中 **9** 条已标「已闭合」、仍开放 **3** 条：U2 / U8 / U9
+「未验证」区（`U*`）**13** 条（其中 **9** 条已标「已闭合」、仍开放 **4** 条：U2 / U8 / U9 / U14
 —— U3 于 2026-10-04 收口，见 §1 的 A6b-3），
-共 **46** 条。（A18 → A19 是同日新增：被 promote 的帧自我报告，见 §1 A19。）§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
+共 **47** 条。（同日新增两条：§1 **A19** = 被 promote 的帧自我报告；§3 **U14** = `--json` stderr
+契约的**引用回查不到对象**，且 A19 的成立性悬在它上面。）§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
 `A*` / `N*`。§4 / §5 的小节不计入条目。
 （旧注记 —— 2026-10-02 的 `12 / 11 / 16 = 39` —— **已作废**：它与任何机械计数都对不上，
 且此后新增 / 闭合条目时都没跟着更新；同处原写的「每条恰好一个证据字段」也不成立 —— 全文里
@@ -420,6 +421,8 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
   （含 raw `run()` / `ctl shell` / CLI 门）。"当时那一刻"是留档独有的 —— `see()` 永远给不了。
 - **护栏**：**不改**触发判据（`_promote_reasons`）与单 run 裁剪（`prune`）—— `design.md` §9 的"不动"照旧成立；
   **不新增命令面**（只用既有的 `python -m ctl shadow --seq N`）；帧仍**不进任何判据**（R5 构造性保证）。
+  ⚠️ **它的合规性依赖 §3 U14**：这行是 stderr **诊断**，而「`--json` 下 stderr 是否必须为空」这条契约
+  的**引用回查不到对象**（未证实）—— 那条一旦被判成"必须为空"，本条目就是新违规。
 - **证据**：`ctl/shadow.py` 的 `_capture` 里 `if reasons:` 块；`tests/unit/test_shadow_promote.py`（3 例，
   期望值全是本文件字面量 —— `deliverable-shape.md` C10）。
   **变异账本 M1**（删掉该块）：`FAIL: test_a_failed_action_names_the_frame_on_stderr` +
@@ -740,6 +743,41 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
   python -m ctl cmd org.eclipse.ui.file.saveAll  --run-id <id> --port <p> --yes   # 期望 ERR disabled（对拍）
   ```
 - **证据**：任务侧 `research/p3-selectall-terminal.txt`。
+
+### U14 `--json` 下 stderr 是否**必须为空** —— **未证实**（引用的对象身份回查不到）
+
+- **原条目（2026-10-05 新增）**：`ctl/__main__.py:992` 的注释用
+  「`--json` 的契约是「stderr 为空」（**A11b′ / R12′.2**）」来论证「进度行只在人看的那次打」。
+  **行为侧是对的**（压掉 `export: i/n` 这类**进度**行）—— 问题在它的**引用**：
+  这两个编号在产品仓与流程仓里**都回查不到能支撑该命题的定义**。
+- **回查（2026-10-05 复跑，逐字原文）**：
+
+```
+产品仓：grep -rn "A11b′\|R12′\.2" --include=*.md .   → 零命中
+流程仓：A11b′ 被绑到两个**不同**要求上；R12′.2 零命中
+  09-30-eclipse-ctl-project/prd.md:275        → A11b′ = R11.9 / R12.2：无遥测（grep telemetry|analytics|sentry 命中 0）
+  09-30-eclipse-ctl-project/implement.md:619  → A11b′ = 「诊断只走 stderr」
+  产品仓 DEVELOPING.md:221                    → R12′.2 = bridge.log 的日志约定（与 stderr 无关）
+```
+
+  ⇒ **同一个编号绑了两个要求**，而它被引用的那个命题（stderr 必须为空）**两条绑定都没说过**。
+- **为什么这不算「已否决」**：无从判定是**注释引错**，还是**编号在演进中被复用** ——
+  两种处置不同（改注释 / 改编号），判定它需要一次**用户口径或一次权威定义**，不是能从代码推出的。
+  ⇒ 按 `measurement-hygiene` §13.10（引用型内容要证对象身份）与 §13.11（不得拿自己的产出当依据），
+  **只记事实与回查命令，不作结论**。
+- **它现在为什么会咬人**：§A19（被 promote 的帧自我报告）给影子层加了一行 stderr **诊断**。
+  「stderr 必须为空」若为真，那一行就是**新的违规**；若「诊断只走 stderr」是权威定义，它**正是该走的路**。
+  ⇒ **A19 的成立性悬在这一条上。**
+- **验证入口**：
+
+```bash
+grep -rn "stderr" ctl/verify/ tests/                        # 只有捕获，无「为空」断言
+grep -rnE 'readouterr|assertLogs|capsys|assertNoStderr' .    # 零命中
+grep -n  "stderr" protocol.md                                # :459 管的是 **stdout**
+```
+
+- **闭合条件（三条，择一）**：① 找到 `A11b′` 的权威定义并**明写它管 stdout 还是 stderr**；
+  ② 用户口径裁定；③ 把 `:992` 的引用改写成一条**可实测**的规则。
 
 ---
 
