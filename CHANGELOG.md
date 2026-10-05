@@ -6,6 +6,17 @@
 
 当前 `PROTOCOL_VERSION = 1`。
 
+## [Unreleased]
+
+### Changed
+
+- **`preflight` 的退出码不再把「环境就绪」与「仓库卫生」混成一个 `1`**（2026-10-05）：
+  此前一个 `problems` 计数器同时装两类失败，于是**空旷的工作区**（没起实例）也返回 `1`，
+  与"仓库真有问题"同码 ⇒ 它**当不了发布闸门**。现在照 `DEVELOPING.md` §一 对 `verify` 的既有约定
+  分码：卫生闸门红 ⇒ **1**；只有 `doctor` / `verify --all` 因**前置未就绪**红 ⇒ **2**；全过 ⇒ **0**。
+  出处：`10-05-eclipse-ctl-shadow-closeout/design.md` §3.3 护栏 6「不可比的东西不得混进同一个码」。
+  判据（空闲态）：`python -m ctl preflight; echo $?` ⇒ `2`；把一条未知子命令塞进任一被扫文档 ⇒ `1`。
+
 ## [0.2.0] - 2026-10-05
 
 `__version__` / 桥 `Bundle-Version` **0.1.0 → 0.2.0**（`ctl/__init__.py`、`bridge/build.py`）。

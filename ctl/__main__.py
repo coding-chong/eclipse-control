@@ -1887,10 +1887,13 @@ def _changelog_has_version() -> Tuple[bool, str]:
 def _cmd_preflight(args) -> int:
     config = _load_config(args)
     names = _target_names(args, config)
+    # 两类失败**不可比**，故分开计数、分开定码（`DEVELOPING.md` §一 的退出码约定）：
+    # `problems` = 仓库卫生（本仓的代码与文档）；`env_problems` = 前置就绪（要活实例 / 安装树）。
     problems = 0
+    env_problems = 0
     code = _cmd_doctor(args)
     if code != 0:
-        problems += 1
+        env_problems += 1
         print("[FAIL] doctor -> exit %d" % code)
     else:
         print("[PASS] doctor")
@@ -1914,7 +1917,7 @@ def _cmd_preflight(args) -> int:
     print("[%s] verify --all (target %s, exit %d)"
           % ("PASS" if verify_code == 0 else "FAIL", names[0], verify_code))
     if verify_code != 0:
-        problems += 1
+        env_problems += 1
 
     ok, detail = _doc_command_consistency()
     print("[%s] doc/CLI command consistency: %s" % ("PASS" if ok else "FAIL", detail))
@@ -1941,7 +1944,14 @@ def _cmd_preflight(args) -> int:
     if not ok:
         problems += 1
 
-    return 1 if problems else 0
+    # 退出码：照 `DEVELOPING.md` §一 对 `verify` 的同一约定，两类**不合并**。
+    #   1 = 仓库卫生有 FAIL 结论；2 = 只有前置未就绪（空闲态即此档）；0 = 全过。
+    # 合并会让"没起实例"与"仓库真有问题"同码，于是这个命令当不了发布闸门。
+    if problems:
+        return 1
+    if env_problems:
+        return 2
+    return 0
 
 
 # --------------------------------------------------------------------------- #

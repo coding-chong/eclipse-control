@@ -74,6 +74,18 @@ python -m ctl preflight --target gs32,ccs12
 命名空间」+ 「标准库-only import」+ 「CHANGELOG 条目」（**7 项**，与
 `python -m ctl preflight --help` 的简介逐项一致）。
 
+**退出码**（与 §一 对 `verify` 的约定同一套；两类失败**不合并**）：
+
+| 码 | 含义 |
+|---|---|
+| `0` | 全过 |
+| `1` | **仓库卫生**闸门有 FAIL 结论（文档 ↔ CLI 一致性 / 开发者门泄漏 / skill 名 / 标准库-only / CHANGELOG 条目） |
+| `2` | 只有**前置未就绪**红 —— `doctor` 与 `verify --all` 都要活实例 / 安装树，**空闲态就落在这一档** |
+
+判据：`python -m ctl preflight; echo $?`。
+**为什么分开**：不能比的东西不得混进同一个码（`10-05-eclipse-ctl-shadow-closeout/design.md` §3.3 护栏 6）。
+混在一起时**空旷的工作区**也报 `1`，与"仓库真有问题"无法区分 ⇒ 这个命令当不了发布闸门。
+
 ## 三、配方库（`ctl recipes`）
 
 ```bash
