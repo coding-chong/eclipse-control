@@ -7,10 +7,10 @@
 **不是**实验结论（出处 `design-project.md` §18.2、`research/facts-baseline.md` §12、`prd.md` §5）。
 
 **本文件条目数**（2026-10-05 复算；判据 = §1–§3 内每个条目小节各计一条，
-`grep -cE '^### (A|N|U)[0-9]'`）：能做（`A*`）**18** 条 / 不能做（`N*`）**15** 条 /
+`grep -cE '^### (A|N|U)[0-9]'`）：能做（`A*`）**19** 条 / 不能做（`N*`）**15** 条 /
 「未验证」区（`U*`）**12** 条（其中 **9** 条已标「已闭合」、仍开放 **3** 条：U2 / U8 / U9
 —— U3 于 2026-10-04 收口，见 §1 的 A6b-3），
-共 **45** 条。§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
+共 **46** 条。（A18 → A19 是同日新增：被 promote 的帧自我报告，见 §1 A19。）§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
 `A*` / `N*`。§4 / §5 的小节不计入条目。
 （旧注记 —— 2026-10-02 的 `12 / 11 / 16 = 39` —— **已作废**：它与任何机械计数都对不上，
 且此后新增 / 闭合条目时都没跟着更新；同处原写的「每条恰好一个证据字段」也不成立 —— 全文里
@@ -404,6 +404,28 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
 - **证据**：`ctl/lifecycle.py::auto_gc()`；`ctl/__main__.py::_collect_old_runs()`；
   `tests/unit/test_auto_gc.py`（8 例，期望值全是本文件字面量 —— `deliverable-shape.md` C10）；
   变异账本 M1–M6 见任务侧 `implement.md` §S7。
+
+### A19 被 promote 的留档帧会自己报出来（`ctl/shadow.py::_capture`，2026-10-05）
+
+- **能力**：一次写动作失败（`outcome=err` / `timeout`）或**出现对话框**时，那一帧被 promote（永不裁）；
+  此前**没有任何一行**告诉调用方去哪看 —— 现在在**本层唯一的出声通道**（`warn()` → stderr）打**一行**：
+  `WARN: shadow promoted frame <seq> (<原因>); see it: python -m ctl shadow --run-id <run> --seq <seq>`。
+  **成功路径一如既往静默**（没 promote 就不打）。
+- **指向"真有文件"的那个 seq**：像素与更早一帧相同时文件落在那一帧（`row["same_as"]`），
+  指向一个没有文件的 seq 就是**死指针** —— 故取 `same_as or seq`。
+- **与 `ctl/run.py` 的 `_auto_shot`（`:255-277`）是两个装置，不是两份实现**。`run.py:171-172` 原文写着
+  "The shadow frames (`tools/win-probe.ps1`, `<run>/shadow/`) are a **different device**"：
+  那条在**失败之后现拍**一帧、打的是 **`shots/`（证据）** 的路径，且只覆盖 `_watched` 包住的 **7 个** helper
+  （`:308-317`）；这条打的是写动作**发出时**自动留的 **`shadow/`（留档）** 帧，覆盖**每一次被桥判为写**的动作
+  （含 raw `run()` / `ctl shell` / CLI 门）。"当时那一刻"是留档独有的 —— `see()` 永远给不了。
+- **护栏**：**不改**触发判据（`_promote_reasons`）与单 run 裁剪（`prune`）—— `design.md` §9 的"不动"照旧成立；
+  **不新增命令面**（只用既有的 `python -m ctl shadow --seq N`）；帧仍**不进任何判据**（R5 构造性保证）。
+- **证据**：`ctl/shadow.py` 的 `_capture` 里 `if reasons:` 块；`tests/unit/test_shadow_promote.py`（3 例，
+  期望值全是本文件字面量 —— `deliverable-shape.md` C10）。
+  **变异账本 M1**（删掉该块）：`FAIL: test_a_failed_action_names_the_frame_on_stderr` +
+  `FAIL: test_the_pointer_names_the_frame_that_owns_the_file` ⇒ `FAILED (failures=2)`；
+  第三条断言"静默"的用例**保持绿**（它断言的是缺失，检测不到删除 —— 这正合 C12 要的形状）；
+  恢复后 `ctl/shadow.py` sha256 `9620ef25` 逐字节回原值、`Ran 3 tests ... OK`。
 
 ---
 

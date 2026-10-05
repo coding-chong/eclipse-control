@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **被 promote 的留档帧会自己报出来**（2026-10-05，`ctl/shadow.py::_capture`）：一次写动作失败
+  （`outcome=err` / `timeout`）或出现对话框时，帧会被 promote（永不裁），而此前**没有任何一行**告诉调用方
+  去哪看 —— 现在在**本层唯一的出声通道**（`warn()` → stderr）打**一行**：
+  `WARN: shadow promoted frame <seq> (<原因>); see it: python -m ctl shadow --run-id <run> --seq <seq>`。
+  指向的是**真有文件的那个 seq**（像素与更早一帧相同时文件在那一帧上，`same_as`）；**成功路径一如既往静默**。
+  **不改**触发判据与单 run 裁剪、**不新增命令面**、帧仍不进判据。与 `ctl/run.py` 的 `_auto_shot`
+  （失败**之后**现拍一帧、打 `shots/` 的路径，只覆盖 7 个 helper，`:255-277`）是**两个装置**：
+  这条打的是写动作**发出时**自动留的那一帧，`see()` 给不了。
+  单测 `tests/unit/test_shadow_promote.py`（3 例；删掉宣告块 ⇒ 两条报红，恢复 ⇒ 绿）。
+  能力条目见 `boundaries.md` §A19。
+
 ## [0.2.0] - 2026-10-05
 
 `__version__` / 桥 `Bundle-Version` **0.1.0 → 0.2.0**（`ctl/__init__.py`、`bridge/build.py`）。

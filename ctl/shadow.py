@@ -462,6 +462,16 @@ def _capture(cfg: ShadowConfig, req: str, method: str, response) -> dict:
     row["promote_reason"] = "; ".join(reasons) if reasons else None
 
     _append_row(cfg.manifest_path(), row)
+    if reasons:
+        # 缺口⑤（2026-10-05）：动作失败 / 弹窗 ⇒ 这一帧被 promote，而此前**没有任何一行**告诉
+        # 调用方去哪看 —— 出事路径不把人引向留档，这个层就等于白留。指向**真有文件**的那个 seq：
+        # 像素与更早一帧相同时文件在那一帧上（`same_as`），指向一个没有文件的 seq 就是死指针。
+        # 通道只能是 `warn`（本层唯一被允许的出声口，见其 docstring）。
+        promoted_seq = row.get("same_as") or seq
+        where = ("python -m ctl shadow --run-id %s --seq %d" % (cfg.run_id, promoted_seq)
+                 if cfg.run_id else "python -m ctl shadow --seq %d" % promoted_seq)
+        warn("promoted frame %d (%s); see it: %s"
+             % (promoted_seq, "; ".join(reasons), where))
     if persisted:
         try:
             prune(cfg)
