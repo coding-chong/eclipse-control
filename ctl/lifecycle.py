@@ -772,7 +772,7 @@ def install(config: Config, target_name: Optional[str] = None, run_id: Optional[
                            "protocol mismatch: bridge reports %s, client expects %s; retry: python -m ctl build --target %s"
                            % (reported_protocol, _expected_protocol(), target.name))
         write_endpoint(config.run_root, run_id, effective_port, pid=instance.pid,
-                       configuration=paths.configuration)
+                       configuration=paths.configuration, target=target.name)
         instance.post_fingerprint = dir_fingerprint(paths.configuration)
         return instance
     except Exception:
@@ -962,6 +962,16 @@ def gc(run_root: str, keep: int = 3, dry_run: bool = False,
     * what was skipped or failed is **reported**, never swallowed;
     * ``dry_run`` decides nothing.
 
+    **Two keep semantics, deliberately different** (`design.md` §3.6): this
+    manual door keeps ``keep`` **globally** -- newest across the whole
+    ``run_root``, untagged legacy runs included -- which is exactly why it is
+    the *only* channel that can reclaim them (44 of 47 runs on 2026-10-05,
+    nine of them referenced by archived task documents).  The automatic collect
+    after a close-out (:func:`auto_gc`, called by ``ctl uninstall`` / ``ctl run
+    --stop``) keeps ``keep`` **per target** and never touches a run whose target
+    cannot be read.  When the automatic pass leaves old runs behind, this is the
+    exit: ``python -m ctl gc --yes``.
+
     Returns ``{"removed": [...], "skipped_live": [...], "failed": [...]}``,
     where every entry is ``"<run_id> (<reason>)"`` for the non-removed buckets.
     """
@@ -987,3 +997,101 @@ def gc(run_root: str, keep: int = 3, dry_run: bool = False,
                 continue
         out["removed"].append(name)
     return out
+
+
+def _warn(message: str) -> None:
+    """The only channel this collector is allowed to fail on (``shadow.warn`` form)."""
+    print("WARN: auto_gc %s" % message, file=sys.stderr)
+
+
+def auto_gc(run_root: str, keep: int, current_run_id: Optional[str] = None,
+            dry_run: bool = False) -> Dict[str, List[str]]:
+    """Collect old runs **per target**, keeping the newest ``keep`` of each.
+
+    The conservative sibling of :func:`gc`, and what a close-out
+    (``ctl uninstall`` / ``ctl run --stop``) calls.  Eight guardrails, each
+    learned from the 2026-10-01 wipe (one unguarded ``gc`` deleted 26 runs,
+    including a live one) or from the 2026-10-05 measurement that mounting
+    :func:`gc` here would have deleted 44 of 47 runs, nine of them referenced by
+    archived task documents:
+
+    1. live runs are **always** skipped -- there is no ``--force-live`` equivalent
+       (``rmtree`` on a live process's files deletes part of the tree);
+    2. the run being closed (``current_run_id``) is **never** collected;
+    3. a run whose ``target`` cannot be read is **never** collected -- so a broken
+       classifier fails toward *not* deleting, and the untagged legacy runs stay
+       for the manual door;
+    4. ``keep < 1`` means "do nothing" and warns (deleting everything is the one
+       unrecoverable extreme; ``ctl gc --yes --keep 0`` stays the manual exit);
+    5. any exception means **zero deletions** and warns (fail-closed);
+    6. the exit code is never affected (the caller enforces this -- collection is
+       not part of the close-out's clean predicate);
+    7. a deletion is always reported (the caller prints, see ``ctl/__main__.py``);
+    8. only the **direct** children of ``run_root`` are ever touched.
+
+    ``keep`` is per ``target`` here, not per ``run_root``: that is the whole
+    point of the split (see :func:`gc` for the global door).
+
+    Returns ``{"removed", "skipped_live", "skipped_unclassified", "protected",
+    "failed"}``; entries in the non-removed buckets are ``"<run_id> (<reason>)"``,
+    the same convention as :func:`gc`.
+    """
+    out: Dict[str, List[str]] = {"removed": [], "skipped_live": [],
+                                 "skipped_unclassified": [], "protected": [],
+                                 "failed": []}
+    if keep < 1:
+        _warn("keep=%r < 1 is refused, nothing deleted; retry: python -m ctl gc --yes" % (keep,))
+        return out
+    try:
+        if not os.path.isdir(run_root):
+            return out
+        # -- phase 1: classify and select.  Everything that can raise lives here
+        # (`discover_endpoint` / `run_live_pid` / `getmtime`), so guardrail 5 is
+        # real: by the time the first `rmtree` runs, the plan is complete.
+        groups: Dict[str, List[Tuple[float, str, str]]] = {}
+        for name in os.listdir(run_root):
+            path = os.path.join(run_root, name)
+            if not os.path.isdir(path):
+                continue
+            current = current_run_id is not None and name == current_run_id
+            try:
+                target = discover_endpoint(run_root, name).get("target")
+            except Exception:
+                target = None
+            if current:
+                out["protected"].append("%s (current run)" % name)
+            if isinstance(target, str) and target:
+                # The current run is classified too: it must still occupy a slot
+                # in its target's keep window, otherwise claiming it would
+                # silently shrink that target's retention by one.
+                groups.setdefault(target, []).append((os.path.getmtime(path), name, path))
+            elif not current:
+                out["skipped_unclassified"].append("%s (no target recorded)" % name)
+        pending: List[Tuple[str, str]] = []
+        for target in sorted(groups):
+            runs = groups[target]
+            runs.sort(reverse=True)
+            for _mtime, name, path in runs[keep:]:
+                if current_run_id is not None and name == current_run_id:
+                    continue  # already reported as protected; never collected
+                if not dry_run:
+                    pid = run_live_pid(path)
+                    if pid is not None:
+                        out["skipped_live"].append("%s (pid %d still running)" % (name, pid))
+                        continue
+                pending.append((name, path))
+        # -- phase 2: delete.  `rmtree(ignore_errors=True)` and `isdir` do not
+        # raise, so nothing here can break guardrail 5 after a deletion started.
+        for name, path in pending:
+            if not dry_run:
+                shutil.rmtree(path, ignore_errors=True)
+                if os.path.isdir(path):  # partially deleted: report, never hide
+                    out["failed"].append("%s (still on disk - locked by a running process?)" % name)
+                    continue
+            out["removed"].append(name)
+        return out
+    except Exception as exc:  # fail-closed: a bug must mean "nothing collected"
+        _warn("aborted with no deletion (%s: %s); retry: python -m ctl gc --yes"
+              % (type(exc).__name__, exc))
+        return {"removed": [], "skipped_live": [], "skipped_unclassified": [],
+                "protected": [], "failed": []}

@@ -39,6 +39,7 @@ from .lifecycle import (
     BRIDGE_BUILD,
     REPO_ROOT,
     _run,
+    auto_gc as lifecycle_auto_gc,
     bridge_buildable,
     gc as lifecycle_gc,
     install as lifecycle_install,
@@ -201,7 +202,17 @@ def build_parser() -> CtlParser:
     p_targets = add("targets", "manage the target matrix")
     p_commands = add("commands", "export the Eclipse command table")
     p_recipes = add("recipes", "list / run usage recipes")
-    add("gc", "prune old run directories (destructive; needs --yes)", parents=(_gc_opts(),))
+    add("gc", "prune old run directories (destructive; needs --yes); deletes globally "
+              "(the newest N across the whole run root) -- the automatic collect on "
+              "close-out keeps N per target and never touches untagged runs",
+        parents=(_gc_opts(),),
+        description="Prune old run directories (destructive; needs --yes).  The keep window "
+                    "here is GLOBAL: the newest N across the whole run root, untagged legacy "
+                    "runs included -- which is why this is the only door that can reclaim "
+                    "them.  The automatic collect after a close-out (uninstall / run --stop) "
+                    "keeps N PER TARGET instead and never touches a run whose target cannot "
+                    "be read.  So when the automatic pass leaves old runs behind, this is the "
+                    "exit: ctl gc --yes.")
     p_tree = add("tree", "dump the SWT widget tree")
     add("parts", "list the workbench parts (views / editors / perspective)")
     p_viewids = add("viewids", "list registered view ids")
@@ -678,12 +689,44 @@ def _cmd_install(args) -> int:
     return 0
 
 
+def _collect_old_runs(config: Config, result: Dict[str, object]) -> None:
+    """Cross-run collection after a close-out (`uninstall` / `run --stop`).
+
+    Runs *after* the teardown and **never changes the exit code**: the clean
+    predicate of ``--stop`` is ``bundle_absent`` / ``configuration_clean`` /
+    ``port_released`` / ``no_process`` -- disk hygiene is not part of it, and
+    folding an unlike thing into the same code would make two outcomes look
+    alike (`measurement-hygiene` §13.6).  A failure here only warns, on the same
+    ``WARN:`` stderr channel the shadow layer uses.
+
+    ``skipped_unclassified`` is deliberately **not** printed: with every run
+    written before 2026-10-05 lacking a ``target`` field it is the normal case,
+    so reporting it would be pure noise (`design.md` §3.5).
+    """
+    if not config.auto_gc:
+        return
+    try:
+        collected = lifecycle_auto_gc(config.run_root, config.keep_runs,
+                                      current_run_id=result.get("run_id"))
+    except Exception as exc:  # collection must never mask the close-out's own result
+        print("WARN: auto_gc failed (%s: %s); retry: python -m ctl gc --yes"
+              % (type(exc).__name__, exc), file=sys.stderr)
+        return
+    if collected["removed"]:
+        print("gc: auto-collected %d run(s) (keep_runs=%d per target): %s"
+              % (len(collected["removed"]), config.keep_runs, ", ".join(collected["removed"])),
+              file=sys.stderr)
+    for entry in collected["failed"]:
+        print("WARN: auto_gc could not remove %s" % entry, file=sys.stderr)
+
+
 def _cmd_uninstall(args) -> int:
     config = _load_config(args)
     target = _single_target(args, config)
     result = lifecycle_uninstall(config, target.name, getattr(args, "run_id", None),
                                  getattr(args, "port", None),
                                  getattr(args, "verify_clean", False))
+    _collect_old_runs(config, result)
     if args.json:
         _emit_json(result)
         return 0

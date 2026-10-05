@@ -1,6 +1,6 @@
-# 验证（本文件写作时未执行，任务约定不跑 git；命中时应逐个回显规则）：
-#   git check-ignore -v bridge/out/x.class bridge/dist/livebridge_3.0.0.jar \
-#                      run-root/a/b __pycache__/z.cpython-313.pyc foo.pyc shots/x.png
+# 验证（**2026-10-05 已实测**，不再是"写作时未执行"）：逐条回显与复跑命令见文件末「实测回显」一节。
+# 原命令（下面那条曾被写成"从未执行"）：
+#   git check-ignore -v bridge/out/x.class bridge/dist/livebridge_3.0.0.jar run-root/a/b __pycache__/z.cpython-313.pyc foo.pyc shots/x.png
 #
 # ---- 运行目录（<run_root>；桥/工作区/配置区副本、endpoint.json、日志、截图都在这下面）----
 # 内置默认是 <user.home>/.eclipse-ctl/runs；若把 run_root 配到仓内，下面这些名字整体不入库。
@@ -26,8 +26,11 @@
 *.pyc
 *.pyo
 
-# ---- 运行产物截图（<run_root>/<run_id>/shots/；随 run_id 分包）----
+# ---- 运行产物截图与影子留档（<run_root>/<run_id>/{shots,shadow}/；随 run_id 分包）----
+# `shadow/` 要**自己的目录级规则**：帧（`*.png`）被下一条兜住，但 `manifest.jsonl`
+# （含窗口标题、路径、动作参数摘要）不被 `*.png` 覆盖。
 **/shots/
+**/shadow/
 *.png
 
 # ---- 本地配置与凭据（token 绝不入库）----
@@ -40,3 +43,22 @@ config.local.json
 .idea/
 Thumbs.db
 desktop.ini
+
+# ---------------------------------------------------------------------------
+# 实测回显（2026-10-05；行号是**那一次运行时**的值，规则增删后会有位移 —— 复跑为准）
+#   $ for p in bridge/out/x.class bridge/dist/livebridge_3.0.0.jar run-root/a/b \
+#              __pycache__/z.cpython-313.pyc foo.pyc shots/x.png; do
+#         printf '%-38s ' "$p"; git check-ignore -v "$p" || echo '*** 不忽略 ***'; done
+#   bridge/out/x.class                .gitignore:14:/bridge/out/
+#   bridge/dist/livebridge_3.0.0.jar  bridge/.gitignore:2:dist/
+#   run-root/a/b                      .gitignore:7:/run-root/
+#   __pycache__/z.cpython-313.pyc     .gitignore:25:**/__pycache__/
+#   foo.pyc                           .gitignore:26:*.pyc
+#   shots/x.png                       .gitignore:32:**/shots/
+# ⇒ 六条**全部命中**，无一条"不忽略"。注意第二条命中的是 `bridge/.gitignore`（子目录里另有一份）。
+#
+# `**/shadow/`（:33）是 2026-10-05 为缺口④ 新加的。判据**必须用自定义 run_root** ——
+# 用 `<run_root>/runs/…` 下的路径会被 `/runs/`（:9）掩盖，看起来生效其实没测到：
+#   $ git check-ignore -v myroot/x/shadow/manifest.jsonl   # ⇒ .gitignore:33:**/shadow/   （新规则）
+#   $ git check-ignore -v myroot/x/shots/a.png             # ⇒ .gitignore:32:**/shots/    （对照组）
+# ---------------------------------------------------------------------------

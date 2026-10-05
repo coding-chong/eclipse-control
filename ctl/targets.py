@@ -42,6 +42,7 @@ _SCALAR_KEYS = (
     "keep_runs",
     "copy",
     "allow_dangerous",
+    "auto_gc",
 )
 
 #: `design-obs-ux.md` §14.6 uses `source_dir` / `java_level` for the same two
@@ -264,6 +265,10 @@ class Config:
     keep_runs: int = DEFAULT_KEEP_RUNS
     copy: bool = False
     allow_dangerous: bool = False
+    #: Cross-run collection on close-out: keep `keep_runs` newest runs **per
+    #: target**.  On by default (`design.md` §3.7); the switch exists because
+    #: "delete by default with no way out" is the shape of the 2026-10-01 wipe.
+    auto_gc: bool = True
     port: Optional[int] = None
     targets: Dict[str, Target] = field(default_factory=builtin_targets)
     user_targets: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -300,6 +305,7 @@ def _apply_env(config: Dict[str, Any], provenance: Dict[str, str]) -> None:
         "keep_runs": "KEEP_RUNS",
         "copy": "COPY",
         "allow_dangerous": "ALLOW_DANGEROUS",
+        "auto_gc": "AUTO_GC",
         "port": "PORT",
     }
     for key, suffix in mapping.items():
@@ -312,7 +318,7 @@ def _apply_env(config: Dict[str, Any], provenance: Dict[str, str]) -> None:
             except ValueError:
                 raise CtlError("badrequest", "%s%s must be an integer, got %r"
                                % (ENV_PREFIX, suffix, raw))
-        elif key in ("copy", "allow_dangerous"):
+        elif key in ("copy", "allow_dangerous", "auto_gc"):
             config[key] = _as_bool(raw)
         else:
             config[key] = raw
@@ -335,6 +341,7 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
         "keep_runs": DEFAULT_KEEP_RUNS,
         "copy": False,
         "allow_dangerous": False,
+        "auto_gc": True,
         "port": None,
     }
     for key in effective:
@@ -354,7 +361,7 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
             raise CtlError("badrequest", "config file must contain a JSON object: %s" % path)
 
     for key in ("default_target", "run_root", "keep_runs", "copy",
-                "allow_dangerous", "port"):
+                "allow_dangerous", "auto_gc", "port"):
         if key in file_data and file_data[key] is not None:
             effective[key] = file_data[key]
             provenance[key] = "file"
@@ -378,6 +385,7 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
     effective["keep_runs"] = int(effective["keep_runs"])
     effective["copy"] = _as_bool(effective["copy"])
     effective["allow_dangerous"] = _as_bool(effective["allow_dangerous"])
+    effective["auto_gc"] = _as_bool(effective["auto_gc"])
 
     # -- targets: built-ins <- file overrides; removed list drops them ------ #
     targets = builtin_targets()
@@ -392,6 +400,7 @@ def load(flags: Optional[Dict[str, Any]] = None) -> Config:
         keep_runs=effective["keep_runs"],
         copy=effective["copy"],
         allow_dangerous=effective["allow_dangerous"],
+        auto_gc=effective["auto_gc"],
         port=effective["port"],
         targets=targets,
         user_targets=dict(config_file_targets),
@@ -426,6 +435,7 @@ def save(config: Config, path: Optional[str] = None) -> str:
         "keep_runs": config.keep_runs,
         "copy": config.copy,
         "allow_dangerous": config.allow_dangerous,
+        "auto_gc": config.auto_gc,
         "targets": config.user_targets,
     }
     if config.removed_targets:

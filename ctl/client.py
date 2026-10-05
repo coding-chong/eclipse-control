@@ -153,8 +153,15 @@ def resolve_pid(run_root: str, run_id: Optional[str],
 
 
 def write_endpoint(run_root: str, run_id: str, port: int, pid: Optional[int] = None,
-                   configuration: str = "") -> str:
-    """Record the live instance under ``<run_root>/<run_id>/endpoint.json``."""
+                   configuration: str = "", target: str = "") -> str:
+    """Record the live instance under ``<run_root>/<run_id>/endpoint.json``.
+
+    ``target`` names the IDE installation this run belongs to, which is how
+    :func:`ctl.lifecycle.auto_gc` groups runs for cross-run collection.  A file
+    written without it (every run from before 2026-10-05) reads back as "no
+    target", so such a run is classified *unclassified* and is never collected
+    automatically -- classification fails toward *not* deleting.
+    """
     directory = os.path.dirname(endpoint_path(run_root, run_id))
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, ENDPOINT_FILENAME)
@@ -162,6 +169,7 @@ def write_endpoint(run_root: str, run_id: str, port: int, pid: Optional[int] = N
         "port": int(port),
         "pid": int(pid) if pid is not None else None,
         "configuration": configuration or "",
+        "target": target or "",
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     with open(path, "w", encoding="utf-8") as fh:

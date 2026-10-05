@@ -85,6 +85,50 @@
   125:    private static final String CODES =
   ```
 
+### SR-2026-10-05-01 —— 影子留档是**未脱敏整窗帧**（**待人工复审**）
+
+- **日期**：2026-10-05
+- **复审人**：        ← **留空**：本文件明文「AI 不是复审人，本文档集由 AI 起草」；本条待人工署名后按「已复审」计
+- **改动文件**：`ctl/shadow.py`（2026-10-01 引入影子留档）、`ctl/lifecycle.py`（2026-10-05 新增跨 run 回收 `auto_gc()`）、`.gitignore`
+- **判定**：**待人工复审**。下面 6 条实情均已实测（逐条可复跑，见「复核命令」）：
+
+  1. **未脱敏且是整窗** —— `PrintWindow` 拍的是**整个窗口**，含代码内容与工作区**绝对路径**。
+     连**文件名**都带路径与用户名：实测 `<run_root>/gs32-handoff/shadow/0003-143303-ws_C_Users_Alice_eclipse_ctl_runs_gs32_h.png`
+     （`ws_C_Users_Alice_eclipse_ctl_runs_gs32_h` = 窗口标题 `ws - C:\Users\Alice\eclipse-ctl\runs\gs32\h` 的转写）。
+     ⇒ **本机同用户边界内可接受；不得把 `shadow/` 目录的内容对外发布**（与 `SR-2026-10-01-03` 对 `bridge.log` 的条件同源）。
+  2. **落盘位置**：`<run_root>/<run_id>/shadow/`；内置默认 `<user.home>/.eclipse-ctl/runs/…`（**仓外**）。
+     把 `run_root` 配到仓内时，由 2026-10-05 新增的 `**/shadow/` 规则兜住（见第 6 条）。
+  3. **保留期**：**单 run 内 20 帧 / 32 MB**，超限删**最旧的非 promoted**；**`promoted` 永不裁**
+     （`ctl/shadow.py:62-63`、`:718-719`）。
+     ⚠️ **`promoted` 的"永不裁"是每 run 内的保证** —— run 目录本身被回收后，promoted 帧**一并消失**。
+     **跨 run**：2026-10-05 起，收工路径（`uninstall` / `run --stop`）按 **target** 各留 **3** 个 run；
+     可用配置键 `auto_gc=false`（文件 / `ECLIPSE_CTL_AUTO_GC`）关闭；手动 `ctl gc --yes` 保持"全局 + 照删"。
+  4. **读取面**：`python -m ctl shadow [--seq N]` —— **纯读盘**（`ctl/shadow.py:666 → :644`），**不连桥**。
+     ⇒ **桥后来死掉，死前拍下的帧仍然列得出来**（这是留档存在的主要理由）。
+     **不承诺**：桥**从头**不可达 ⇒ 该 run **一张帧都没有**。
+  5. **不进判据**：观测通道会撒谎（`PrintWindow` 有"返回 TRUE 却整张全黑"的失败模式），
+     故用**构造性保证**钉住 —— `grep -rn shadow ctl/verify ctl/screen.py` **零输出**。
+  6. **不进版本库**：`**/shadow/`（2026-10-05 新增；`manifest.jsonl` 含窗口标题、路径、动作参数摘要，
+     不被 `*.png` 覆盖）。
+- **复核命令**：
+  ```bash
+  # ① 未脱敏的证据：文件名里带绝对路径与用户名
+  python -c "import os;print('\n'.join(sorted(os.listdir(r'C:\Users\Alice\.eclipse-ctl\runs\gs32-handoff\shadow'))))"
+  # ② 不进判据（构造性保证；期望零输出且 rc=1）
+  grep -rn shadow ctl/verify ctl/screen.py
+  # ③ 不进版本库：必须用**自定义 run_root**，否则会被 /runs/ 掩盖
+  git check-ignore -v myroot/x/shadow/manifest.jsonl
+  ```
+  期望输出（2026-10-05 实跑，`shadow/` 共 17 个文件）：
+  ```
+  0001-143200-ws_GS32_Studio.png
+  0003-143303-ws_C_Users_Alice_eclipse_ctl_runs_gs32_h.png      ← 绝对路径 + 用户名
+  0021-143423-Reset_Perspective.png
+  ...（共 16 帧 + manifest.jsonl）
+  （② 无输出，rc=1）
+  .gitignore:33:**/shadow/	myroot/x/shadow/manifest.jsonl
+  ```
+
 ---
 
 ## 待复审队列（**尚未**取得人工复审，不得计入实体记录）

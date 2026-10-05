@@ -90,7 +90,26 @@ python -m ctl targets list      # INSTALL_DIR 列应是你的路径
    ⇒ 别拿「`ui.*` 通不通」判断界面卡没卡，直接**枚举/截图看那个框在不在**。
    ⇒ 反过来也要记住：**你发的那次请求超时了，不代表别的连接也干不了活**。
 
-5. **再取一次回读差**，把差值归因到先前那次超时请求 —— **这一步不能省**，
+5. **回看留档** —— **先看当时那一帧，再看现在**。顺序有方向性：留档是"**当时**"的唯一来源，
+   而"现在"随时可取。
+
+   ```python
+   print(shadow())                # 本 run 的留档清单（纯读盘，不连桥）
+   print(shadow(seq=3))           # 按序号取某一条
+   ```
+
+   - 每次 `write` 类动作会自动留一帧到 `<run 目录>/shadow/`（清单 `manifest.jsonl`）。
+   - **`promoted` 是什么**：出事的那几帧（`outcome != ok` ∨ 回话含 `dialog=` ∨ `ERR timeout`）
+     会被自动标 `promoted`，**在单 run 的环裁剪里永不裁**（默认 20 帧 / 32 MB，裁的是最旧的非 promoted）
+     ⇒ **回看时先看 promoted 的那几条**；要手动改判用 `python -m ctl shadow --promote N`。
+   - **产生 vs 读取**：**产生**要桥活着（触发判据走桥的 `sys.help`）；
+     **读**它**不需要桥**（上面这些与 `promote` 都是纯读盘）
+     ⇒ **桥后来死了，死前拍下的帧仍然列得出来**。
+   - **不能承诺的**：桥**从头**就不可达 ⇒ 该 run **一张帧都没有**。此时只剩
+     `windows()` / `see()`（看**现在**，且它们也需要桥）与 `<run 目录>/console.log`（纯文件）。
+   - 帧**不是判据**，是**留档**（**不是** `shots/` 那类**证据** —— 两条通道的分工与判据口径见
+     [`observation.md`](observation.md)）。
+6. **再取一次回读差**，把差值归因到先前那次超时请求 —— **这一步不能省**，
    否则会把迟到的副作用算到下一次动作头上。
 
 ---
@@ -131,3 +150,9 @@ pwsh -NoProfile -File tools/win-click-button.ps1 -TitleLike "<真标题>" -ProcI
 - **`shots/` 不是 `shadow/`**：`shots/` 是**证据**（`shot-window-pw.ps1`，`see()` 写的）；
   `shadow/` 是**留档**（`win-probe.ps1`，声明不是判据）。两者不得互相顶替，见
   [`observation.md`](observation.md)。
+- **run 目录会被自动回收**：收工（`run --stop`）后按 **target** 各留 **3** 个 run
+  （配置键 `auto_gc`，默认开；环境变量 `ECLIPSE_CTL_AUTO_GC=false` 关）。
+  ⇒ **找不到某次留档时，先确认它不是被回收了** —— 帧随 run 目录一起消失，
+  连 `promoted` 也不例外（"promoted 永不裁"只是**单 run 内**的保证）。
+  判不出 target 的老 run **不自动删**；那类（含今天全部存量）只能靠**开发者工具**手动清 ——
+  它不进用户路径，准确标识符见仓库根的 `DEVELOPING.md`（§四「回收与换代」/ §五「生命周期命令的原始形态」）。

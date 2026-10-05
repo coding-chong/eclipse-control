@@ -7,10 +7,10 @@
 **不是**实验结论（出处 `design-project.md` §18.2、`research/facts-baseline.md` §12、`prd.md` §5）。
 
 **本文件条目数**（2026-10-05 复算；判据 = §1–§3 内每个条目小节各计一条，
-`grep -cE '^### (A|N|U)[0-9]'`）：能做（`A*`）**17** 条 / 不能做（`N*`）**14** 条 /
+`grep -cE '^### (A|N|U)[0-9]'`）：能做（`A*`）**18** 条 / 不能做（`N*`）**15** 条 /
 「未验证」区（`U*`）**12** 条（其中 **9** 条已标「已闭合」、仍开放 **3** 条：U2 / U8 / U9
 —— U3 于 2026-10-04 收口，见 §1 的 A6b-3），
-共 **43** 条。§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
+共 **45** 条。§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
 `A*` / `N*`。§4 / §5 的小节不计入条目。
 （旧注记 —— 2026-10-02 的 `12 / 11 / 16 = 39` —— **已作废**：它与任何机械计数都对不上，
 且此后新增 / 闭合条目时都没跟着更新；同处原写的「每条恰好一个证据字段」也不成立 —— 全文里
@@ -384,6 +384,27 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
   从「一个可见 shell」放宽到「指定 shell / 全部 shell」。部件→控件根的真映射仍要 e4（见 U7 的结论二）。
 - **证据**：`protocol.md` §7.1；任务侧 `research/tree-p2-*.txt`（原始输出）；`ui.shells` 是寻址入口。
 
+### A18 跨 run 自动回收（`lifecycle.auto_gc()`，2026-10-05 新增）
+
+- **能力**：收工路径（`ctl uninstall` 与 `ctl run --stop`，后者复用同一条）在**拆除实例之后**按
+  **target** 各自保留最新 **3** 个 run，其余目录回收；配置键 `auto_gc`（默认 `true`），
+  环境变量 `ECLIPSE_CTL_AUTO_GC=false` 可关。
+- **分组键**：`endpoint.json` 新增 `target` 字段（`ctl/client.py write_endpoint()`），分类走既有的
+  `discover_endpoint()` 校验读。**老 run（无该字段 —— 实测改造前的存量 47/47 全部如此）不进任何组
+  ⇒ 永不自动删**。
+- **8 条护栏**（**①–⑤ 各有单测与变异**，M1–M6 见任务侧 `implement.md` §S7；**⑥–⑧ 只有实现、
+  本轮无单测** —— 故本条**不**写成"逐条有测试"）：① 恒定 `skip_live`（活 run 不删，且**不暴露**
+  `--force-live`）；② 当前 run 永不删（仍占一个保留位）；③ 判不出 target 的一律不删；
+  ④ `keep < 1` ⇒ 不做 + warn；⑤ 任何异常 ⇒ **零删除** + warn（fail-closed：两阶段实现，
+  先全部分类选择、再删除）；⑥ **绝不改变命令退出码**（回收不是清洁判据；目前由一次真实
+  `ctl uninstall` 的 `rc=0` 验证，非单测）；⑦ 删了必报一行 stderr（无删除不报，
+  `skipped_unclassified` 不报；同上，非单测）；⑧ 只碰 `run_root` 的直接子目录（与 `gc()` 同界）。
+- **与手动刻意不同**：手动保持**全局** keep 且**照删**老 run —— 它是**唯一**能清那些无 `target`
+  字段的老 run 的通道（`gc --help` 与 `gc()` 的 docstring 都写明这套分工）。
+- **证据**：`ctl/lifecycle.py::auto_gc()`；`ctl/__main__.py::_collect_old_runs()`；
+  `tests/unit/test_auto_gc.py`（8 例，期望值全是本文件字面量 —— `deliverable-shape.md` C10）；
+  变异账本 M1–M6 见任务侧 `implement.md` §S7。
+
 ---
 
 ## 2. 不能做
@@ -482,6 +503,19 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
   不算命中」「不可见控件不参与计数」「标签里的一个换行不是两个控件」三条回归）；任务侧 `research/` 的 P6.3
   实测记录与 `design-project.md` §18.3 的原文出处。
 - **本条的旧表述**（「`--index`/`--path` 都未实现，差别只是 index 也缺」）**已作废** —— 那时 `--index` 确实未实现。
+
+### N17 自动回收**不碰**判不出 target 的 run，也**不碰**帧
+
+- **不能做**：① 指望收工时的自动回收把**老 run**（`endpoint.json` 没有 `target` 字段，或该文件
+  缺失 / 损坏）清掉 —— 这类一律进 `skipped_unclassified`，**目录原样留着**。这是**刻意的**：
+  它的失效方向必须是「少删」，因为猜错就是删错（`design.md` §2 实测：按 run id 前缀猜 target
+  的简单规则在 47 个里只认出 **19** 个）。要清它们只有手动那条**全局**通道。
+  ② 指望自动回收按 **`shadow/` 里的帧**决定删谁 —— 它**只读** `endpoint.json` 的 `target`
+  与目录 mtime，**从不读帧**（R5：帧不进判据）。
+- **代价（接受）**：`unclassified` 组的磁盘占用会**缓慢增长**；手动通道是完整出口。
+- **证据**：`ctl/lifecycle.py::auto_gc()` 的两阶段实现与 `skipped_unclassified` 桶；
+  `tests/unit/test_auto_gc.py::UnclassifiedImmunityTest`（四种判不出形状，`keep=1` 下仍免疫，
+  变异 M3）；构造性判据 `grep -rn shadow ctl/verify ctl/screen.py` 零输出。
 
 ---
 

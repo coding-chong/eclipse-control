@@ -112,6 +112,21 @@
   3 / 4 / 5 分别指认**（「动作 → 回读差」闭环，`boundaries.md` §A6 末条）。
   `--path`（SWT 式下标路径）**已裁决不做** 且**没有参数可给**（见下 Removed 与 `boundaries.md` N11）。
 
+- **跨 run 自动回收 `lifecycle.auto_gc()`：收工后按 target 各留 3 个 run**（2026-10-05）。
+  动机：`runs/` 自 2026-10-01 起只增不减（实测 47 个 run / 6.09 GB，其中影子 244.5 MB），
+  而手动那条通道的 keep 是**全局**的 —— 原样挂到收工路径上会一次删掉 **44/47** 个 run，
+  其中 9 个正被归档任务文档引用（原始输出见 `design.md` §2）。
+  · **分组键**：`endpoint.json` 新增 `target` 字段（`ctl/client.py write_endpoint()`）；
+  分类走既有的 `discover_endpoint()` 校验读。**老 run（无该字段 —— 存量 47/47）不分类 ⇒ 永不自动删**。
+  · **8 条护栏**：恒定 `skip_live`（且**不暴露** `--force-live`）/ 当前 run 保护 / 判不出 target 不删 /
+  `keep < 1` 不做 + warn / 任何异常 ⇒ **零删除**（两阶段实现：先全部分类选择、再删除）/
+  **绝不改退出码** / 删了必报一行 stderr / 只碰 `run_root` 的直接子目录。
+  · **与手动刻意不同**（`gc --help` 与 `gc()` 的 docstring 都写明这套分工）：
+  自动 = 每 target + 免疫老 run；手动 = 全局 + 照删老 run（它是**唯一**能清那 44 个老 run 的通道）。
+  · 配置键 `auto_gc`（默认 `true`，环境变量 `ECLIPSE_CTL_AUTO_GC`）。
+  判据 `tests/unit/test_auto_gc.py`（8 例，期望值全是本文件字面量 —— `deliverable-shape.md` C10）；
+  变异账本 M1–M6 见任务侧 `implement.md` §S7。
+
 ### Changed
 
 - **`boundaries.md` 的 U7 与 U13 两条从「未验证」改成终局**（2026-10-05）：
@@ -135,6 +150,16 @@
   （`deliverable-shape.md` C8「闸门必须能看见它守的东西」）。报错形状同时改为 `file:line`。
   单测 `tests/unit/test_doc_command_gate.py` 对**每一个**被扫位置（根 `*.md` / `skill/` /
   `skill/references/` / `recipes/`）逐项变异证明可见；`recipes/` 仍**单层**扫描。
+
+- **收工路径（`ctl uninstall` / `ctl run --stop`）现在会按 target 自动回收旧 run**（2026-10-05）：
+  两条路复用同一个 `_cmd_uninstall`，所以在 `lifecycle_uninstall()` **返回之后**只挂一处即可覆盖。
+  · 只读 `endpoint.json` 的 `target` 与目录 mtime，**不读帧** —— R5 的构造性保证仍成立
+  （`grep -rn shadow ctl/verify ctl/screen.py` 零输出）。
+  · **异常只 warn、绝不改退出码**（清洁判据仍只有 `bundle_absent` / `configuration_clean` /
+  `port_released` / `no_process`）。
+  · 报告只在**真有删除**时打一行 stderr（`skipped_unclassified` 是今天的常态，不报）。
+  · 开关 `auto_gc`（默认 `true`，环境变量 `ECLIPSE_CTL_AUTO_GC`）；关掉即回到旧行为。
+  判据与变异账本见任务侧 `implement.md` §S4/§S7；能力与边界条目见 `boundaries.md` A18 / N17。
 
 ### Removed
 
@@ -209,6 +234,14 @@
   并把触发写成 `ctl run` 脚本形式；`unknown act action` 一行**删行**；`pwsh not found` 一行的
   出处从 `ctl/__main__.py` 改指 `ctl/run.py`。同表里因本轮改动而漂移的 `ctl/__main__.py:*` 行号一并重指
   （**改代码就得跟着改引文**）。
+
+- **`.gitignore` 缺 `**/shadow/` 目录级规则（帧只有 `*.png` 兜住）**（2026-10-05）：
+  `shadow/manifest.jsonl` **不在** `*.png` 的覆盖范围内，而它含窗口标题、工作区**绝对路径**与动作
+  参数摘要 ⇒ 用自定义 `run_root`（不在 `/runs/` 下）时该文件会**裸奔进版本库**。
+  判据（**必须**用自定义 run_root —— `runs/` 下的路径会命中 `/runs/` 那条规则，把问题掩盖掉）：
+  `git check-ignore -v myroot/x/shadow/manifest.jsonl` → 命中新规则。
+  同一次改动把该文件**头部注释**里那批「写作时未执行」的路径**逐个实测回显**（原先只写在注释里，
+  等于自证从未跑过）—— 连同 `SECURITY-REVIEW.md` 本轮新增的「未脱敏整窗帧」条目一起收口。
 
 ### Changed
 
