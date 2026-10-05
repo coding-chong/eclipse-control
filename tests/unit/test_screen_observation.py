@@ -10,19 +10,26 @@ test's **own literal**.  Nothing is read from `_QUOTED`, `IGNORE_CLASSES` or any
 other constant of the code under test -- otherwise weakening the fixture would
 silently weaken its judge too.
 
-Falsify (measured 2026-10-06, one mutation at a time, `git checkout --` between;
-each reddened exactly one test -- C12):
+Falsify (measured 2026-10-06, one mutation at a time, `git checkout --` between).
+The numbered **M** entries below reddened exactly one test each (C12); the other
+entries are measured too and are listed with their own count.
 - **M2** `sorted(windows.items())` -> `list(windows.items())` in `describe` ->
-  `test_describe_sorts_by_hwnd_and_renders_title_before_class` red
+  `test_describe_sorts_by_hwnd_and_renders_title_before_class` red, 1 test
   (`Ran 9 tests ... FAILED (failures=1)`).  The fixture is deliberately out of
   insertion order, so an unsorted render cannot pass by luck.
-- `appeared_titles`: change `_QUOTED` to `r"'([^']*)'"` (or drop the `or ""`
-  guard) -> `test_titles_come_out_of_the_payload_in_order` and the two
-  empty-input tests go red.
-- `describe`: swap the unpack `(pid, cls, title)` -> `(cls, pid, title)` -> the
-  same render test goes red (title-before-class is asserted).
-- `shoot`: return the whole `shoot_verbose` tuple instead of its first element
-  -> `test_shoot_returns_only_the_boolean` goes red.
+- `appeared_titles` regex: `_QUOTED` -> `r"'([^']*)'"` -> **1 test** red
+  (`test_titles_come_out_of_the_payload_in_order`).  The two empty-input tests stay
+  green: `findall` still answers `[]` for `""` / `None` under either pattern.
+- `appeared_titles` guard: drop the `or ""` in `findall(line or "")` -> **1 test**
+  red (`test_none_input_yields_an_empty_list`), the title test stays green.  The two
+  mutations are deliberately separate because neither one alone covers both halves.
+- `describe` unpack: `(pid, cls, title)` -> `(cls, pid, title)` -> the render test
+  red (title-before-class is asserted).
+- `shoot`: return the whole `shoot_verbose` tuple instead of its first element ->
+  **2 tests** red (`test_shoot_returns_only_the_boolean` +
+  `test_a_failed_shot_is_false_not_truthy`, `Ran 9 tests ... FAILED (failures=2)`).
+  Both are in `ShootTest` and both judge the same return type, so this is not
+  cross-group contamination -- it is just a mutation two tests are entitled to see.
 """
 
 from __future__ import annotations
