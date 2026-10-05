@@ -170,6 +170,17 @@ class Target:
 # Discovery helpers
 # --------------------------------------------------------------------------- #
 
+#: ECJ inside the target's own tree -- Eclipse ships JDT, so this is the normal case.
+ECJ_TREE_GLOBS = ("plugins/org.eclipse.jdt.core.compiler.batch_*.jar",)
+
+#: Two levels up from the IDE tree.  CCS ships **no JDT**, but its XDCtools component
+#: (a declared part of the product: `ccs/install_info/com.ti.xdctools.update.properties`
+#: -> `Installdir=../../xdctools_3_62_01_16_core`) carries a batch compiler.  `install_dir`
+#: is the IDE tree `<ccs_root>/ccs/eclipse`, so `<ccs_root>` is `../..`.
+#: Measured 2026-10-06: that compiler is ECJ 3.14.0, which caps out at `-source/-target 9`.
+ECJ_ANCESTOR_GLOBS = ("../../xdctools_*/packages/xdc/shelf/java/ecj.jar",)
+
+
 def _find_justj_java(install_dir: str, jre_version: str = "") -> Optional[str]:
     plugins = os.path.join(install_dir, "plugins")
     patterns = []
@@ -185,9 +196,35 @@ def _find_justj_java(install_dir: str, jre_version: str = "") -> Optional[str]:
 
 
 def _find_ecj(install_dir: str) -> Optional[str]:
-    hits = sorted(glob.glob(os.path.join(install_dir, "plugins",
-                                         "org.eclipse.jdt.core.compiler.batch_*.jar")))
-    return hits[-1] if hits else None
+    """Locate the ECJ batch compiler for an IDE tree.
+
+    Two search surfaces, in order (both are the *same* product's install, never a
+    sibling product's):
+
+    1. ``ECJ_TREE_GLOBS`` -- inside the tree itself (Eclipse ships JDT).
+    2. ``ECJ_ANCESTOR_GLOBS`` -- two levels up.  CCS ships **no JDT**, but its
+       XDCtools component carries a batch compiler at
+       ``<ccs_root>/xdctools_*/packages/xdc/shelf/java/ecj.jar``, and
+       ``install_dir`` is the IDE tree (``<ccs_root>/ccs/eclipse``).
+
+    Returns ``None`` when neither surface has one.  Callers must treat that as
+    "this tree cannot build the bridge", never as "borrow one from somewhere
+    else": the old code fell back to a **hard-coded sibling install path**, which
+    made a CCS-only machine fail with a message about a GS32 tree it never had.
+    """
+    for pattern in ECJ_TREE_GLOBS:
+        hits = sorted(glob.glob(os.path.join(install_dir, pattern)))
+        if hits:
+            return os.path.normpath(hits[-1])
+    for pattern in ECJ_ANCESTOR_GLOBS:
+        hits = sorted(glob.glob(os.path.join(install_dir, pattern)))
+        if hits:
+            # `normpath` matters here and only here: the ancestor pattern is relative
+            # (`../../xdctools_*`), so the raw match carries `../..` inside it.  Every
+            # caller compares this string against other paths (doctor prints it, tests
+            # assert on it), and `a/../..\b` != `b`.
+            return os.path.normpath(hits[-1])
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -212,19 +249,24 @@ _BUILTIN: Dict[str, Dict[str, Any]] = {
         "install_dir": "D:/ti/ccs1281/ccs/eclipse",
         "eclipse_version": "4.23.0",
         "jre": "11.0.13",
-        "java_target": "11",
+        # 8, not 11.  This tree ships **no JDT**, so the only compiler it has is its
+        # own XDCtools component's (`ECJ_ANCESTOR_GLOBS`), and that one is ECJ 3.14 --
+        # measured 2026-10-06: `-source/-target` caps at 9, `-source 11` exits 255.
+        # 8 is the widest level every candidate compiler can emit, and the bridge
+        # source uses no Java 9+ API (constant-pool scan), so nothing is lost.
+        # Deliberately NOT derived from the discovered compiler: the level must be a
+        # property of the *target*, or the same target would emit different bytecode
+        # on different machines and `doctor`'s exact-level check would stop meaning
+        # anything (`lifecycle.py:421-426`).  Override per-run with `--ecj <jar>`.
+        "java_target": "8",
         "product": "org.eclipse.platform.ide",
         "default_port": 8778,
         "port": 8778,
         "launcher": "ccstudio.exe",
         "vendor_prefix": "com.ti",
-        # CCS ships **no JDT**, so `bridge/build.py` finds no ECJ batch compiler
-        # inside this tree (`doctor --target ccs12` reports that as FAIL). It is
-        # borrowed from the sibling gs32 install: ECJ 3.36 emits `-source/-target 11`,
-        # which is what this target needs. Override per-run with
-        # `python -m ctl build --target ccs12 --ecj <jar>`.
-        "ecj": "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2/plugins/"
-               "org.eclipse.jdt.core.compiler.batch_3.36.0.v20231114-0937.jar",
+        # No `ecj` key: the compiler is discovered inside this product's own install
+        # (see `_find_ecj`).  It used to be a hard-coded path into the **gs32** tree,
+        # which made a CCS-only machine die with a message about an install it never had.
         # Measured 2026-10-02 on a live instance: `com.ti` registers 33 views
         # (`ui.viewids com.ti`), and this one opens and reads back
         # (`cmd.runp showView viewId=…` -> OK, then present in `ui.parts`).

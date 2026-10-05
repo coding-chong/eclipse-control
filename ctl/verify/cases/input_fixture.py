@@ -45,7 +45,7 @@ from ._util import verdict
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _FIXTURE_DIR = os.path.join(_ROOT, "tools", "fixture-swt")
 #: Build output is **per target**, never shared.  The class-file version a target's
-#: JVM accepts differs (`java_target` 17 vs 11) and so does the SWT fragment, so one
+#: JVM accepts differs (`java_target` 17 vs 8) and so does the SWT fragment, so one
 #: shared `out/` makes the second target silently reuse the first one's class.
 #: Measured 2026-10-02: CCS (JRE 11.0.13) picked up the Java-17 `Fixture.class`
 #: (major 61) a GS32 run had left behind, the JVM refused to load it, and the
@@ -176,14 +176,20 @@ def _owner_of(ecj: str) -> Optional[object]:
 def _build_java(target, ecj: str, log: List[str]) -> str:
     """The JVM that *compiles* the fixture -- **the ECJ and its JVM must match**.
 
-    ECJ 3.36 is compiled for Java 17, so CCS's bundled JRE 11 dies with
-    ``UnsupportedClassVersionError: class file version 61.0`` (measured
-    2026-10-02) -- and ``target.ecj_jar()`` on ``ccs12`` points at **GS32's** jar,
-    because CCS ships no batch compiler of its own (``plugins/`` has no
-    ``org.eclipse.jdt.core.compiler.batch_*``).  Only the **compiler** runs on the
-    JVM picked here: the fixture is still launched with the target's own JVM
-    (``_start``) so the target's SWT is what gets exercised, and
-    ``-target <java_target>`` keeps the produced class file loadable there.
+    A batch compiler is itself bytecode, so the JVM picked here must be able to
+    *load* it; that is a different question from what level it *emits* (which is
+    ``-target <java_target>``, handled below).  Measured 2026-10-02, while
+    ``ccs12`` still borrowed GS32's ECJ 3.36: CCS's bundled JRE 11 died with
+    ``UnsupportedClassVersionError: class file version 61.0``.  Since 2026-10-06
+    ``ccs12`` finds its own compiler inside its XDCtools component (ECJ 3.14,
+    which its JRE 11 loads without complaint), so the first candidate wins and
+    the owner lookup below is no longer the path ``ccs12`` takes -- it stays as
+    the general fallback for a target whose own JVM cannot host the compiler
+    discovered for it.
+
+    Only the **compiler** runs on the JVM picked here: the fixture is still
+    launched with the target's own JVM (``_start``) so the target's SWT is what
+    gets exercised.
     """
     target_java = target.java_exe() or ""
     candidates: List[Tuple[str, str]] = []

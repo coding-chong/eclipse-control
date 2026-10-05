@@ -90,16 +90,19 @@ REQUIRED_PLUGIN_PREFIXES = [
     "org.eclipse.osgi_",
 ]
 
-ECJ_GLOBS = ["plugins/org.eclipse.jdt.core.compiler.batch_*.jar"]
-
-# Install roots are recorded once, in `ctl/targets.py` (`_BUILTIN`), and read from
-# there.  The CLI already passes `--src` from the same place (`ctl.__main__._build_bridge`),
-# so a direct `python bridge/build.py --target ccs12` must not carry a second, drifting
-# copy of the paths.  `ctl` is a sibling package of this script inside the repo; running a
-# script by path puts `bridge/` (not the repo root) on `sys.path`, so add the repo root.
+# Install roots **and the ECJ search surfaces** are recorded once, in `ctl/targets.py`
+# (`_BUILTIN` / `ECJ_TREE_GLOBS` / `ECJ_ANCESTOR_GLOBS`), and read from there.  The CLI
+# already passes `--src` from the same place (`ctl.__main__._build_bridge`), so a direct
+# `python bridge/build.py --target ccs12` must not carry a second, drifting copy of the
+# paths.  `ctl` is a sibling package of this script inside the repo; running a script by
+# path puts `bridge/` (not the repo root) on `sys.path`, so add the repo root.
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
-from ctl.targets import builtin_targets  # noqa: E402  (import needs the path insert above)
+from ctl.targets import (  # noqa: E402  (import needs the path insert above)
+    ECJ_ANCESTOR_GLOBS,
+    ECJ_TREE_GLOBS,
+    builtin_targets,
+)
 
 _INSTALL_DIRS = {name: target.install_dir for name, target in builtin_targets().items()}
 
@@ -108,14 +111,11 @@ def _install_dir(name: str) -> str:
     return _INSTALL_DIRS.get(name, "")
 
 
-# The fallback below is spelled from this value, never as a second literal path.
-_GS32 = _install_dir("gs32")
-
 TARGETS = {
     "gs32": {
         "src": _install_dir("gs32"),
         "java_level": "17",
-        "ecj_globs": ECJ_GLOBS,
+        "ecj_globs": list(ECJ_TREE_GLOBS),
         "jre_globs": [
             "plugins/org.eclipse.justj.openjdk.hotspot.jre*/jre/bin/java.exe",
             "jre/bin/java.exe",
@@ -123,14 +123,15 @@ TARGETS = {
     },
     "ccs12": {
         "src": _install_dir("ccs12"),
-        "java_level": "11",
-        # CCS ships no JDT, so the in-tree glob finds nothing.  The second entry is a
-        # **fallback, not the normal path**: it borrows the sibling gs32 tree's ECJ
-        # (3.36 emits `-source/-target 11`, which is what this target needs).  Override
-        # with --ecj <jar>.
-        "ecj_globs": ECJ_GLOBS + [
-            "%s/plugins/org.eclipse.jdt.core.compiler.batch_*.jar" % _GS32.replace("\\", "/"),
-        ],
+        # 8, not 11: this tree ships no JDT, so the only compiler it has is its own
+        # XDCtools component's (ECJ 3.14 -- `-source/-target` caps at 9).  Must match
+        # `_BUILTIN["ccs12"]["java_target"]`; see the note there for why it is not
+        # derived from whatever compiler happens to be found.
+        "java_level": "8",
+        # Same two surfaces `_find_ecj` uses, and only those.  There used to be a third
+        # entry: a **hard-coded absolute path into the sibling gs32 install**, which made
+        # a CCS-only machine die naming a tree it never had.  Override with --ecj <jar>.
+        "ecj_globs": list(ECJ_TREE_GLOBS) + list(ECJ_ANCESTOR_GLOBS),
         "jre_globs": [
             "jre/bin/java.exe",
             "plugins/org.eclipse.justj.openjdk.hotspot.jre*/jre/bin/java.exe",
@@ -207,6 +208,27 @@ def classpath_jars(plugins_dir: str) -> list:
     return jars
 
 
+def _ee_name(java_level: str) -> str:
+    """The OSGi `Bundle-RequiredExecutionEnvironment` name for a class-file level.
+
+    Eclipse's own convention: levels up to 8 are spelled `JavaSE-1.<n>` (that is
+    the spelling in Equinox's EE name table -- read out of `Storage.class` in
+    `org.eclipse.osgi`; measured 2026-10-06, the same table in the CCS 3.17 and
+    GS32 3.18 frameworks), while 9 and above drop the `1.` (`JavaSE-11`,
+    `JavaSE-17`).  Emitting `JavaSE-1.17` or `JavaSE-8` would be a name the
+    framework does not know.
+
+    This is **not** a fix for an observed load failure: a 0.1.0 jar declaring
+    `JavaSE-11` runs in CCS today, so the field does not gate resolution here.
+    Writing the recognised name just removes pointless noise.
+    """
+    try:
+        level = int(java_level)
+    except (TypeError, ValueError):
+        return "JavaSE-%s" % java_level
+    return "JavaSE-1.%d" % level if level <= 8 else "JavaSE-%d" % level
+
+
 def manifest(version: str, java_level: str) -> bytes:
     lines = [
         "Manifest-Version: 1.0",
@@ -217,7 +239,7 @@ def manifest(version: str, java_level: str) -> bytes:
         "Bundle-Activator: %s" % BUNDLE_ACTIVATOR,
         "Require-Bundle: %s" % REQUIRE_BUNDLE,
         "Import-Package: org.osgi.framework",
-        "Bundle-RequiredExecutionEnvironment: JavaSE-%s" % java_level,
+        "Bundle-RequiredExecutionEnvironment: %s" % _ee_name(java_level),
     ]
     return ("\r\n".join(lines) + "\r\n\r\n").encode("utf-8")
 

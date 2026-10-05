@@ -53,6 +53,8 @@ from .lifecycle import (
 from .parse import command_ids
 from .run import cmd_run as cmd_run_door
 from .targets import (
+    ECJ_ANCESTOR_GLOBS,
+    ECJ_TREE_GLOBS,
     Config,
     Target,
     add_target,
@@ -489,6 +491,62 @@ def _check(name: str, status: str, detail: str) -> Dict[str, str]:
     return {"name": name, "status": status, "detail": detail}
 
 
+def _ecj_origin(ecj: str, install_dir: str) -> str:
+    """``<file name> (<where it came from>)`` -- for the `doctor` ECJ line.
+
+    The old line printed just the file name, so a compiler borrowed from an
+    entirely different product's install tree looked identical to one from this
+    target's own tree -- exactly the blind spot that hid this bug.
+    """
+    name = os.path.basename(ecj)
+    root = os.path.normpath(install_dir)
+    path = os.path.normpath(ecj)
+    try:
+        rel = os.path.relpath(path, root)
+    except ValueError:
+        rel = path
+    if rel.startswith(".."):
+        return "%s (from outside the target tree: %s)" % (name, path)
+    return "%s (%s)" % (name, rel.replace(os.sep, "/"))
+
+
+def _ecj_can_emit(ecj: str, target: Target) -> Tuple[bool, str]:
+    """``(ok, why)`` -- can this ECJ actually emit ``target.java_target``?
+
+    Presence is not capability.  `ccs12` has no JDT of its own, so its compiler
+    comes from the product's XDCtools component, and that one is ECJ 3.14: it
+    caps at `-source/-target 9` and exits 255 for anything higher (measured
+    2026-10-06).  A user whose `config.json` still pins `java_target: 11` -- which
+    is what the built-in shipped before this change -- would otherwise get the
+    compiler's own `source level should be comprised in between '1.3' and '1.9'`
+    and nothing pointing at the fix.
+
+    Returns ``(True, "")`` when the probe cannot run at all (no JVM, or the ECJ
+    does not answer `-version`): the honest reading of "I could not test this" is
+    "not a FAIL here", and check 4 still judges the produced jar.
+    """
+    java = target.java_exe()
+    if not java or not target.java_target:
+        return (True, "")
+    code, out = _run([java, "-jar", ecj, "-source", target.java_target,
+                      "-target", target.java_target, "-version", "-proc:none", "-nowarn"],
+                     timeout=60)
+    if code == 0:
+        return (True, "")
+    first = next((line.strip() for line in out.splitlines() if line.strip()), "")
+    # A batch compiler that bails out calls `System.exit(-1)`, and Windows hands
+    # that back as `0xFFFFFFFF`; printing the raw value ("probe exit 4294967295")
+    # tells the reader nothing.  Show it the way the compiler meant it.
+    if code > 0x7FFFFFFF:
+        code -= 0x100000000
+    return (False,
+            "%s cannot emit java_target %s (probe exit %s: %s); retry: "
+            "python -m ctl targets add %s --source-dir %s --java-level <lower>, "
+            "or build with --ecj <a newer batch compiler>"
+            % (os.path.basename(ecj), target.java_target, code, first or "<no output>",
+               target.name, target.install_dir))
+
+
 def _doctor_checks(config: Config, target: Target, args) -> List[Dict[str, str]]:
     checks: List[Dict[str, str]] = []
 
@@ -523,13 +581,30 @@ def _doctor_checks(config: Config, target: Target, args) -> List[Dict[str, str]]
     else:
         checks.append(_check("platform / JRE", "FAIL", detail + " -- at " + target.install_dir))
 
-    # 3. ECJ batch compiler present (required to build the bridge in-tree)
+    # 3. ECJ batch compiler present (required to build the bridge in-tree), and
+    #    actually able to emit this target's `java_target`.  Presence alone is not
+    #    enough: `ccs12` has no JDT of its own, so its compiler comes from the
+    #    product's XDCtools component, and that one is old enough to reject a
+    #    `-source` above 9.  A user whose config pins `java_target: 11` would
+    #    otherwise get `source level should be comprised in between '1.3' and
+    #    '1.9'` straight out of the compiler, with nothing pointing at the fix.
     ecj = target.ecj_jar()
     if ecj:
-        checks.append(_check("ECJ compiler", "PASS", os.path.basename(ecj)))
+        able, why = _ecj_can_emit(ecj, target)
+        if able:
+            # Name the origin, not just the file name: the whole point of this check
+            # is to make "the compiler came from somewhere outside this product"
+            # visible.  A bare `ecj.jar` hid exactly that (`doctor --target ccs12`
+            # used to PASS while pointing at the sibling GS32 tree's jar).
+            checks.append(_check("ECJ compiler", "PASS", _ecj_origin(ecj, target.install_dir)))
+        else:
+            checks.append(_check("ECJ compiler", "FAIL", why))
     else:
         checks.append(_check("ECJ compiler", "FAIL",
-                             "no org.eclipse.jdt.core.compiler.batch_*.jar under %s/plugins" % target.install_dir))
+                             "no ECJ batch compiler found for %s; searched %s and %s"
+                             % (target.install_dir,
+                                " + ".join(ECJ_TREE_GLOBS),
+                                " + ".join(ECJ_ANCESTOR_GLOBS))))
 
     # 4. bridge jar present, or buildable from source -- and it must be a jar
     #    this target can actually load (java_target vs the jar's class-file level).

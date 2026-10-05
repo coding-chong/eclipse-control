@@ -38,7 +38,7 @@
 |---|---|---|---|
 | 端口被别的实例占用 / 连到旧桥 | `python -m ctl status --target <TARGET> --json` 比对 `bundle id` 与本次 `install` 回读 | 归属错实例：`python -m ctl install --target <TARGET> --run-id <RUN_ID> --port <N>` 换端口；跑前 `--ensure-clean` | 杀残留进程（`pwsh -Command "Stop-Process -Id <pid> -Force"`；**不要**用 `taskkill //F`，会被 brush 吃掉参数） |
 | 截图抓到的是 IDE 工具栏而不是对话框 | 看图（`shots/` 下那张）而不是只看 rect | 用了已降级的 `CopyFromScreen` 通道：改用 `tools/shot-window-pw.ps1`（`PrintWindow` + DPI 感知） | 确认调用时先执行了 `SetProcessDPIAware`（该脚本已内置） |
-| 桥版本漂移（副本里的常驻桥与源码不一致） | `python -m ctl shell --run-id <RUN_ID> -c "sys.env"` 读 `bundle=` / `id=` | 与期望不符先 `uninstall` 再 `install`（`design.md` §12 风险表「桥版本漂移」） | `python -m ctl upgrade --target <TARGET>` 走控制台 `update` 热更 |
+| 桥版本漂移（副本里的常驻桥与源码不一致） | `python -m ctl shell --run-id <RUN_ID> -c "sys.env"` 读 `bundle=` / `id=` | 与期望不符先 `uninstall` 再 `install`（`design.md` §12 风险表「桥版本漂移」） | `python -m ctl upgrade --target <TARGET>` = **重编 + 停旧实例 + 重装**（`ctl/__main__.py:_cmd_upgrade`）。**没有对外热更新通道** —— 控制台 `update` 命令不存在，`upgrade` 自己会往 stderr 打 `hot console update is not reachable externally` |
 | `sys.env` 缺少 `protocol=` / 协议版本不符 | `python -m ctl shell --run-id <RUN_ID> -c "sys.env"` | 客户端在握手时就会拒绝（`protocol.md` §9）；按报错里的期望版本重装桥 | 报缺陷：这是版本漂移，不是可继续的状态 |
 | `ERR notfound no such case` 形态的用例名写错 | `python -m ctl verify --case <NAME> --target <TARGET>` | 用真实用例名；先 `python -m ctl verify --group read --target <TARGET>` 看组内有哪些 | 见 §7 的错误串一行 |
 | `--json` 输出混入诊断、stdout 解析失败 | `python -m ctl parts --json 2>err.txt \| python -c "import json,sys; json.load(sys.stdin)"` | 这是 stdout/stderr 分工被破坏的缺陷：诊断必须只走 stderr（`design-project.md` §17.2） | 留原文上报（四件套） |

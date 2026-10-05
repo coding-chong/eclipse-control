@@ -162,17 +162,19 @@ python -m ctl build --target ccs12
 | `run_root` | 运行目录根（默认 `~/.eclipse-ctl/runs`） |
 | `keep_runs` | 保留最近几次 run（超出可**回收**） |
 
-> `java_target` 决定 `-source/-target`：它必须**≤ 目标 JRE 的级别**，否则编出来的 class 在那台 JRE 上装载不了。
+> `java_target` 决定 `-source/-target`：它必须**≤ 目标 JRE 的级别**，否则编出来的 class 在那台 JRE 上装载不了；
+> 同时必须**≤ 该目标能拿到的编译器**的上限 —— ccs12 的编译器来自它自带的 XDCtools 组件（ECJ 3.14，
+> 上限 Java 9），所以它的 `java_target` 是 **8**。它是 target 的**属性**，不由"发现了哪个编译器"推导。
 
 ## target 清单（内置两个）
 
-内置矩阵是 `ctl/targets.py` 的 `_BUILTIN`（`ctl/targets.py:196-234`）。两个 target 的
+内置矩阵是 `ctl/targets.py` 的 `_BUILTIN`（`ctl/targets.py:234-277`）。两个 target 的
 **平台版本 / JRE / 厂商标识 / 端口 / 安装根**逐项如下（**同一份脚本、同一套方法面**，差异只在值上）：
 
 | target | 平台版本 | JRE（`java_target`） | 厂商标识 | 端口 | 启动器 | 产品 id |
 |---|---|---|---|---|---|---|
 | `gs32` | Eclipse 4.30.0 | 23.0.2（17） | `com.gs` | **8777** | `GS32.exe` | `com.gs.ui.Studio` |
-| `ccs12` | Eclipse 4.23.0 | 11.0.13（11） | `com.ti` | **8778** | `ccstudio.exe` | `org.eclipse.platform.ide` |
+| `ccs12` | Eclipse 4.23.0 | 11.0.13（8） | `com.ti` | **8778** | `ccstudio.exe` | `org.eclipse.platform.ide` |
 
 | target | 安装根 |
 |---|---|
@@ -190,12 +192,14 @@ gs32     4.30.0     23.0.2 17     com.gs.ui.Studio         8777   D:/ProgramFile
 三条非直觉的差异（都有出处，逐条可 `grep`）：
 
 - **端口是每个 target 的固定值，不是「从 8777 起取首个空闲」**：`gs32` = 8777、`ccs12` = 8778
-  （`ctl/targets.py:203-204` / `ctl/targets.py:216-217`）。端口被占**即拒**，不会自动漂到别处（`protocol.md` §6）。
-- **探针视图按 vendor 命名，后缀拼接不通用**：`gs32` = `com.gs.memory.view`（`ctl/targets.py:208`），
-  `ccs12` = `com.ti.ccstudio.project.ui.views.MemoryAllocationView`（`ctl/targets.py:232`）——
+  （`ctl/targets.py:241` / `ctl/targets.py:263`）。端口被占**即拒**，不会自动漂到别处（`protocol.md` §6）。
+- **探针视图按 vendor 命名，后缀拼接不通用**：`gs32` = `com.gs.memory.view`（`ctl/targets.py:246`），
+  `ccs12` = `com.ti.ccstudio.project.ui.views.MemoryAllocationView`（`ctl/targets.py:275`）——
   `com.ti` 下**没有** `.memory.view`。
-- **`ccs12` 那棵树里没有 JDT 批编译器**，内置矩阵让它**借用 `gs32` 树里的那份**
-  （`ctl/targets.py:225-226`）；`--doctor` 会把「本树找不到」这一条报成 FAIL。
+- **`ccs12` 那棵树里没有 JDT 批编译器**，它的编译器由 `_find_ecj` 在**同产品**的 XDCtools 组件里找到
+  （`ctl/targets.py:174-181` 的两条搜索面：树内 `plugins/`，再向上两层
+  `xdctools_*/packages/xdc/shelf/java/ecj.jar`）——**不再从 gs32 树外借**；
+  `--doctor` 会把「两处都没有」这一条报成 FAIL，并在编译器不认 `java_target` 时给出改写。
 
 加自定义 target 用 `python -m ctl targets add`；字段名与别名见 [`DEVELOPING.md`](DEVELOPING.md) §九。
 

@@ -126,8 +126,14 @@ $ ls <pre-existing jar>
  mistaken for a fresh one; the last good jar in bridge/dist/ is left untouched)
 ```
 
-CCS 12.8.1 ships a JRE (`<src>/jre/bin/java.exe`) but **no JDT**, so `--target ccs12` needs
-`--ecj <ecj.jar>` (the GS32 ECJ compiles `-source 11` fine).
+CCS 12.8.1 ships a JRE (`<src>/jre/bin/java.exe`) but **no JDT**. Since 2026-10-06 the
+`ccs12` target discovers its own compiler inside the product's XDCtools component
+(`../../xdctools_*/packages/xdc/shelf/java/ecj.jar`, ECJ 3.14), so `--target ccs12`
+builds without `--ecj`; the hard-coded borrow from the GS32 tree is gone. That ECJ caps at
+`-source/-target 9`, which is why `ccs12`'s level is **8** (the GS32 ECJ is not used, and
+`-source 11` is exactly what this tree's own compiler rejects). The error block above is the
+**pre-2026-10-06** message (it listed only `plugins/`); the current one also lists the
+ancestor glob.
 
 ## 4. Offline verification of the built jar (no IDE)
 

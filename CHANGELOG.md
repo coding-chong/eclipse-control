@@ -8,8 +8,35 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ccs12` 的 ECJ 发现不再依赖 gs32 兄弟树**（2026-10-06）：CCS 12.8.1 **不带 JDT**，
+  而 `ctl/targets.py` 与 `bridge/build.py` 各**写死一条 gs32 的绝对路径**当兜底 ⇒
+  **只装 CCS 的机器**上 `python -m ctl build --target ccs12` 直接 `exit 1`，报错里点名一棵
+  它从未有过的 GS32 树；`ctl install` 随后在 `find_bridge_jar` 处以 `PrereqNotReady`（exit 2）挡住。
+  现在发现走**本产品自己的安装树**：先 `<install_dir>/plugins/org.eclipse.jdt.core.compiler.batch_*.jar`，
+  再向上两层 `<install_dir>/../../xdctools_*/packages/xdc/shelf/java/ecj.jar` —— 后者是 CCS
+  **自带**的正式组件（`TARGET_CONTENT_CORE=3.62.1.16`）。两条写死的绝对路径**全部删除**；
+  `--ecj <jar>` 仍是显式逃生口。回归门：`tests/unit/test_ecj_discovery.py`（合成树，不依赖本机装了 CCS）。
+  **判据**：把 `_BUILTIN["gs32"]["install_dir"]` 指到不存在处（只改这一项）后
+  `python -m ctl build --target ccs12` ⇒ `rc=0` 且产出 jar。
+
 ### Changed
 
+- **`ccs12` 的字节码级别 `11` → `8`**（2026-10-06）：级别必须**≤ 该目标能拿到的编译器**的上限，
+  而 ccs12 树内唯一的编译器是它自带 XDCtools 里的 **ECJ 3.14**（`-source/-target` 上限 9；
+  `-source 11` 实测 `rc=255`）。桥源码零 Java 9+ API（常量池扫描），降到 8 无功能损失。
+  **级别是 target 的属性，不由「发现了哪个编译器」推导** —— 否则同一 target 换台机器产出不同字节码，
+  `doctor` 的 `class-file == java_target + 44` 这条精确判据就失去意义。
+  连带：`doctor` 新增一次**能力探测**（用 `target.java_exe()` 试跑 `-source/-target <java_target>`），
+  不接受即 FAIL 并给出两条改写（`--java-level <更低>` 或 `--ecj <jar>`）——
+  用户的 `config.json` 若仍写着 `java_target: 11`，报错会指向修法而不是 ECJ 的原始串。
+- **`Bundle-RequiredExecutionEnvironment` 的拼写按级别分段**（2026-10-06）：
+  抽 `bridge/build.py:_ee_name()` —— `level <= 8` ⇒ `JavaSE-1.<n>`，`level >= 9` ⇒ `JavaSE-<n>`。
+  此前写死 `JavaSE-%s`，于是级别 8 会写成**非标准拼写** `JavaSE-8`。
+  实测依据：ccs12 里 206 个 bundle 声明 `JavaSE-11`、gs32 里 167 个声明 `JavaSE-17`
+  ⇒ 9+ 的正确拼写**就是** `JavaSE-<n>`。**这不是「修复装载失败」** —— 没有观测到装载失败
+  （在跑的桥声明的正是 `JavaSE-11` 却跑得起来）；只是把名字写对，去掉无谓噪音。
 - **`preflight` 的退出码不再把「环境就绪」与「仓库卫生」混成一个 `1`**（2026-10-05）：
   此前一个 `problems` 计数器同时装两类失败，于是**空旷的工作区**（没起实例）也返回 `1`，
   与"仓库真有问题"同码 ⇒ 它**当不了发布闸门**。现在照 `DEVELOPING.md` §一 对 `verify` 的既有约定

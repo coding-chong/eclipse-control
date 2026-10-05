@@ -58,11 +58,18 @@
   | JRE 模块数 | **30**（JustJ JRE 23.0.2） | **55**（JRE 11.0.13） |
   | 命令服务 bundle 版本 | `org.eclipse.ui.workbench` **3.131.0** | `org.eclipse.ui.workbench` **3.125.0** |
   | 厂商命令数 | `com.gs` **7**（总 666） | `com.ti` **115**（总 807） |
-  | 必须重编的产物 | `eclipse-ctl.bridge_0.1.0_gs32.jar`（class-file **61** = Java 17） | `eclipse-ctl.bridge_0.1.0_ccs12.jar`（class-file **55** = Java 11） |
+  | 必须重编的产物 | `eclipse-ctl.bridge_0.2.0_gs32.jar`（class-file **61** = Java 17） | `eclipse-ctl.bridge_0.2.0_ccs12.jar`（class-file **52** = Java 8） |
 
-  > **同一份源码、两个字节码级别**：ccs12 的 JRE 是 11 ⇒ `-source/-target 11`；gs32 是 17。
+  > **同一份源码、两个字节码级别**：gs32 是 17；ccs12 是 **8**（见下）。
   > 两个 jar **按 target 命名并存**（此前同名会互相覆盖），`doctor` 会校验 jar 内 class-file 级别
-  > 与目标声明的 `java_target` 一致。ccs12 **不带 JDT**，其 ECJ 从 gs32 安装树外借。
+  > 与目标声明的 `java_target` 一致。
+  >
+  > **ccs12 的级别是 8，不是 11**（2026-10-06 改）。该树**不带 JDT**，它唯一的编译器来自**同产品**的
+  > XDCtools 组件（`<ccs_root>/xdctools_*/packages/xdc/shelf/java/ecj.jar`，`_find_ecj` 向上两层找到），
+  > 而那份是 **ECJ 3.14.0**：`-source/-target` 上限 9，`-source 11` 直接 `rc=255`。
+  > 8 是任何候选编译器都能发的级别；桥源码零 Java 9+ API（常量池扫描），降到 8 无功能损失。
+  > **级别是 target 的属性、不由「发现了哪个编译器」推导** —— 否则同一 target 换台机器产出不同字节码，
+  > `doctor` 的 `class-file == java_target + 44` 这条精确判据就失去意义。
 
 - **证据**：`research/facts-baseline.md` §1 目标环境表；`prd.md` F5（出处 `route-comparison.md` §9.12）；
   2026-10-02 实测：`verify --all --target gs32` / `verify --all --target ccs12` 的逐条输出、
@@ -818,7 +825,7 @@ grep -rn "EModelService\|MApplication\|MWindow\|MPart" bridge/src/
 | **JRE 模块数** | JustJ Temurin **23.0.2** minimal → **30** 模块（`java --list-modules \| wc -l`） | **11.0.13** → **55** 模块（同上实测） |
 | **命令服务 bundle 版本** | `org.eclipse.ui.workbench_3.131.0.v20231201-0512` | `org.eclipse.ui.workbench_3.125.0.v20220308-0722` |
 | **厂商命令数** | `com.gs` → **7**（`cmd.list` 原文 `com.gs total=666 matched=7 returned=7`） | `com.ti` → **115**（原文 `com.ti total=807 matched=115 returned=115`） |
-| **必须在目标上重编的产物** | 桥 jar（class-file **61** / Java 17，`java_target=17`）；**SWT 片段 3.124.200** 与夹具 class | 桥 jar（class-file **55** / Java 11，`java_target=11`）；**SWT 片段 3.119.0** 与夹具 class |
+| **必须在目标上重编的产物** | 桥 jar（class-file **61** / Java 17，`java_target=17`）；**SWT 片段 3.124.200** 与夹具 class | 桥 jar（class-file **52** / Java 8，`java_target=8`）；**SWT 片段 3.119.0** 与夹具 class |
 | **厂商命令 id 清单** | 7 条：`com.gs.sdk.version`、`…sendtoLive`、`…checkproject`、`…gsprojectimport`、`…gsprojectcreate`、`com.gs.sdk.editor.activate`、`com.gs.ui.intro.openFile` | 115 条（`com.ti.*` 前缀；全量清单以 `ctl commands export` 的产物为准，本表给前缀与计数） |
 
 补充事实（同一协议原文）：`read.viewids` 注册视图 GS32 `total=55`（厂商 5）/ CCS `total=95`（厂商 33）；
