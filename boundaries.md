@@ -8,8 +8,10 @@
 
 **本文件条目数**（2026-10-05 复算；判据 = §1–§3 内每个条目小节各计一条，
 `grep -cE '^### (A|N|U)[0-9]'`）：能做（`A*`）**19** 条 / 不能做（`N*`）**15** 条 /
-「未验证」区（`U*`）**12** 条（其中 **9** 条已标「已闭合」、仍开放 **3** 条：U2 / U8 / U9
-—— U3 于 2026-10-04 收口，见 §1 的 A6b-3），
+「未验证」区（`U*`）**12** 条（其中 **10** 条已标「已闭合 / 已定论」、仍开放 **2** 条：U2 / U9
+—— U3 于 2026-10-04 收口，见 §1 的 A6b-3；**U8 于 2026-10-05 定论**：可用性成立（实测
+`services: EModelService=true`）、「经 e4 模型层寻址」在本代码库里不存在且按 §N9′ 不需要 ⇒
+`决定不投入`，见 §U8），
 共 **46** 条。（A18 → A19 是同日新增：被 promote 的帧自我报告，见 §1 A19。）§3 里另并入了 4 条 `A`/`N` 编号条目（`A12` / `A13` / `N15` / `N16`），已按编号计入上面的
 `A*` / `N*`。§4 / §5 的小节不计入条目。
 （旧注记 —— 2026-10-02 的 `12 / 11 / 16 = 39` —— **已作废**：它与任何机械计数都对不上，
@@ -639,10 +641,36 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
 - **证据**：任务侧 `research/final-depth-*.txt`（10 档原始输出）、`research/tree-p2-*.txt`（多 shell 对照）、
   `research/p1-depth-table.md`（汇总与分因）。
 
-### U8 e4 应用模型层寻址
-- **未验证**：`EModelService` / `MApplication` / `MWindow` 层寻址未实测。
-- **验证入口**：先 `python -m ctl parts --json` 确认 `EModelService=true`，再按 `implement.md` 增一条用例，以 `ui.parts` 回读差为判据。
-- **证据**：`prd.md` §6.3；`design.md` §6 `ui.parts` 行（负载含 `EModelService`）。
+### U8 e4 应用模型层寻址（**已定论 2026-10-05** —— 结论就在本条，复跑入口见文末）
+- 原条目：`EModelService` / `MApplication` / `MWindow` 层寻址未实测。
+- **2026-10-05 实测（由当前源码构建的实例，身份已按 `measurement-hygiene` §13.10 反例 A 第 2 条对拍）**：
+  · 起实例前确认 `8777` **无活监听**；起来后 `sys.env` 回读
+    `bundle=eclipse-ctl.bridge version=0.2.0 id=351 state=32`，与
+    `bridge/dist/eclipse-ctl.bridge_0.2.0_gs32.jar` 的 `Bundle-Version: 0.2.0`（及
+    `bridge/build.py:34` `DEFAULT_VERSION = "0.2.0"`）**逐字一致** ⇒ 测的是本轮构出来的产物。
+  · `ui.parts` 负载**逐字**含 `services: EModelService=true` ⇒ **可用性成立**。
+- **但"经该层寻址"这件事在本代码库里不存在，且不需要**（两条都实测）：
+  · `bridge/src/` 全文搜索 `EModelService|MApplication|MWindow|MPart|EObject`：
+    **`EModelService` 只出现一次**，且只作可用性探针
+    （`bridge/src/ctl/bridge/LiveBridge.java:904`）；`MApplication` / `MWindow` / `MPart` / `EObject`
+    **零命中**。其余 `getService` 命中是 `ICommandService`(`:1092`) / `IEclipseContext`(`:1095`) /
+    `IHandlerService`(`:1277`/`:1304`)，与 e4 模型层无关。
+  · §N9′ 已证读控件树**不需要**它（`ui.tree --shell` 已可达全部部件）。
+- **结论**：本条**不是**"在现有能力上补一条用例"的缺口 —— 它是一条**刻意不存在、且不需要**的能力。
+  故**不新增用例**（给不存在的能力补判据 = 凭空造范围）；`ui.parts` 那行 `services:` **已有用例钉住存在性**
+  （`ctl/verify/cases/read_parts.py`：`if "services: EModelService=" not in text`）。
+  三措辞里取 **`决定不投入`**（理由见上），**不是**"已证伪"、也不是"未证实"。
+- **复跑入口（只读；需一台由当前源码构建的活实例）**：
+
+```bash
+# ① 起一台由当前源码构建的实例（会在桌面弹窗），再对拍身份
+python -m ctl run --target gs32
+# ② 身份：version 必须逐字等于 bridge/dist 的 Bundle-Version（否则该次测量作废）
+# ③ 可用性：ui.parts 负载须含该行
+python -m ctl parts --run-id <run_id> | grep "services: EModelService="
+# ④ 寻址不存在：期望**只**命中 LiveBridge.java:904 那一行
+grep -rn "EModelService\|MApplication\|MWindow\|MPart" bridge/src/
+```
 
 ### U9 JDI / JDWP 求值通道
 - **未验证，本轮不投入**（D6）：它是唯一能补 F10「控制台无法求值」的已知路线（CDP `Runtime.evaluate` 的对应物）；代价是新子系统 + **挂起会冻死整个 IDE**，需独立安全设计。
