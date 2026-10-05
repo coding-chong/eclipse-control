@@ -148,6 +148,14 @@
 
 ### Fixed
 
+- **`TROUBLESHOOTING.md` §7 的 6 条缺失错误串补全（A12 判据回到全绿）**（2026-10-05）：
+  该表 `2026-10-01` 交付时是 **59/59**；`2026-10-04` 拆掉 `act` 子命令后模板集缩到 **58**，
+  其中 **6 条**未覆盖（`ctl run` 门面 3 条 + 两条"重试后缀" + run-id 校验 + 桥构建重试提示）——
+  当时**已如实记成 `coverage: FAIL`** 并留下补表指令，**不是**静默漂移。
+  本次补上这 6 行：`check-error-coverage.py` 回到 `templates=58 checked=57 exempt=1 missing=0` ⇒ **`coverage: PASS`**。
+  证伪路径仍能报出缺口（非恒真）；**变异**：删掉任一新行 ⇒ `missing=1 / FAIL`，还原 ⇒ `PASS`。
+  表尾"缺口史"段落保留，并把「接进 `preflight` 自动防漂」记为**尚未拍板的独立决定**（脚本已写好，提升成本约 25 行 + 两处契约文字）。
+
 - **`install` 用固定端口且不判占用 ⇒ 与活实例「共用」端口，`--stop` 再按端口误杀别人**（2026-10-03 实测踩到）：
   `effective_port = port or target.port` 直接取目标配置的固定端口，**没有任何占用判定**；而 `is_port_free()`
   只做 `bind()` 试探 —— Windows 上对端 Java `ServerSocket` 默认可 `SO_REUSEADDR`，**判不准**

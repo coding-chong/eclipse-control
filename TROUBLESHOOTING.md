@@ -180,24 +180,31 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `protocol` | doctor 报告行 | 桥协议版本与客户端不符：按 §2「`sys.env` 缺 `protocol=`」处置。doctor 判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:619` |
 | `warning: bridge reported total=` | **警告**（rc 不变） | 命令表被截断（`total > returned`）。见 §2「命令表导出条数异常」行；不要拿半份导出当权威。<br>`ctl/__main__.py:944` |
 | *(无字面量，见右列)* | `badrequest` / `notfound` / **1** | **兜底模板**：argparse 用法错误统一走这里（`invalid choice` ⇒ `notfound`，其余 ⇒ `badrequest`）。<br>`ctl/__main__.py:116` |
+| `invalid run-id` | `ERR badrequest` / **1** | run-id 形状不合法（含路径分隔符 / 前导点 / 空格 / 空串）。用**字母数字开头**、只含 `[A-Za-z0-9._-]` 的**单个路径分量**；或省掉 `--run-id` 交给 `make_run_id` 生成。<br>`ctl/lifecycle.py:107` |
+| `ERR badrequest run takes a single --target, got` | 裸 stderr 行 / **1** | `ctl run` 只吃**一个** `--target`（它跑的是单实例里的脚本）。`--config` 里配了多 target 不影响这条路，但显式给多个就会拒。<br>`ctl/run.py:568` |
+| `ERR notfound no such target` | 裸 stderr 行 / **2** | `ctl run` 的 `--target` 名不在册。`ctl targets list` 列出 `gs32` / `ccs12`。<br>`ctl/run.py:573` |
+| `ERR no instance` | 裸 stderr 行 / **2** | `--no-start` 下该 run 没有活桥（`ctl run` 走库路径，起实例要靠 `install`）。去掉 `--no-start`，或先 `install` 再跑。<br>`ctl/run.py:584` |
+| `retry: python -m ctl run --target gs32 < script.py` | 重试后缀（**非独立行**） | `ctl run` 一族错误统一挂的"下一步"（重跑那条脚本）。它是**后缀模板**，出现在约 18 处：门面 3 条 + `act_*` 库原语的寻址/工具缺失各条。<br>`ctl/run.py:47` |
+| `retry: python -m ctl build --target` | 重试后缀（**非独立行**） | 桥 jar 缺失 / 过期 / 源码不全时统一挂的"下一步"：`ctl build --target <t>`。用在 `stale jar` / `no jar` / `source missing` 三条正文后面。<br>`ctl/lifecycle.py:364`（用在 `:405` / `:408` / `:412`） |
 
 > **兜底说明**：`ctl/__main__.py` 里的 argparse `error()` 覆写是所有用法错误的统一出口，
 > 它按 `invalid choice` 分派码（子命令拼错 ⇒ `notfound`，其余 ⇒ `badrequest`）。
 >
 > **本表的覆盖度由脚本判定，不由这句话判定**（判据会漂，故不写死数字）。复跑：
-> `python <工作区>/.trellis/tasks/10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`
+> `python <工作区>/.trellis/tasks/archive/2026-10/10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`
 > （`--repo D:/gitclone/eclipse-ctl`；判据 = 把模板按 `%s/%d/%r` 切段，取 **≥6 字符**的片段，
-> 只要有**一段**能在本表原样 grep 命中即算覆盖）。
-> **实测（2026-10-04，`act` 子命令拆除之后）**：
-> `templates=58 checked=57 exempt=1 missing=6` ⇒ **`coverage: FAIL`**。
-> 余下 6 条**都不是本轮拆门引入的**：`act` 一族的模板随子命令一起消失（本表的对应行已改写成库形态），
-> 缺口是 `ctl run` 的门面三条（`ctl/run.py:448` / `:453` / `:464`）、重试提示（`ctl/run.py:40`）、
-> run-id 校验（`ctl/lifecycle.py:108`）与 `ctl build` 的重试提示（`ctl/lifecycle.py:365`）。
-> 具体是哪 6 条**以脚本输出为准**（脚本会把候选串打出来）。
+> 只要有**一段**能在本表原样 grep 命中即算覆盖；**脚本随该任务已归档**，路径见上）。
+> **实测（2026-10-05）**：`templates=58 checked=57 exempt=1 missing=0` ⇒ **`coverage: PASS`**。
 > ⚠️ **判据自身的盲区（实测踩到）**：它按**子串**命中 —— 正文里（哪怕是在描述缺口时）
 > **提到**某个候选串，就会把对应模板算成"已覆盖"。所以**别在本段里罗列那些串**，
 > 也别把"提到了"当成"写好了处置行"。
-> **要绿就把这 6 条补上表**；在那之前，别把本表当"全覆盖"用。
+>
+> **缺口史（保留，供追溯）**：`2026-10-01` 交付时 **59/59** 全绿；`2026-10-04` 拆掉 `act` 子命令后
+> 模板集缩到 **58**（`act` 一族随之消失），其中 **6 条**未被覆盖，当时**如实记成 FAIL** 并留下"补表"指令；
+> `2026-10-05` 补上这 6 条（`ctl run` 门面 3 条 + 两条"重试后缀" + run-id 校验 + 桥构建重试提示），回到 **0 缺失**。
+> ⇒ **本表会随源码漂**：加/改错误串后跑一次上面的脚本。
+> 把它接进 `preflight`（自动防漂）是一个**改对外契约的独立决定，尚未拍板** —— 脚本已写好，
+> 提升成本约 25 行 + 两处契约文字。
 
 **退出码**：`0` 成功 / `1` 失败（含用法与查找错误）/ `2` 前置未就绪
 —— `design-obs-ux.md` §14.3。注意 **`rc=0` 不代表没有弹框**：写命令的弹框只在回话的 `dialog=` 负载行里，
