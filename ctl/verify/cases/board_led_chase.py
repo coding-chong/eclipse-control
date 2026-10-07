@@ -106,7 +106,7 @@ green).  Wall clock was **113.6 s** and **229.4 s** -- a **2x spread**, so the d
 *stock* number: quote it with its own measurement, never use it as a threshold
 (``measurement-hygiene`` 13.9).
 
-Read the **verdict line**, not ``rc``: a SKIP -- no ``--run-id`` yet, no probe, or the
+Read the **verdict line**, not ``rc``: a SKIP -- no run to fall back on, no probe, or the
 port held by another run -- also exits ``0``.  ``ctl verify`` uses ``0`` for "nothing
 failed", which includes "nothing ran"; ``--json`` carries ``passed``/``skipped``.
 
@@ -114,7 +114,7 @@ Every SKIP this case can raise, so a verdict line is never a mystery (all exit `
 
 | verdict begins with | means | do this |
 |---|---|---|
-| ``no run directory to seed`` | no ``--run-id`` passed | pass one (below) |
+| ``no run directory to seed`` | no run is resolvable for this target -- no ``--run-id`` **and** nothing to fall back on (the runner defaults to ``latest_run_id``, so a previous run usually exists) | pass ``--run-id <a-new-id>`` |
 | ``skipped: not applicable to target`` | wrong ``--target`` -- this case only runs on ``ccs12`` | ``--target ccs12`` |
 | ``no C2000Ware root carrying the 'f28002x' family`` | no C2000Ware tree reachable from the target | install C2000Ware, or point ``ECLIPSE_CTL_BOARD_C2000WARE`` at one |
 | ``the run's workspace registers <project>`` | that run id already holds somebody's project | pick a run id you have not seeded into |
