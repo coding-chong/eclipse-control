@@ -6,7 +6,8 @@
 
 ## 为什么它们在仓里而不在用户路径
 
-判据在 [`.trellis/spec/backend/deliverable-shape.md`](../../SyncthingFiles/xn2pk-yyqwv/omp-migration/.trellis/spec/backend/deliverable-shape.md)：
+判据在**流程仓**的 `.trellis/spec/backend/deliverable-shape.md`（本仓与流程仓是**两个独立的仓**，
+相对位置不保证成立，故这里是**路径说明**而不是链接）：
 **能力** vs **项目** —— 用户要的是「薄协议 + 可 `import` 的库 + skill 约束」，
 功能的**归属**是「agent 现写脚本」，不是「工具内置 N 个子命令」。
 `verify` / `preflight` / `recipes` 是**维护者**的仪器，不是用户的手。

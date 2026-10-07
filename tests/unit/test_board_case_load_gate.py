@@ -594,7 +594,8 @@ class PreGuardTest(unittest.TestCase):
         return root
 
     @contextlib.contextmanager
-    def _pre_environment(self, device, rows, probe_rows, presence=None, probe=None):
+    def _pre_environment(self, device, rows, probe_rows, presence=None, probe=None,
+                         c2000ware=None):
         workspace = tempfile.mkdtemp(prefix="eclipse-ctl-pre-ws-")
         self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
         root = self._spec_root(device)
@@ -607,7 +608,14 @@ class PreGuardTest(unittest.TestCase):
         # is the AC4/R8 shape the existing tests exercise.
         if presence is None:
             presence = {"present": False, "source": "pnp", "ids": [], "error": ""}
-        with mock.patch.dict(os.environ, {case._BOARD_ENV + "C2000WARE": root}), \
+        # The C2000Ware root is injected by **stubbing the resolver**, not by setting
+        # `ECLIPSE_CTL_BOARD_C2000WARE`: the env var goes through the production
+        # derivation, so every `_pre` test would silently depend on that code, and a
+        # single mutation there would redden this whole file -- `deliverable-shape.md`
+        # C12 (a mutation may only redden the tests guarding its own entry point).
+        # Stub the channel, exactly as the OS/tool channels above are stubbed.
+        candidates = [root] if c2000ware is None else c2000ware
+        with mock.patch.object(case, "_c2000ware_candidates", return_value=candidates), \
                 mock.patch.object(case, "_probe_report", return_value=probe), \
                 mock.patch.object(case, "_probe_present", return_value=presence), \
                 mock.patch.object(case, "list_processes", return_value=[]), \
@@ -727,6 +735,50 @@ class PreGuardTest(unittest.TestCase):
         self.assertIn("no XDS100 probe", reason)                # the absence tier
         self.assertIn("override says the board is absent", reason)
         self.assertNotIn("reports no present device", reason)   # not a PnP finding
+
+    def test_the_c2000ware_override_wins_outright(self):
+        """`ECLIPSE_CTL_BOARD_C2000WARE` short-circuits the whole derivation."""
+        with mock.patch.dict(os.environ, {case._BOARD_ENV + "C2000WARE": "X:/patched"}):
+            self.assertEqual(case._c2000ware_candidates("D:/anywhere/ccs/eclipse"),
+                             ["X:/patched"])
+
+    def test_the_c2000ware_root_is_derived_from_the_install_tree(self):
+        """No literal default: the root comes from the target's own tree.
+
+        Layout asserted here is the one measured 2026-10-07: `<ti>/ccs<ver>/ccs/eclipse`
+        with C2000Ware beside it as `<ti>/c2000/C2000Ware_<ver>`.  The fixture builds
+        its own `<ti>` (never this machine's), so the test cannot pass by accident on
+        a machine that happens to have the reference layout.
+        """
+        ti = tempfile.mkdtemp(prefix="eclipse-ctl-ti-")
+        self.addCleanup(shutil.rmtree, ti, ignore_errors=True)
+        install_dir = os.path.join(ti, "ccs1281", "ccs", "eclipse")
+        os.makedirs(install_dir)
+        ware = os.path.join(ti, "c2000", "C2000Ware_9_99_00_00")
+        os.makedirs(os.path.join(ware, *case._SPEC_REL.split("/")[:-1]))
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(case._BOARD_ENV + "C2000WARE", None)
+            got = case._c2000ware_candidates(install_dir)
+        self.assertEqual([os.path.normpath(ware)], [os.path.normpath(g) for g in got])
+
+    def test_without_an_install_tree_it_finds_nothing(self):
+        """Empty input must stay empty -- never a fallback to a path nobody verified."""
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(case._BOARD_ENV + "C2000WARE", None)
+            self.assertEqual(case._c2000ware_candidates(""), [])
+            self.assertEqual(case._c2000ware_candidates("Z:/not/a/ti/root"), [])
+
+    def test_no_c2000ware_anywhere_skips_and_names_the_knob(self):
+        """The fail-closed message must carry the knob to turn, and no fake path."""
+        with self._pre_environment("TMS320F280025C", [], [], c2000ware=[]) as ctx:
+            with self.assertRaises(case.Skip) as caught:
+                case._pre(ctx)
+        reason = caught.exception.reason
+        self.assertIn("ECLIPSE_CTL_BOARD_C2000WARE", reason)  # the knob, as a literal (C10)
+        self.assertIn("[]", reason)                           # it looked, and found none
+        self.assertIn(case._FAMILY, reason)                   # what it was looking for
+        self.assertNotIn("C2000Ware_5_04_00_00", reason)      # no machine path in the message
+        self.assertNotIn("D:/ti", reason)
 
     def test_an_unanswerable_presence_query_skips_without_claiming_absence(self):
         """A failed OS query is `None`: say "cannot tell", never "not there"."""

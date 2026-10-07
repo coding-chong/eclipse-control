@@ -20,7 +20,8 @@ CCS **自带**一个编译器，只是不在 `plugins/`：`<ccs_root>/xdctools_<
 3. 搜索面本身由**测试自己的字面量**钉住（`deliverable-shape.md` C10：闸门的测试不得以闸门
    自己的常量为准，否则把常量摘小、测试跟着一起缩，两边都看不见）。
 
-判据的可复跑形态：``python -c "from ctl.targets import _find_ecj; print(_find_ecj(r'D:/ti/ccs1281/ccs/eclipse'))"``。
+判据的可复跑形态：``python -c "from ctl.targets import _find_ecj, load; print(_find_ecj(load().target('ccs12').install_dir))"``
+（**不写机器路径**：`install_dir` 由四层解析给出，见 `README.md` 的 target 表）。
 """
 
 from __future__ import annotations

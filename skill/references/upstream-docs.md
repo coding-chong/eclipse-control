@@ -10,7 +10,7 @@
 
 ## 一、本机发行版里就有（与所装版本对齐，优先用这些）
 
-（`<CCS>` = CCS 根目录，本机为 `D:/ti/ccs1281/ccs`。）
+（`<CCS>` = CCS 根目录 = 该 target `install_dir` 的上一级；本机取值见 `python -m ctl targets show ccs12`。）
 
 | 内容 | 路径 |
 |---|---|

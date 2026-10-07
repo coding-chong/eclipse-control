@@ -263,8 +263,14 @@ from ._util import verdict
 ENV_PREFIX = "ECLIPSE_CTL_"
 _BOARD_ENV = ENV_PREFIX + "BOARD_"
 
-#: The C2000Ware root on the measured machine (override: ECLIPSE_CTL_BOARD_C2000WARE).
-_DEFAULT_C2000WARE = "D:/ti/c2000/C2000Ware_5_04_00_00"
+#: Conventional C2000Ware locations, **relative to a TI install root**.  A target's
+#: ``install_dir`` is ``<ti>/ccs<ver>/ccs/eclipse`` and C2000Ware sits beside it
+#: (``<ti>/c2000/C2000Ware_5_04_00_00``), so the root is *derived* from the
+#: already-resolved target -- see `_c2000ware_candidates`.  Override the whole lookup
+#: with ``ECLIPSE_CTL_BOARD_C2000WARE``.  No machine-local literal belongs here: the
+#: module header's rule (and `ctl/targets.py`'s `_find_ecj`, same shape) is
+#: "install-relative or a measured fact".
+_C2000WARE_GLOBS = ("c2000/C2000Ware_*", "C2000Ware_*")
 
 #: Device family directory under ``<C2000Ware>/driverlib``.  Eleven same-named
 #: ``empty_driverlib_project.projectspec`` files live under this tree
@@ -926,6 +932,46 @@ def _active_build_configs(workspace: str, project: str) -> List[str]:
     return names
 
 
+def _c2000ware_candidates(install_dir: str) -> List[str]:
+    """Every C2000Ware root reachable from ``install_dir``; ``[]`` if none.
+
+    Resolution: ``ECLIPSE_CTL_BOARD_C2000WARE`` (a non-empty override wins outright)
+    else derive from the target's own install tree -- walk up from ``install_dir``
+    (``<ti>/ccs<ver>/ccs/eclipse``) to the TI root and glob `_C2000WARE_GLOBS`.
+    ``[]`` means "the caller must SKIP with an actionable message"; it never means
+    "fall back to a path nobody verified" (the shape `ctl/targets.py::_find_ecj`
+    removed when it dropped a hard-coded sibling install).
+
+    Candidates are **not** arbitrated here: the caller keeps the first one that
+    actually carries the family's ``projectspec``, so which C2000Ware is used is
+    decided by what is on disk.  No version is pinned -- a different release is
+    accepted, and the device read-back (R2) is the real gate on the silicon.
+
+    Measured 2026-10-07: ``<ti>`` = ``D:/ti``, so the walk finds
+    ``D:/ti/c2000/C2000Ware_5_04_00_00`` from ``D:/ti/ccs1281/ccs/eclipse``.
+    """
+    override = _override("c2000ware")
+    if override:
+        return [override]
+    out: List[str] = []
+    base = install_dir or ""
+    for _ in range(4):
+        if not base:
+            break
+        for pattern in _C2000WARE_GLOBS:
+            hits = sorted(glob.glob(os.path.join(base, *pattern.split("/"))),
+                          reverse=True)
+            for hit in hits:
+                cand = os.path.normpath(hit)
+                if cand not in out:
+                    out.append(cand)
+        parent = os.path.dirname(os.path.normpath(base))
+        if parent == base:
+            break
+        base = parent
+    return out
+
+
 def _probe_tool(install_dir: str) -> str:
     """Locate ``xds100serial.exe`` under a CCS install tree.
 
@@ -977,9 +1023,14 @@ def _probe_report(install_dir: str) -> Dict[str, Any]:
     can, and ``_pre`` decides on the pair.
 
     RERUN (either state, ~0.1 s; the A/B is the presence of a live debug session
-    holding the probe):
+    holding the probe).  The path is *derived*, never hardcoded -- `_probe_tool`
+    walks up from the target's `install_dir`, and `_pre` records the result on its
+    `probe` line:
 
-        "D:/ti/ccs1281/ccs/ccs_base/common/uscif/xds100serial.exe"
+        python -c "from ctl.verify.cases.board_led_chase import _probe_tool as f; print(f('<install_dir>'))"
+
+    i.e. ``<install_dir>/ccs_base/common/uscif/xds100serial.exe`` (measured
+    2026-10-07 with ``install_dir`` = ``D:/ti/ccs1281/ccs/eclipse``).
     """
     tool = _probe_tool(install_dir)
     out: Dict[str, Any] = {"tool": tool, "rc": None, "rows": [], "probe_rows": [],
@@ -1200,18 +1251,18 @@ def _pre(ctx):
 
     plan: Dict[str, Any] = {"errors": [], "killed": []}
 
-    root = _override("c2000ware") or _DEFAULT_C2000WARE
-    spec = os.path.join(root, _SPEC_REL)
+    candidates = _c2000ware_candidates(ctx.target.install_dir or "")
+    root = next((c for c in candidates
+                 if os.path.isfile(os.path.join(c, _SPEC_REL))), None)
+    if root is None:
+        raise Skip("no C2000Ware root carrying the %r family: looked at %s, derived "
+                   "from target %r's install tree (%r); set %sC2000WARE=<the "
+                   "C2000Ware directory>" % (
+                       _FAMILY, candidates or "[]", ctx.target.name,
+                       ctx.target.install_dir or "<unset>", _BOARD_ENV))
     plan["c2000ware"] = root
+    spec = os.path.join(root, _SPEC_REL)
     plan["spec"] = spec
-    if not os.path.isdir(root):
-        raise Skip("C2000Ware root not found: %s (override with %sC2000WARE=<dir>)"
-                   % (root, _BOARD_ENV))
-    if not os.path.isfile(spec):
-        raise Skip("projectspec for family %r not found: %s -- the family is a "
-                   "constant of this case (`_FAMILY`); point %sC2000WARE at a "
-                   "C2000Ware root that carries it"
-                   % (_FAMILY, spec, _BOARD_ENV))
 
     spec_text = _read_text(spec)
     plan["spec_device"] = _spec_device(spec_text)

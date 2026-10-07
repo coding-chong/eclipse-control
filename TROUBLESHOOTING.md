@@ -12,9 +12,10 @@
 
 **变量**：`<RUN_ID>` 由 `install --run-id` 指定或按 `<target>-<yyyymmdd-HHMM>` 自动生成；
 `<RUN_ROOT>` 内置默认 `<user.home>/.eclipse-ctl/runs`；截图归档目录是 `<RUN_ROOT>/<RUN_ID>/shots/`；
-`<TARGET>` 取 `gs32` / `ccs12`；`<TARGET_INSTALL>` 是该 target 的 IDE 安装根
-（默认配置见 `design-obs-ux.md` §14.6：`gs32` → `D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2`，
-`ccs12` → `D:/ti/ccs1281/ccs/eclipse`）。
+`<TARGET>` 取 `gs32` / `ccs12`；`<TARGET_INSTALL>` 是该 target 的 IDE 安装根，
+**按固定顺序解析**：CLI 旗标 > 环境 `ECLIPSE_CTL_*` > `~/.eclipse-ctl/config.json` > 内置默认。
+用 `python -m ctl targets show <TARGET>` 打印**本机实际值**；内置默认是**参考机**的路径，
+换机后按 `python -m ctl targets add <TARGET> --source-dir <…>` 覆盖（见 `README.md` 的 target 表）。
 
 ---
 

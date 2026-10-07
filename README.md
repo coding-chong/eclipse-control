@@ -176,12 +176,23 @@ python -m ctl build --target ccs12
 | `gs32` | Eclipse 4.30.0 | 23.0.2（17） | `com.gs` | **8777** | `GS32.exe` | `com.gs.ui.Studio` |
 | `ccs12` | Eclipse 4.23.0 | 11.0.13（8） | `com.ti` | **8778** | `ccstudio.exe` | `org.eclipse.platform.ide` |
 
-| target | 安装根 |
+| target | 安装根（**参考机取值**，可覆盖） |
 |---|---|
 | `gs32` | `D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2` |
 | `ccs12` | `D:/ti/ccs1281/ccs/eclipse` |
 
-实测对拍（`python -m ctl targets list`，rc=0；逐格与上表一致）：
+> ⚠️ **这两个值不是产品常量，是「参考机」的实测值** —— 内置矩阵那一层（第 4 层）的默认。
+> 解析顺序固定为 **CLI 旗标 > 环境 `ECLIPSE_CTL_*` > `~/.eclipse-ctl/config.json` > 内置默认**；
+> **换一台机器不要改源码**，跑一条命令即可（`python -m ctl doctor` 会打印同样的提示）：
+>
+> ```bash
+> python -m ctl targets add ccs12 --source-dir <你的 .../ccs/eclipse>
+> ```
+>
+> 内置值在本机不存在时，`launch` **直接给出上面这条命令**：`lifecycle.py` 的 `_install_dir_missing`
+> 把「你没设过」与「你设错了」分开报（`reference_install_dir()` 就是为此存在的）。
+
+实测对拍（`python -m ctl targets list`，rc=0；**下述 `INSTALL_DIR` 列是参考机上的原样输出**，换机后该列即不同）：
 
 ```
 NAME     ECLIPSE    JRE    JAVA   PRODUCT                  PORT   INSTALL_DIR
