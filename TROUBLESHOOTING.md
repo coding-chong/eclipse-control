@@ -48,6 +48,7 @@
 | 元素寻址歧义 / 找不到控件（`ERR badrequest ambiguous: …` 或 `ERR notfound no visible Button matching …`） | 脚本里 `act_click_button("&OK", title="Reset Perspective", yes=True)`，喂给 `python -m ctl run --target <TARGET>` | 寻址必须**唯一**：先把标题收窄到那扇窗，再把文字收窄到那个控件。**类名**寻址那一族（`act_send_keys` / `act_set_text`）多命中时用 `index=<0 基序位>` 显式指定（序位只在同一会话内稳定，所以永不自动挑）。`--path`（SWT 式下标路径）**已裁决不做**，并随 `act` 子命令一起消失 —— 参数都不存在了（`boundaries.md` N11） | 先枚举看真实标签：`pwsh -NoProfile -File tools/win-click-button.ps1 -ProcId <pid> -TitleLike "<标题片段>" -ListOnly` |
 | `recipes run <name>` 报用法错误、退出码 `1` | `python -m ctl recipes run view-and-shot` | 配方文件里还有**未替换的 `<...>` 占位符**：CLI **拒绝执行**（不会把字面量喂给 shell） | 先把 `<RUN_ID>` / `<RUN_ROOT>` 等替换成实际值，再跑 |
 | 命令表导出条数异常（比实例里少） | `python -m ctl commands export --json \| python -c "import json,sys; d=json.load(sys.stdin); print(d['total'], d['returned'], d['truncated'])"` | 见 `boundaries.md` §A11（旧产物硬截断 300 条，2026-10-01 已去掉）与 §A9b（`getDefinedCommandIds()` 漏「有 handler 无声明」的 id） | 若 `returned != total`，按缺陷上报；不要拿半份导出当权威命令表 |
+| `verify` 报 `no run directory to seed`（**SKIP**，退出码 `0`） | `python -m ctl verify --case board.led_chase --target ccs12` | 该 target 下还没有这个 run 的目录 —— 用例只往自己的 `<RUN_ROOT>/<RUN_ID>` 里写。补 `--run-id <id>`（新 id 即可） | 给了 id 仍报，就核对 `--config` / `ECLIPSE_CTL_RUN_ROOT` 指的那个根是不是你以为的那个。⚠️ **退出码 `0` 不代表跑绿**：`rc=0` 的含义是"没有 FAIL 结论"，**SKIP 也是 0** —— 读那行 `[SKIP]`，或看 `--json` 的 `skipped` |
 
 ---
 

@@ -75,6 +75,24 @@ produced it; nothing here is inferred)
    the tool at all); else the OS query failed => **SKIP** saying it cannot tell --
    never "absent".
 
+PREREQUISITES -- a fresh clone has none of these.  Measured 2026-10-07 by cloning into
+an empty directory and pointing ``USERPROFILE`` at an empty home (no config, no runs, no
+bridge jar), i.e. a new machine's state:
+
+    git clone <repo> eclipse-ctl && cd eclipse-ctl
+    python -m ctl targets add ccs12 --source-dir <your .../ccs/eclipse>  # only when the
+        # built-in reference value is not yours; `targets list` prints the value in use
+    python -m ctl build --target ccs12                                   # `bridge/dist/`
+        # is gitignored, so a fresh clone has no jar and `install` stops with
+        # `no bridge jar built yet`
+
+Then the RERUN below.  Measured from that exact state, end to end: 113.6 s, ``rc=0``, and
+it stopped at the ASK THE HUMAN line (machine-checkable segment green).
+
+Read the **verdict line**, not ``rc``: a SKIP -- no ``--run-id`` yet, no probe, or the
+port held by another run -- also exits ``0``.  ``ctl verify`` uses ``0`` for "nothing
+failed", which includes "nothing ran"; ``--json`` carries ``passed``/``skipped``.
+
 RERUN (from the product repo; ~2-4 min, it brings the instance up itself):
 
     python -m ctl verify --case board.led_chase --target ccs12 --run-id board-<ts>

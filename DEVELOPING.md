@@ -14,7 +14,8 @@
 
 ## 一、验收用例（`ctl verify`）
 
-26 个用例，跑在**目标实例**上：
+27 个用例（存量数字，随时刻变；复算 `python -c "from ctl.verify.cases import ALL_CASES; print(len(ALL_CASES))"`，
+不得当判据 —— `measurement-hygiene` §13.9），跑在**目标实例**上：
 
 ```bash
 python -m ctl install --target gs32 --run-id dev --port 8900
@@ -28,6 +29,12 @@ python -m ctl verify --case  read.ping --target gs32 --run-id dev
   （SKIP = `read.console`，该实例的 Console 视图没有 console 页 ⇒ 如实跳过）。
 - `input.fixture` 是 `requires_bridge=False` 的自带夹具，**不需要实例**，自己起停。
 - `realflow.build_artifact` 是唯一**真的跑一遍工作流**的用例（含一次无头构建），见下。
+- `board.led_chase` 是唯一**需要真实硬件**的用例：XDS100v2 探针 + DSP280025 板子。
+  探针不在位 / 被别的调试会话握着 ⇒ **SKIP**（不是 FAIL）；端口被别的 run 占 ⇒ 也 SKIP。
+  它 `requires_bridge=False`，**自己起停实例**，所以 `--run-id` 必须是一个工作区里还没有工程的 run。
+  **前置、`--run-id` 的要求、以及判据的形状都写在用例自己的 docstring 里**（R11：知识归用例注释，
+  不在这份清单里重复）。从空克隆到跑起来是三条命令（clone → 按需 `targets add` → `build --target ccs12`），
+  也已写在那里。
 
 ### `--group realflow`：一条真跑的工作流（`realflow.build_artifact`）
 
@@ -175,7 +182,7 @@ echo 'act_click_button("&No", title="Reset Perspective", yes=True)' | python -m 
 
 | 路径 | 内容 |
 |---|---|
-| `ctl/verify/` | 用例运行器与 26 个用例 |
+| `ctl/verify/` | 用例运行器与 27 个用例（存量数字，复算见 §一） |
 | `recipes/` | 配方库 |
 | `commands.json` / `COMMANDS.md` | 命令表产物 —— **开发者工具**（R11′.3 已降为可选，不进 README / skill 的用户路径）。`commands.json` = 六字段（`id/name/category/parameters/handled/vendor`）× N + 顶层 `handler_only`；`COMMANDS.md` 由 `tools/make-commands-md.py` **从它**渲染，两者不再各自取数 |
 | `tools/` | 被库调用的工具（不是门）：`shot-window-pw.ps1` / `win-*.ps1` / `make-commands-md.py` |

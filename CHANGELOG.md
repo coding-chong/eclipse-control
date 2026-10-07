@@ -66,6 +66,22 @@
 
 ### Changed
 
+- **板级用例的文档面补齐：新机器照着走不再卡在第一步**（2026-10-07）：
+  `ctl verify` 是**开发者工具**（`deliverable-shape.md` C5：不进 README / skill 的用户路径），
+  所以它的知识归**用例自己的注释**（R11）与开发者面（`DEVELOPING.md`）。实测从空克隆（空目录 +
+  空 `USERPROFILE`：无配置、无 run、无桥 jar）走一遍，撞到三处：
+  ① 用例 docstring 只写了 `verify --case`，**没有** `targets add` / `build --target ccs12` ——
+  而 `bridge/dist/` 是 gitignored 的，没编就停在 `no bridge jar built yet`；
+  ② `DEVELOPING.md` §一的用例清单没登记它（27 个里**唯一需要真实硬件**的那个），且用例数还写着 26
+  （实测 **27**；复算 `python -c "from ctl.verify.cases import ALL_CASES; print(len(ALL_CASES))"` ——
+  存量数字，不得当判据，`measurement-hygiene` §13.9）；
+  ③ `TROUBLESHOOTING.md` §2 缺新用户真撞的那条 SKIP（`no run directory to seed`），
+  顺带把「`rc=0` 不等于跑绿」（SKIP 也是 0）写进那一行。
+  三处都补了；`README.md` 与 `skill/**` **一个字没动** —— 那是 `_dev_door_leak_check()` 的扫描面，
+  写进去会当场变红。
+  **判据**：空克隆 + 空 `USERPROFILE`，照用例 docstring 的三条命令走 ⇒ `rc=0`、113.6 s、
+  停在 `ASK THE HUMAN`（机器可查段全绿）。
+
 - **`ccs12` 的字节码级别 `11` → `8`**（2026-10-06）：级别必须**≤ 该目标能拿到的编译器**的上限，
   而 ccs12 树内唯一的编译器是它自带 XDCtools 里的 **ECJ 3.14**（`-source/-target` 上限 9；
   `-source 11` 实测 `rc=255`）。桥源码零 Java 9+ API（常量池扫描），降到 8 无功能损失。
