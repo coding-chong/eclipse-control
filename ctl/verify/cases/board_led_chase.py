@@ -1379,6 +1379,12 @@ def _pre(ctx):
 def _stop_instance(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
     """Free the workspace's lock and the port before seeding the project.
 
+    Called twice in a run: from ``_pre`` -- before the probe is read, so the case's
+    own leftover instance cannot blind the tool (C14 contract 3) -- and again from
+    the action, which re-stops whatever the pre-phase left behind.  The second call
+    is harmless: `uninstall` returns 0 when there is nothing to stop, and it does
+    not delete the run.
+
     A live IDE holds ``<ws>/.metadata/.lock``, and both `projectCreate` and the
     seeding step need the workspace to itself (measured: the second JVM is refused
     with "Workspace location '…' is in use or cannot be created").  `uninstall` is
