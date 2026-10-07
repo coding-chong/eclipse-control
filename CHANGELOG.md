@@ -23,8 +23,36 @@
   回归门：`tests/unit/test_keep_workspace.py`（10 条：`prepare_run` 原语 / `install` 接线 /
   CLI 与 `upgrade` 三层的**逐项变异**，临时目录 + sentinel，不连 IDE）。
 
+- **`preflight` 新增「用例层不得出现机器绝对路径」闸门**（2026-10-07）：用例层的模块头写着
+  「每个值要么是安装相对的、要么是实测事实，绝不是机器本地绝对路径」—— 那是**换台机器也没法靠配置修**的
+  唯一一类契约（修法永远是"改源码"），所以给它一道闸门。`_machine_path_check()` 扫
+  `ctl/verify/cases/**/*.py` 的**字符串常量**（docstring 除外 —— 实测原文按 `measurement-hygiene`
+  §13.10 必须逐字留存），命中即报 `file:line`。模式要求盘符之后还有**第二个**分隔符，故 `C:/`
+  这种驱动器字母写法放行（C11：精度与被守物同构）。回归门：`tests/unit/test_machine_path_gate.py`
+  —— 扫描面由**测试自己的字面量**钉住（C10），精度两端各一条（真机器路径必中；docstring /
+  `C:/` / 安装相对字面量必放行）。
+  **判据**：`python -c "from ctl.__main__ import _machine_path_check as f; print(f())"`
+  ⇒ `(True, '30 module(s) scanned in ctl/verify/cases')`；往任一用例里塞一个**字面量**机器路径
+  ⇒ 报 `ctl/verify/cases/board_led_chase.py:<行号>: machine-local path '…'`（实测过，见下条）。
+
 ### Fixed
 
+- **板级用例的 C2000Ware 底座改为**解析**，不再写死一台机器的路径**（2026-10-07）：
+  `ctl/verify/cases/board_led_chase.py` 的模块头写着「每个值要么是安装相对的、要么是实测事实，
+  绝不是机器本地绝对路径」，而 `_DEFAULT_C2000WARE = "D:/ti/c2000/C2000Ware_5_04_00_00"` 破了它 ——
+  一个**静默兜底**，换台机器就报一个它从没选过的目录（与下面那条 `ccs12` 的 ECJ 同形）。
+  现在解析走 `ECLIPSE_CTL_BOARD_C2000WARE`（非空即胜）→ 从目标自己的安装树上溯取 `<ti>` 再
+  glob `c2000/C2000Ware_*` → **fail closed**：无命中即 SKIP，判词列出候选与要拧的旋钮；
+  `[]` 表示"查过且没有"，**不是**"用个没人验过的"。字面量删除；`ctl/targets.py::_find_ecj`
+  是同一形状的先例（它也是删掉一条写死的兄弟安装）。
+  **不 pin 版本**：候选**不在这里仲裁**，调用方取第一个带该族 `projectspec` 的；实测本机
+  **三个** release 并存且**三个都带**该族 projectspec ⇒ 真正决定的是**名字降序**
+  （`"5…" > "26…"` 是**字符串比较**，不是版本比较）。该顺序已是**规则**
+  （`tests/unit/test_board_case_load_gate.py::test_several_coexisting_releases_are_collected_name_descending`，
+  变异 `reverse=True→False` 恰红它），且 `pre:` 证据行现在在被选中的根旁边打印**完整候选列表**
+  —— 这是「找到的那个 ≠ 唯一的那个」往上一层的同一形状。
+  **判据**：`python -c "from ctl.verify.cases.board_led_chase import _c2000ware_candidates as f; print(f('D:/ti/ccs1281/ccs/eclipse'))"`
+  ⇒ 三个候选（`5_04` 在前）；`print(f(''))` ⇒ `[]`（换机即 SKIP，不再有假路径）。
 - **`ccs12` 的 ECJ 发现不再依赖 gs32 兄弟树**（2026-10-06）：CCS 12.8.1 **不带 JDT**，
   而 `ctl/targets.py` 与 `bridge/build.py` 各**写死一条 gs32 的绝对路径**当兜底 ⇒
   **只装 CCS 的机器**上 `python -m ctl build --target ccs12` 直接 `exit 1`，报错里点名一棵
