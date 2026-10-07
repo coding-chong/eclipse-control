@@ -265,7 +265,7 @@ _BOARD_ENV = ENV_PREFIX + "BOARD_"
 
 #: Conventional C2000Ware locations, **relative to a TI install root**.  A target's
 #: ``install_dir`` is ``<ti>/ccs<ver>/ccs/eclipse`` and C2000Ware sits beside it
-#: (``<ti>/c2000/C2000Ware_5_04_00_00``), so the root is *derived* from the
+#: (``<ti>/c2000/C2000Ware_<ver>``), so the root is *derived* from the
 #: already-resolved target -- see `_c2000ware_candidates`.  Override the whole lookup
 #: with ``ECLIPSE_CTL_BOARD_C2000WARE``.  No machine-local literal belongs here: the
 #: module header's rule (and `ctl/targets.py`'s `_find_ecj`, same shape) is
