@@ -110,6 +110,19 @@ Read the **verdict line**, not ``rc``: a SKIP -- no ``--run-id`` yet, no probe, 
 port held by another run -- also exits ``0``.  ``ctl verify`` uses ``0`` for "nothing
 failed", which includes "nothing ran"; ``--json`` carries ``passed``/``skipped``.
 
+Every SKIP this case can raise, so a verdict line is never a mystery (all exit ``0``):
+
+| verdict begins with | means | do this |
+|---|---|---|
+| ``no run directory to seed`` | no ``--run-id`` passed | pass one (below) |
+| ``skipped: not applicable to target`` | wrong ``--target`` -- this case only runs on ``ccs12`` | ``--target ccs12`` |
+| ``no C2000Ware root carrying the 'f28002x' family`` | no C2000Ware tree reachable from the target | install C2000Ware, or point ``ECLIPSE_CTL_BOARD_C2000WARE`` at one |
+| ``the run's workspace registers <project>`` | that run id already holds somebody's project | pick a run id you have not seeded into |
+| ``no XDS100 probe attached`` | the OS PnP table has no ``VID_0403&PID_A6D0`` | plug the probe in |
+| ``the XDS100 probe IS attached but … cannot enumerate it`` | probe present, held by a live debug session (exclusive) | stop that session |
+| ``cannot determine whether the XDS100 probe is attached`` | the PnP query itself did not answer | read the named channel; this case will not call it "absent" |
+| ``port <N> is held by another run`` | another instance owns the launch port | stop that run |
+
 RERUN (from the product repo; ~2-4 min, it brings the instance up itself):
 
     python -m ctl verify --case board.led_chase --target ccs12 --run-id board-<ts>
