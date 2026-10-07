@@ -1293,18 +1293,33 @@ def _pre(ctx):
                  else "the OS presence query (Get-PnpDevice)")
         if presence["present"] is False:
             # R8/AC4's genuine case: nothing is attached.  SKIP, never FAIL.
+            # C14 contract 2 (`deliverable-shape.md`): name the channel that actually
+            # said this.  The override never queried the OS, so it must not be credited
+            # with a PnP finding -- it answers in its own terms.
+            absent_why = ("%s says the board is absent" % where
+                          if presence["source"] == "override"
+                          else "%s reports no present device whose hardware id "
+                               "contains %r" % (where, _XDS100_HWID))
             raise Skip("no XDS100 probe attached: %s enumerated %d FTDI device(s) "
-                       "(rc=%s, %s) and none of them carries 'XDS100', and %s reports "
-                       "no present device whose hardware id contains %r; this case "
-                       "drives %r, so attach that probe -- rows: %s"
+                       "(rc=%s, %s) and none of them carries 'XDS100', and %s; this "
+                       "case drives %r, so attach that probe -- rows: %s"
                        % (tool, len(probe["rows"]), probe["rc"],
-                          probe["error"] or "no emulator row", where, _XDS100_HWID,
+                          probe["error"] or "no emulator row", absent_why,
                           _PROBE, rows))
         if presence["present"] is True:
             # The tool is blind; the board is not.  The message must name that cause,
             # because "attach the probe" would send the operator to the wrong end.
             held = (" -- %s reports hardware id %s" % (where, ids)
                     if presence["ids"] else " -- %s says so" % where)
+            if probe["rc"] is None:
+                # The binary never ran at all: `_probe_report` leaves `rc` None when the
+                # tool is missing or the spawn failed.  Blaming a live debug session
+                # here would send the operator to stop an instance that holds nothing
+                # -- name the cause that was actually observed (C14 contract 2).
+                raise Skip("the XDS100 probe IS attached%s but %s could not run (%s), so "
+                           "this channel says nothing about the board: fix the tool, not "
+                           "the probe -- rows: %s"
+                           % (held, tool, probe["error"] or "no error recorded", rows))
             raise Skip("the XDS100 probe IS attached%s but %s cannot enumerate it -- it "
                        "listed only %d FTDI device(s) (rc=%s, %s): a live CCS debug "
                        "session is holding the probe's handle, so the tool cannot see "

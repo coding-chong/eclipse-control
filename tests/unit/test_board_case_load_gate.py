@@ -594,13 +594,13 @@ class PreGuardTest(unittest.TestCase):
         return root
 
     @contextlib.contextmanager
-    def _pre_environment(self, device, rows, probe_rows, presence=None):
+    def _pre_environment(self, device, rows, probe_rows, presence=None, probe=None):
         workspace = tempfile.mkdtemp(prefix="eclipse-ctl-pre-ws-")
         self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
         root = self._spec_root(device)
         ctx = _PreCtx(workspace)
-        probe = {"rows": list(rows), "probe_rows": list(probe_rows),
-                 "tool": "xds100serial.exe", "rc": 0, "error": ""}
+        probe = probe or {"rows": list(rows), "probe_rows": list(probe_rows),
+                          "tool": "xds100serial.exe", "rc": 0, "error": ""}
         # The OS presence channel is *always* stubbed: a unit test must not run
         # `Get-PnpDevice` against the machine it happens to be on (that is how the
         # defect this fixture now pins got read backwards).  Default = absent, which
@@ -688,6 +688,45 @@ class PreGuardTest(unittest.TestCase):
         absent_reason = caught.exception.reason
         self.assertNotIn("holding the probe", absent_reason)
         self.assertNotIn(self.HWID, absent_reason)
+
+    def test_a_tool_that_never_ran_is_not_read_as_a_held_handle(self):
+        """`rc is None` means the binary never ran: name that, never the handle.
+
+        `_probe_report` leaves `rc` None when the tool is missing or the spawn fails.
+        C14 contract 2 (`deliverable-shape.md`): the verdict must name the channel that
+        actually said it -- a live-session story here would send the operator off to
+        stop a CCS instance that holds nothing.
+        """
+        never_ran = {"tool": "xds100serial.exe", "rc": None, "rows": [],
+                     "probe_rows": [],
+                     "error": "probe tool not found: <tmp>/xds100serial.exe"}
+        attached = {"present": True, "source": "override", "ids": [], "error": ""}
+        with self._pre_environment("TMS320F280025C", [], [], presence=attached,
+                                   probe=never_ran) as ctx:
+            with self.assertRaises(case.Skip) as caught:
+                case._pre(ctx)
+        reason = caught.exception.reason
+        self.assertIn("could not run", reason)
+        self.assertIn("probe tool not found", reason)  # the observed cause, verbatim
+        self.assertNotIn("holding the probe", reason)  # never the unsupported story
+        self.assertNotIn("no XDS100 probe", reason)    # and never the absence tier
+
+    def test_the_override_speaks_for_itself_in_the_absent_tier(self):
+        """C14 contract 2: the override never queried the OS -- do not credit it.
+
+        The absent tier is the only one allowed to say "no probe", and the sentence
+        must name the channel that actually answered.  Crediting the override with a
+        PnP finding reads as if the device table had been consulted.
+        """
+        absent = {"present": False, "source": "override", "ids": [], "error": ""}
+        with self._pre_environment("TMS320F280025C", [_GENERIC_FTDI_ROW], [],
+                                   presence=absent) as ctx:
+            with self.assertRaises(case.Skip) as caught:
+                case._pre(ctx)
+        reason = caught.exception.reason
+        self.assertIn("no XDS100 probe", reason)                # the absence tier
+        self.assertIn("override says the board is absent", reason)
+        self.assertNotIn("reports no present device", reason)   # not a PnP finding
 
     def test_an_unanswerable_presence_query_skips_without_claiming_absence(self):
         """A failed OS query is `None`: say "cannot tell", never "not there"."""
