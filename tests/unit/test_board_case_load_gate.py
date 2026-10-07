@@ -781,6 +781,10 @@ class ProbePresenceTest(unittest.TestCase):
     def test_the_pnp_query_asks_for_the_boards_own_hardware_id(self):
         # the needle the OS is asked about is this test's literal, not the case's
         self.assertIn(self.HWID_NEEDLE, case._PNP_QUERY)
+        # `-PresentOnly` is load-bearing, not wording: without it the query also
+        # lists *known-but-absent* devices, so this second channel would answer
+        # "present" for a probe that is not there -- exactly the C14 failure
+        # (`deliverable-shape.md`).  Pinned deliberately; do not drop as cosmetic.
         self.assertIn("Get-PnpDevice -PresentOnly", case._PNP_QUERY)
 
     def test_the_override_forces_the_value(self):

@@ -572,7 +572,7 @@ _LIVENESS_MAX_ROUNDS = 6
 #: Where the value comes from (measured 2026-10-07, never inferred): the shadow
 #: archive of run ``ccs12-p42``, frame 114 --
 #:
-#:     python -m ctl shadow --run-id ccs12-p42 --seq 114
+#:     python -m ctl shadow --run-id ccs12-p42 --seq 114   # [2026-10-07 审计：该 run 目录已被 auto_gc 回收（keep_runs=3/target）⇒ 这条复跑现在回 `ERR notfound …` 且 rc=1；读数与 sha256 已内联在下面三行，现场留档在流程仓 10-07-ccs12-f280025-board-case/research/launch-handler-contract.md §3]
 #:     -> outcome=timeout promoted (dialog=appeared "Reuse Debug Settings")
 #:        class=#32770 hwnd=0x13D1462 pid=29912, PNG 31 142 B,
 #:        sha256 b02e5225c098d0b92aa98ec641c4953e63e9092e3b93cc3d76ea627b725c671e
