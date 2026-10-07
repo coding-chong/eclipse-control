@@ -24,7 +24,7 @@ python -m ctl verify --group read  --target gs32 --run-id dev     # 组：read /
 python -m ctl verify --case  read.ping --target gs32 --run-id dev
 ```
 
-- 退出码：`0` 全过 / `1` 有 FAIL 结论 / `2` 前置未就绪（无实例、target 不认识、缺 `pwsh`）。
+- 退出码：`0` **没有任何结论是 FAIL**（**含 `[SKIP]`** —— 跳过也是 `0`，别读成"全过"）/ `1` 有 FAIL 结论 / `2` 前置未就绪（无实例、target 不认识、缺 `pwsh`）。**读判据行，不要只读 `rc`**。
 - **回归基线**（2026-10-03，26 用例，**GS32**）：`--all` = **25 PASS + 1 SKIP / 0 FAIL**，`rc=0`
   （SKIP = `read.console`，该实例的 Console 视图没有 console 页 ⇒ 如实跳过）。
 - `input.fixture` 是 `requires_bridge=False` 的自带夹具，**不需要实例**，自己起停。

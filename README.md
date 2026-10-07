@@ -57,6 +57,9 @@
 
 ## 五分钟上手
 
+> **先编桥**：`python -m ctl build --target gs32`。`bridge/dist/` 不入库，空克隆没编就撞
+> `no bridge jar built yet`；换机 / 换 target 的完整三步见 §换一台机器。
+
 ```bash
 # 1) 起实例 + 读一眼（连不上就自己起，隔离运行配置区，源安装树零触碰）
 echo 'p = parts(); print(p.perspective, len(p.views))' | python -m ctl run --target gs32
@@ -196,7 +199,7 @@ python -m ctl build --target ccs12
 
 ```
 NAME     ECLIPSE    JRE    JAVA   PRODUCT                  PORT   INSTALL_DIR
-ccs12    4.23.0     11.0.13 11     org.eclipse.platform.ide 8778   D:/ti/ccs1281/ccs/eclipse
+ccs12    4.23.0     11.0.13 8      org.eclipse.platform.ide 8778   D:/ti/ccs1281/ccs/eclipse
 gs32     4.30.0     23.0.2 17     com.gs.ui.Studio         8777   D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2
 ```
 

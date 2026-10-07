@@ -86,6 +86,20 @@ bridge jar), i.e. a new machine's state:
         # is gitignored, so a fresh clone has no jar and `install` stops with
         # `no bridge jar built yet`
 
+**Hardware and SDK, which no command can install** -- a fresh machine has these only if
+someone plugged them in:
+
+  * a **TMS320F280025C** (the DSP280025 Lite board) on the desk;
+  * an **XDS100v2** probe, *attached and not held by another live debug session* (it is
+    exclusive: a running session blanks it from the enumeration entirely);
+  * a **C2000Ware** tree carrying the ``f28002x`` family, derived from the target's own
+    ``install_dir`` or pointed at with ``ECLIPSE_CTL_BOARD_C2000WARE``.
+
+Absent any of the three the case **SKIPs, never FAILs**, and the verdict line names which
+one -- ``no C2000Ware root carrying the 'f28002x' family``, ``no XDS100 probe attached``,
+or the probe ``IS attached but … cannot enumerate it`` (held).  A SKIP here is therefore a
+statement about the bench, not about the code.
+
 Then the RERUN below.  Measured **twice** from that exact state (2026-10-07, same machine):
 ``rc=0`` both times, and both stopped at the ASK THE HUMAN line (machine-checkable segment
 green).  Wall clock was **113.6 s** and **229.4 s** -- a **2x spread**, so the duration is a
@@ -100,8 +114,9 @@ RERUN (from the product repo; ~2-4 min, it brings the instance up itself):
 
     python -m ctl verify --case board.led_chase --target ccs12 --run-id board-<ts>
 
-The run id must be one whose workspace registers no project yet (a fresh
-``ctl install``, or one this case already cleaned).  A run with a foreign project
+The run id must name a run whose workspace registers no project yet -- you do **not**
+``ctl install`` first (the case brings the instance up itself): pick a run id you have
+never used, or one this case already cleaned.  A run with a foreign project
 SKIPs with that instruction rather than launching somebody else's configuration.
 Two more measured preconditions, both reported as an actionable SKIP instead of a
 silent wrong answer:
@@ -194,6 +209,12 @@ right after the instance comes up, and (b) never removes the project while an
 instance is alive -- the next invocation wipes the whole workspace *after* stopping
 that instance.  Leaving them stacked is not cosmetic: a modal blocks the UI thread,
 which is what makes a launch hang.
+
+A **third** class belongs to a *fresh* workspace: ``Configuring Debugger (may take a few
+minutes on first launch)`` -- measured 2026-10-07 in the isolated-HOME rehearsal (empty
+``USERPROFILE``, so every start was a first launch, and it appeared in **both** runs).
+It offers four Buttons and none is the affirmative one, so `_modal_row` *refuses* it
+(``action=refused``, never pressed); it did not block the load in either rehearsal.
 
 That sweep is for **statements** (error boxes, crash reports), and its disposal is
 ``WM_CLOSE``, i.e. the window's X.  A dialog that asks a **question** is the exact
