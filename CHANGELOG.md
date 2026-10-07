@@ -66,6 +66,23 @@
 
 ### Changed
 
+- **板级用例：把「等实例 JobManager 静默」换成一次只读探针**（2026-10-07）：
+  `ctl/verify/cases/board_led_chase.py` 的第一次 `launchActive` 之前曾用 `_JOBS_QUIET_WAIT_S
+  = 180.0`（`_JOBS_QUIET_POLL_S = 1.5`）循环等本实例的启动作业静默。实测（同机）该等待
+  **不买任何东西**：把等待预算压成 0 后第 1 次 `launchActive` 在实例仍有作业 RUNNING 时照常生效
+  （gate OPENED）；该实例自己的作业读数逐字 `idle=false` / `pending=3` /
+  `jobs_total=11 running=3 waiting=0 sleeping=8 none=0`（三条 p2 元数据下载 `state=RUNNING`）
+  ⇒ 那些下载不是 launch 的前提。改后的产品代码在更忙的实例上重现了它（`settle-after` 探针
+  `running=5`，gate 仍在 issue 1 开启）。
+  而代价是真的（一轮 54.3 s ↔ ~166 s）。现在 `_wait_jobs_quiet` → `_probe_jobs`：**一次**
+  `sys.wait 1`（同实例同分钟，桥侧日志 `1 ms` 对 `sys.wait jobs-idle` 的 `8664 ms`；**作业字段**
+  相同、头部不同），不循环、不 `sleep`、不设闸，记录键 `out["settle"]` → `out["jobs"]`，诊断行照旧打印
+  `busy=[…]`。**语义逐字不变**：实例忙既不是 SKIP 也不是 FAIL，`_expect` 从不读这段记录；
+  没生效的 launch 仍由重发环（`_LOAD_LAUNCH_ATTEMPTS`）兜底。整轮墙钟（**外部计时**，`date +%s`
+  包在命令外，未落盘）**112.31 s**，对改前的 **160.89 s** / **282.02 s**（同机同命令）。回归门：
+  `tests/unit/test_board_case_load_gate.py::JobsProbeTest` —— 忙实例下**恰 1** 次探针请求
+  （字面量写在测试自己身上，C10），把 `_probe_jobs` 改回循环即红。
+
 - **板级用例的文档面补齐：新机器照着走不再卡在第一步**（2026-10-07）：
   `ctl verify` 是**开发者工具**（`deliverable-shape.md` C5：不进 README / skill 的用户路径），
   所以它的知识归**用例自己的注释**（R11）与开发者面（`DEVELOPING.md`）。实测从空克隆（空目录 +

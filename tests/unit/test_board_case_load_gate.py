@@ -1675,51 +1675,69 @@ class LaunchIssueLedgerTest(unittest.TestCase):
         self.assertTrue(passed, detail)
 
 
-class JobsSettleTest(unittest.TestCase):
-    """The settle wait is a *soft* precondition: it waits, it records -- it decides not.
+class JobsProbeTest(unittest.TestCase):
+    """The job read is a **probe**, not a wait: one request, and it decides nothing.
 
-    A fresh instance's own startup jobs (repository downloads) were still running
-    through the first two `launchActive` issues of the AC1 run; the third, issued once
-    they were done, took effect at once.
+    What it replaced waited for a fresh instance's own startup jobs (repository
+    metadata downloads) to fall silent, under a 180 s cap.  Measured 2026-10-07: with
+    that cap forced to 0 the **first** `launchActive` took effect while the instance's
+    own jobs were still RUNNING and the gate OPENED on it -- so the wait only ever
+    cost wall clock (54.3 s of one run).  These tests pin the shape of its replacement:
+    exactly one request even while the instance is busy, and a record that decides
+    nothing.
     """
 
+    #: The probe request, as **this test** spells it.  Deliberately not built from the
+    #: case's constant (`deliverable-shape` C10: a gate must not take its threshold
+    #: from the thing it guards) -- a loop that crept back into `_probe_jobs` would ask
+    #: `sys.wait jobs-idle` instead (and any *other* `sys.wait` form added there would
+    #: show up too), so the pre-launch list below would no longer be exactly
+    #: `[self.PROBE]`.
+    PROBE = "sys.wait 1"
+
+    #: The busy answer, assembled from the measured path (2026-10-07): its header
+    #: (`mode=jobs-idle` / `waited_ms=15000 budget_ms=15000` / `pending=2` /
+    #: `jobs_total=11 running=2 waiting=0 sleeping=9 none=0`) comes from run
+    #: `board-ac1-fix`, `busy name="Loading the repository {0}"` from `settle-before`,
+    #: and `…/ccsv9/auto/content.jar` from `board-ac1-fix` (whose own settle line reads
+    #: `quiet=True after 3 poll(s) in 47.2s`).  The header is the `jobs-idle` mode's
+    #: own text and the probe does not read it -- `_jobs_reading` takes `idle=` / the
+    #: counts line / `busy name=`, which the bridge emits identically in both modes
+    #: (`LiveBridge.sysWait`).
     BUSY = ("OK\nmode=jobs-idle\nwaited_ms=15000 budget_ms=15000\nidle=false\n"
             "pending=2\njobs_total=11 running=2 waiting=0 sleeping=9 none=0\n"
             '  busy name="Loading the repository {0}" state=RUNNING\n'
             '  busy name="https://software-dl.ti.com/ccs/esd/device_support_ccsv9/'
             'auto/content.jar" state=RUNNING\nEND')
 
-    def test_it_waits_until_idle_and_records_the_jobs_verbatim(self):
-        ctx = _BridgeStub({"sys.wait": [self.BUSY, self.BUSY, _IDLE]})
+    def test_the_probe_asks_once_even_when_the_instance_is_busy(self):
+        """A busy instance is read **once** -- never re-read, never slept on."""
+        ctx = _LoadStub(dict(_live_answers([_RESUME_RAN, _DISABLED]),
+                             **{"sys.wait": [self.BUSY]}))
+        self.addCleanup(ctx.cleanup)
         with _fake_clock():
-            out = case._wait_jobs_quiet(ctx, {})
+            load = ctx.run()
 
-        self.assertTrue(out["quiet"])
-        self.assertEqual(out["rounds"], 3)
-        self.assertEqual(out["jobs_total"], "11")
-        self.assertEqual(out["running"], "2")
-        self.assertEqual(out["waiting"], "0")
-        self.assertEqual(out["pending"], "2")
-        self.assertEqual(
-            out["busy"],
-            ['busy name="Loading the repository {0}" state=RUNNING',
-             'busy name="https://software-dl.ti.com/ccs/esd/device_support_ccsv9/'
-             'auto/content.jar" state=RUNNING'])
-        note = next(line for line in ctx.notes if "settle --" in line)
-        self.assertIn("quiet=True", note)
-        self.assertIn("jobs_total=11 running=2 waiting=0 pending=2", note)
-        self.assertIn('busy name="Loading the repository {0}" state=RUNNING', note)
+        # The probe's own window is everything asked *before* the first launch: the
+        # load wait's own `sys.wait jobs-idle` rounds come later, so the window is
+        # what isolates "how many times the instance was looked at".
+        first_launch = next(index for index, request in enumerate(ctx.requests)
+                            if "launchActive" in request)
+        self.assertEqual([request for request in ctx.requests[:first_launch]
+                          if request.startswith("sys.wait")], [self.PROBE])
+        self.assertEqual(load["jobs"]["idle"], "false")
+        self.assertEqual(load["jobs"]["running"], "2")
+        self.assertTrue(load["jobs"]["busy"])
+        self.assertTrue(any(line.startswith("load: jobs --") for line in ctx.notes))
 
     def test_a_busy_instance_is_not_a_reason_to_skip_or_fail(self):
         ctx = _LoadStub(dict(_live_answers([_RESUME_RAN, _DISABLED]),
                              **{"sys.wait": [self.BUSY]}))
         self.addCleanup(ctx.cleanup)
-        with _fake_clock(_JOBS_QUIET_WAIT_S=5.0):
+        with _fake_clock():
             load = ctx.run()
 
-        self.assertFalse(load["settle"]["quiet"])
-        self.assertGreater(load["settle"]["rounds"], 1)
-        self.assertTrue(any("issued ANYWAY" in line for line in ctx.notes))
+        self.assertEqual(load["jobs"]["idle"], "false")
         self.assertTrue(load["launch_attempts"])     # the launch went out anyway
         self.assertTrue(load["running"])
 
@@ -1728,6 +1746,16 @@ class JobsSettleTest(unittest.TestCase):
         result["load"] = load
         passed, detail = case._expect(None, result)
         self.assertTrue(passed, detail)
+
+    def test_an_idle_instance_is_recorded_as_idle(self):
+        ctx = _LoadStub(_live_answers([_RESUME_RAN, _DISABLED]))
+        self.addCleanup(ctx.cleanup)
+        with _fake_clock():
+            load = ctx.run()
+
+        self.assertEqual(load["jobs"]["idle"], "true")
+        self.assertEqual(load["jobs"]["running"], "0")
+        self.assertEqual(load["jobs"]["busy"], [])
 
 
 # --------------------------------------------------------------------------- #

@@ -497,28 +497,52 @@ _LOAD_ROUND_MIN_S = 1.5
 _LOAD_LAUNCH_ATTEMPTS = 4
 _LOAD_WAIT_SLICE_S = 150.0
 
-#: The **soft** precondition before the first `launchActive`: wait, read-only, for
-#: this instance's own startup jobs to fall silent (see `_wait_jobs_quiet`).
+#: The budget of the one read-only job probe issued before the first
+#: `launchActive` (see `_probe_jobs`).  One millisecond, not the bridge's
+#: `jobs-idle` budget: **this is a probe, not a wait**.
 #:
-#: A *fresh* instance (every `ctl verify` builds a new `configuration`) spends its
-#: first minutes downloading repository metadata; the AC1 run's own `sys.wait
-#: jobs-idle` answers carry it verbatim, repeatedly:
+#: It replaces a loop that waited for this instance's own startup jobs to fall
+#: silent, under a `_JOBS_QUIET_WAIT_S = 180.0` cap.  Every number below was
+#: measured on this machine, 2026-10-07, by the case's own run logs; the total wall
+#: clocks are **external** timings (`date +%s` wrapped around the command) and were
+#: not written to any log:
 #:
-#:     idle=false
-#:     pending=2
-#:     jobs_total=11 running=2 waiting=0 sleeping=9 none=0
-#:       busy name="Loading the repository {0}" state=RUNNING
-#:       busy name="https://software-dl.ti.com/ccs/esd/device_support_ccsv9/auto/content.jar" state=RUNNING
+#: * the wait was **not a fixed cost**: `settle-before` spent **54.3 s** in it
+#:   (`quiet=True after 4 poll(s)`) inside a run the external timing put at
+#:   **160.89 s**, while the two runs of the same command before it were timed that
+#:   way at **282.02 s** each (the p2 metadata downloads it waited on are network
+#:   work, so `180.0` was an upper bound that bound, not the normal cost);
+#: * it bought nothing: run `settle-zero` (the wait budget forced to 0 in-process,
+#:   never committed -- its own line reads "the instance was still busy after 0s")
+#:   issued its **first** `launchActive` while the instance's own jobs were still
+#:   RUNNING, and the gate **OPENED** on that issue (20:07:41).  The run's own job
+#:   reading is verbatim `idle=false`, `pending=3`, and
+#:   `jobs_total=11 running=3 waiting=0 sleeping=8 none=0`, and these are its busy
+#:   lines: `busy name="Win32 refresh daemon" state=RUNNING`,
+#:   `busy name="https://software-dl.ti.com/ccs/esd/device_support_ccsv9/lpcs/content.jar" state=RUNNING`,
+#:   `busy name="Loading the repository {0}" state=RUNNING` -- all downloads, so they
+#:   are not a precondition of the launch, and "wait until they fall silent" waits
+#:   for a state unrelated to readiness;
+#: * the changed code reproduces it on a *busier* instance: `settle-after`'s probe
+#:   read `idle=false jobs_total=13 running=5 waiting=0 pending=5`, and the gate
+#:   still opened on **issue 1**;
+#: * the same external timing put the zero-budget run at **112.31 s**, against the
+#:   **160.89 s** / **282.02 s** above;
+#: * the cheap read gives the same **job fields**: same instance, same minute, the
+#:   bridge's own log (`runs/settle-zero/bridge.log`) shows `sys.wait 1` -> `1 ms`
+#:   (twice) against `sys.wait jobs-idle` -> `8664 ms`, while the two modes' answers
+#:   differ in their header alone (`mode=budget` / `waited_ms=2 budget_ms=1` against
+#:   `mode=jobs-idle` / `waited_ms=15000 budget_ms=15000`, the last verbatim as run
+#:   `board-ac1-fix` prints it).  The client-side wall clocks measured by hand for
+#:   that pair (**0.17 s** and **8.93 s**) are not written to any log.  Both forms are
+#:   spelled in the bridge's own `sys.help` table: `sys.wait|[<ms>|jobs-idle]`.
 #:
-#: and its first two `launchActive` issues (`bridge.log` 06:38:26 / 06:41:09) had
-#: **zero** effect while the third (06:43:41) took effect at once.  So "let the
-#: instance settle" is waited for -- but *only* waited for: the cap is a wall clock
-#: and the launch is issued anyway when it is spent, because a busy JobManager only
-#: makes a launch less likely to take effect.  It is never a SKIP and never a FAIL.
-_JOBS_QUIET_WAIT_S = 180.0
-#: The floor under one settle poll, so a stub whose requests answer instantly (or a
-#: real one that answers in 0 ms once the jobs are asleep) cannot hot-loop.
-_JOBS_QUIET_POLL_S = 1.5
+#: The job list is still read -- once -- because `busy name=…` is the only field
+#: that shows what the instance was doing, and it is what names the downloads
+#: above.  A busy instance is never a SKIP and never a FAIL (`_expect` never reads
+#: this record); a launch that takes no effect is covered by the re-issue loop
+#: (`_LOAD_LAUNCH_ATTEMPTS`), which is the mechanism that actually put it through.
+_JOBS_PROBE_MS = 1
 
 #: How long to wait, read-only, for the LaunchBar to bind a launch target to the
 #: descriptor this case seeded (see `_wait_launchbar` for why that line, and not the
@@ -2293,82 +2317,59 @@ def _gate_open(perspective: Optional[str], items: Optional[int]) -> bool:
     return perspective == _DEBUG_PERSPECTIVE and items is not None and items >= 1
 
 
-def _wait_jobs_quiet(ctx, load_out: Dict[str, Any]) -> Dict[str, Any]:
-    """Read-only: wait for this instance's **own startup jobs** to fall silent.
+def _probe_jobs(ctx, load_out: Dict[str, Any]) -> Dict[str, Any]:
+    """Read-only: **one** look at this instance's own jobs -- a probe, not a wait.
 
-    A *fresh* instance (every `ctl verify` builds a new `configuration`) spends its
-    first minutes downloading repository metadata -- the AC1 run's own
-    `sys.wait jobs-idle` answers carry it verbatim, repeatedly:
+    This replaced a loop that waited up to 180 s for the instance's own startup
+    jobs (repository metadata downloads) to fall silent.  That wait was **measured
+    to buy nothing** (2026-10-07, this machine): with its budget forced to 0, the
+    **first** `launchActive` took effect while the instance's own jobs were still
+    RUNNING (`running=3`, three metadata downloads `state=RUNNING`) and the gate
+    OPENED on it; the changed code then reproduced that on a *busier* instance
+    (`settle-after`: `running=5`, the gate still open on issue 1).  So "the jobs are
+    quiet" is not a precondition of a launch, and waiting for it waits for a state
+    that is unrelated to readiness (the full readings are on `_JOBS_PROBE_MS`).  What
+    the wait cost was real: 54.3 s of one run, ~166 s of another (the total wall
+    clocks were **external** timings, `date +%s` wrapped around the command, not
+    written to any log).
 
-        idle=false
-        pending=2
-        jobs_total=11 running=2 waiting=0 sleeping=9 none=0
-          busy name="Loading the repository {0}" state=RUNNING
-          busy name="https://software-dl.ti.com/ccs/esd/device_support_ccsv9/auto/content.jar" state=RUNNING
+    So the JobManager is read **once** -- `sys.wait <ms>`, the bridge's own
+    snapshot (a 1 ms budget; the bridge's own log has `sys.wait 1` at `1 ms` against
+    `8664 ms` for `sys.wait jobs-idle` on the same instance in the same minute, and
+    the two answers share the job fields while their headers differ) -- and what it
+    said is recorded.  Nothing here loops, sleeps, or gates anything.
 
-    and its first two `launchActive` issues (`bridge.log` 06:38:26 / 06:41:09) had
-    **zero** effect while the third (06:43:41), issued after the downloads were
-    done, took effect at once.  So the first launch waits for the instance to
-    settle.
-
-    This is a **soft** precondition, on purpose: the cap is a wall clock and the
-    launch is issued anyway when it is spent.  A busy JobManager makes a launch
-    *less likely* to take effect -- it is never a reason to SKIP or FAIL, and
-    nothing here is a criterion (`_expect` never reads this record).  Only
-    `sys.wait jobs-idle` -- a bridge method -- is called; it takes no argument and
-    nothing here moves the target.
+    A busy instance is **never** a SKIP and **never** a FAIL: the jobs listed here
+    are this instance's own background work, and an in-flight launch is not waiting
+    on them.  Nothing here is a criterion -- `_expect` never reads this record.
+    Only a read-only bridge method is called, and nothing here moves the target.
     """
-    out: Dict[str, Any] = {"quiet": False, "rounds": 0, "waited_s": 0.0,
-                           "idle": None, "jobs_total": None, "running": None,
+    out: Dict[str, Any] = {"idle": None, "jobs_total": None, "running": None,
                            "waiting": None, "pending": None, "busy": [],
-                           "end_idle": None, "last": ""}
+                           "last": "", "probe_ms": _JOBS_PROBE_MS,
+                           "elapsed_s": 0.0}
     started = time.monotonic()
-    deadline = started + _JOBS_QUIET_WAIT_S
-    first_busy: Optional[Dict[str, Any]] = None
-    reading: Dict[str, Any] = {}
-    while True:
-        out["rounds"] += 1
-        wait = _ask(ctx, "sys.wait jobs-idle", load_out)
-        if load_out.get("transport_error"):
-            break
-        out["last"] = wait.status_line
-        reading = _jobs_reading(wait.text)
-        if first_busy is None and reading["idle"] != "true":
-            first_busy = reading
-        out["end_idle"] = reading["idle"]
-        if reading["idle"] == "true":
-            out["quiet"] = True
-            break
-        if time.monotonic() >= deadline:
-            break
-        time.sleep(_JOBS_QUIET_POLL_S)
-    # "Then" -- the state to line up against "what was still running while the launch
-    # did nothing": the **first** busy reading, or the last one when the instance never
-    # went quiet at all.
-    then = first_busy or reading
-    for key in ("idle", "jobs_total", "running", "waiting", "pending", "busy"):
-        out[key] = then.get(key)
-    out["waited_s"] = round(time.monotonic() - started, 1)
-    ctx.note("load: settle -- the instance's own jobs are quiet=%s after %d poll(s) "
-             "in %.1fs; then: idle=%s jobs_total=%s running=%s waiting=%s pending=%s "
-             "busy=%s; at the end: idle=%s (a fresh instance downloads repository "
-             "metadata, and the first `launchActive` issues of the AC1 run took no "
-             "effect until that was over)"
-             % (out["quiet"], out["rounds"], out["waited_s"], out["idle"],
-                out["jobs_total"], out["running"], out["waiting"], out["pending"],
-                out["busy"] or "<none>", out["end_idle"]))
-    if not out["quiet"]:
-        ctx.note("load: settle -- the instance was still busy after %.0fs (last "
-                 "answer %r); the launch is issued ANYWAY -- this is a soft "
-                 "precondition, never a SKIP and never a FAIL"
-                 % (_JOBS_QUIET_WAIT_S, out["last"]))
+    wait = _ask(ctx, "sys.wait %d" % _JOBS_PROBE_MS, load_out)
+    out["elapsed_s"] = round(time.monotonic() - started, 1)
+    if load_out.get("transport_error"):
+        return out
+    out["last"] = wait.status_line
+    out.update(_jobs_reading(wait.text))
+    ctx.note("load: jobs -- one read-only probe (sys.wait %d, %.1fs): idle=%s "
+             "jobs_total=%s running=%s waiting=%s pending=%s busy=%s -- a busy "
+             "instance is not a SKIP and not a FAIL; the launch is issued regardless"
+             % (_JOBS_PROBE_MS, out["elapsed_s"], out["idle"], out["jobs_total"],
+                out["running"], out["waiting"], out["pending"],
+                out["busy"] or "<none>"))
     return out
 
 
 def _jobs_reading(text: str) -> Dict[str, Any]:
-    """The JobManager fields of one `sys.wait jobs-idle` answer, verbatim.
+    """The JobManager fields of one `sys.wait` answer, verbatim.
 
-    (`idle=`, `pending=`, and the counts line -- the bridge prints
+    (Both modes spell them the same way -- the probe's `sys.wait <ms>` and the
+    load wait's `sys.wait jobs-idle` -- so this parser serves both.  `idle=`,
+    `pending=`, and the counts line -- the bridge prints
     ``jobs_total=11 running=2 waiting=0 sleeping=9 none=0`` **on one line**, so the
     keys are searched for, not line-anchored -- plus the `busy name=` lines.  Nothing
     here derives a value; every field is the bridge's own text.)
@@ -2723,10 +2724,13 @@ def _load(ctx, plan: Dict[str, Any], launch: str) -> Dict[str, Any]:
        effect** while that record is still empty (measured 2026-10-07: `launchActive`
        6 s after the bridge came up left the perspective at `TICPerspective` for the
        whole 600 s budget; the same command on the same instance 2.5 min later
-       switched it in 6 s).  So the instance's own startup jobs are given a bounded,
-       read-only chance to settle (`_wait_jobs_quiet` -- a *soft* precondition, never
-       a criterion), the workspace's own LaunchBar record is waited for, and a launch
-       that shows no effect in its slice is issued again, bounded;
+       switched it in 6 s).  So this instance's own jobs are looked at **once**
+       (`_probe_jobs` -- a single read-only probe, never a wait: the first
+       `launchActive` of the 2026-10-07 zero-budget run took effect with the
+       instance's own jobs still RUNNING, and the changed code reproduced that on a
+       *busier* instance at `running=5`), the workspace's own LaunchBar record is
+       waited for, and a launch that shows no effect in its slice is issued again,
+       bounded;
     1. wait for the launch to finish -- `sys.wait jobs-idle` under a generous
        budget (`_wait_for_debug_context`), never a sleep.  Every round of that wait
        first answers the load stage's modal **question** if one is on screen
@@ -2796,12 +2800,14 @@ def _load(ctx, plan: Dict[str, Any], launch: str) -> Dict[str, Any]:
     ctx.note("load: cmd.run %s (before the launch) -> %s"
              % (_CMD_RESUME, _shape(out["resume_before"])))
 
-    # -- the launch: let the instance settle, and let the LaunchBar know us ---- #
-    # Two read-only waits before the first F11, both for the *same* reason: the
-    # command is answered `OK` whether or not it did anything.  A fresh instance is
-    # still downloading repository metadata (soft, `_wait_jobs_quiet`), and the
-    # LaunchBar only records our configuration asynchronously (H2/`_wait_launchbar`).
-    out["settle"] = _wait_jobs_quiet(ctx, out)
+    # -- the launch: look once at the instance, and let the LaunchBar know us --- #
+    # Two read-only steps before the first F11, both for the *same* reason: the
+    # command is answered `OK` whether or not it did anything.  One probe of this
+    # instance's own jobs (`_probe_jobs` -- a single read, never a wait: measured
+    # 2026-10-07, the first `launchActive` took effect while the instance's own jobs
+    # were still RUNNING), and the LaunchBar, which only records our configuration
+    # asynchronously (H2/`_wait_launchbar`).
+    out["jobs"] = _probe_jobs(ctx, out)
     out["launchbar"] = _wait_launchbar(ctx, plan)
 
     # F11's command: it launches the ACTIVE launch configuration, which is the one
