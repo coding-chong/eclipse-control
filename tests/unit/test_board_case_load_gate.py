@@ -761,6 +761,29 @@ class PreGuardTest(unittest.TestCase):
             got = case._c2000ware_candidates(install_dir)
         self.assertEqual([os.path.normpath(ware)], [os.path.normpath(g) for g in got])
 
+    def test_several_coexisting_releases_are_collected_name_descending(self):
+        """Measured 2026-10-07: **three** releases sit in ``<ti>/c2000`` and **all
+        three** carry the family's ``_SPEC_REL``, so that check selects nothing here
+        -- the collection order is what decides which root ``_pre`` ends up using.
+
+        That makes the order a **rule**, not an accident, so it is pinned here
+        (C10: the expected list is *this* file's own literal, never the module's).
+        Flipping the sort must redden exactly this test.
+        """
+        ti = tempfile.mkdtemp(prefix="eclipse-ctl-ti-")
+        self.addCleanup(shutil.rmtree, ti, ignore_errors=True)
+        install_dir = os.path.join(ti, "ccs1281", "ccs", "eclipse")
+        os.makedirs(install_dir)
+        for name in ("C2000Ware_5_04_00_00", "C2000Ware_26_00_00_00",
+                     "C2000Ware_26_01_00_00"):
+            os.makedirs(os.path.join(ti, "c2000", name, *case._SPEC_REL.split("/")[:-1]))
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(case._BOARD_ENV + "C2000WARE", None)
+            got = [os.path.basename(os.path.normpath(path))
+                   for path in case._c2000ware_candidates(install_dir)]
+        self.assertEqual(got, ["C2000Ware_5_04_00_00", "C2000Ware_26_01_00_00",
+                               "C2000Ware_26_00_00_00"])
+
     def test_without_an_install_tree_it_finds_nothing(self):
         """Empty input must stay empty -- never a fallback to a path nobody verified."""
         with mock.patch.dict(os.environ, {}, clear=False):

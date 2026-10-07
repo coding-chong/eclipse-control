@@ -943,12 +943,23 @@ def _c2000ware_candidates(install_dir: str) -> List[str]:
     removed when it dropped a hard-coded sibling install).
 
     Candidates are **not** arbitrated here: the caller keeps the first one that
-    actually carries the family's ``projectspec``, so which C2000Ware is used is
-    decided by what is on disk.  No version is pinned -- a different release is
-    accepted, and the device read-back (R2) is the real gate on the silicon.
+    carries the family's ``projectspec``.  What is on disk only *filters* -- the
+    **order** decides, so the order is the rule: roots are collected name-descending
+    (``sorted(..., reverse=True)``).
 
-    Measured 2026-10-07: ``<ti>`` = ``D:/ti``, so the walk finds
-    ``D:/ti/c2000/C2000Ware_5_04_00_00`` from ``D:/ti/ccs1281/ccs/eclipse``.
+    Measured 2026-10-07 (``<ti>`` = ``D:/ti``, so the walk reaches ``D:/ti/c2000``
+    from ``D:/ti/ccs1281/ccs/eclipse``): **three** releases sit there and **all three**
+    (``C2000Ware_5_04_00_00`` / ``C2000Ware_26_00_00_00`` / ``C2000Ware_26_01_00_00``)
+    carry
+    the family's ``_SPEC_REL`` -- i.e. the projectspec check alone selects
+    nothing here, and ``C2000Ware_5_04_00_00`` wins because ``"5…" > "26…"`` **as
+    strings**, not because it is newer.  So this is a **deterministic tie-break, not
+    a version comparison**: it keeps one machine reproducible (the same set of
+    releases always yields the same root), and the caller prints the whole candidate
+    list beside the chosen root so "the root it found" is never read as "the only
+    root there is" (R2's rule one level up).  The accepted end-to-end recipe (AC1) is
+    what re-certifies whichever release this picks; no version is pinned, and the
+    device read-back (R2) stays the gate on the silicon.
     """
     override = _override("c2000ware")
     if override:
@@ -1415,8 +1426,10 @@ def _pre(ctx):
              % (port, holders or "<none>", sorted(mine) or "<none>"))
 
     ctx.board_plan = plan
-    ctx.note("pre: c2000ware=%s spec=%s spec_device=%s expected=%s"
-             % (root, spec, plan["spec_device"], _EXPECTED_DEVICE))
+    ctx.note("pre: c2000ware=%s (chosen from %d candidate(s): %s) spec=%s "
+             "spec_device=%s expected=%s"
+             % (root, len(candidates), ", ".join(candidates) or "[]", spec,
+                plan["spec_device"], _EXPECTED_DEVICE))
     ctx.note("pre: workspace=%s registered_projects=%s"
              % (workspace, registered or "<none>"))
     return "workspace=%s probe_rows=%d xds100_rows=%d" % (
