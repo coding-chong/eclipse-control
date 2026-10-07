@@ -14,6 +14,13 @@ stdout carries results only; every diagnostic goes to stderr.
 from __future__ import annotations
 
 import argparse
+# ``ast`` now has two users (``_import_roots`` and ``_machine_path_check``), so it lives
+# at module scope.  An earlier pass imported it lazily inside its then-single user to
+# avoid binding it at import time; that was measured as **zero saving** (``dataclasses``
+# -> ``inspect`` -> ``dis`` -> ``ast`` is already in ``sys.modules`` under
+# ``python -m ctl``, measured 2026-10-04 with ``-X importtime``), so there is nothing to
+# trade away for a second call site.
+import ast
 import glob
 import json
 import os
@@ -1890,13 +1897,6 @@ def _import_roots(source: str) -> List[Tuple[str, int]]:
     function is still a third-party dependency.  Relative imports (``from .
     import x``) resolve inside this package and are skipped.
     """
-    # Imported here, not at module scope: this helper is the only user, so
-    # ``__main__`` need not bind ``ast`` at import time.  This does *not* remove
-    # ast's cost from ``python -m ctl`` overall -- ``dataclasses`` (already used
-    # by lifecycle/run/shadow/targets) pulls in ``inspect`` -> ``dis`` -> ``ast``
-    # unconditionally (measured 2026-10-04 with ``-X importtime``).
-    import ast
-
     roots: List[Tuple[str, int]] = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
@@ -1907,6 +1907,81 @@ def _import_roots(source: str) -> List[Tuple[str, int]]:
                 continue
             roots.append((node.module.split(".")[0], node.lineno))
     return sorted(roots, key=lambda row: row[1])
+
+
+#: Case-layer directories whose `.py` files may not carry a machine-local absolute
+#: path.  Pinned by `tests/unit/test_machine_path_gate.py` against its own literal
+#: (`deliverable-shape.md` C10: a gate's test must not be certified by the gate's own
+#: constant).
+_MACHINE_PATH_DIRS = ("ctl/verify/cases",)
+
+#: A drive-qualified path with at least one more separator -- i.e. something that names
+#: a *directory* on some machine (`D:/ti/ccs1281/ccs`).  A bare `C:/` root spelling
+#: (which appears when talking about drive letters) has no second separator and is not
+#: flagged: the gate's precision has to be isomorphic to what it guards (C11).
+_MACHINE_PATH_RE = re.compile(r"[A-Za-z]:[\\/][^\"'\s]*[\\/]")
+
+
+def _machine_path_check(roots: Sequence[str] = _MACHINE_PATH_DIRS) -> Tuple[bool, str]:
+    """No case may embed a machine-local absolute path.
+
+    The case layer's own header promises "every value is an install-relative or a
+    measured fact, never a machine-local absolute path".  That is the one contract a
+    fresh clone cannot repair by configuration -- the fix is always "edit the source"
+    -- so it gets a gate.  Until 2026-10-07 nothing checked it, and
+    ``_DEFAULT_C2000WARE = "D:/ti/c2000/C2000Ware_5_04_00_00"`` shipped as a silent
+    fallback that made every other machine fail with a directory it never chose.
+
+    Scan surface (C8, "the gate must see what it guards"): every ``*.py`` under
+    ``roots``, parsed with :mod:`ast`; the unit is the **string constant**, and
+    docstrings are excluded -- a docstring is where a *measured fact* and a rerun
+    recipe legitimately live, and `measurement-hygiene` §13.10 requires those to stay
+    verbatim.  Four trees are pinned by ``tests/unit/test_machine_path_gate.py``
+    against an independent literal.
+
+    Known blind spots -- green here is not "no machine path anywhere": only string
+    literals are read, so a path assembled from parts (``"D:" + "/ti/" + name``) or
+    read from a config file at runtime is invisible; and only ``roots`` is scanned, so
+    the built-in target matrix in ``ctl/targets.py`` (a documented *reference*
+    calibration with its own guard and fix command, `README.md` target table) is
+    deliberately outside this gate.
+    """
+    problems: List[str] = []
+    checked = 0
+    for root_dir in roots:
+        for path in sorted(glob.glob(os.path.join(root_dir, "**", "*.py"), recursive=True)):
+            if "__pycache__" in path:
+                continue
+            checked += 1
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    tree = ast.parse(fh.read(), filename=path)
+            except (OSError, SyntaxError) as exc:
+                problems.append("%s: unreadable (%s)" % (path, exc))
+                continue
+            docstrings = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                     ast.AsyncFunctionDef)):
+                    text = ast.get_docstring(node, clean=False)
+                    if not text:
+                        continue
+                    for sub in ast.walk(node):
+                        if (isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+                                and sub.value == text):
+                            docstrings.add(id(sub))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                    continue
+                if id(node) in docstrings:
+                    continue
+                match = _MACHINE_PATH_RE.search(node.value)
+                if match:
+                    problems.append("%s:%d: machine-local path %r"
+                                    % (path, node.lineno, match.group(0)))
+    if problems:
+        return False, "; ".join(problems)
+    return True, "%d module(s) scanned in %s" % (checked, "/".join(roots))
 
 
 def _stdlib_only_check() -> Tuple[bool, str]:
@@ -2022,6 +2097,11 @@ def _cmd_preflight(args) -> int:
 
     ok, detail = _stdlib_only_check()
     print("[%s] stdlib-only imports: %s" % ("PASS" if ok else "FAIL", detail))
+    if not ok:
+        problems += 1
+
+    ok, detail = _machine_path_check()
+    print("[%s] no machine-local paths in cases: %s" % ("PASS" if ok else "FAIL", detail))
     if not ok:
         problems += 1
 
