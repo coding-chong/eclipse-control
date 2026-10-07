@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Dict
 
+from .board_led_chase import CASE as BOARD_LED_CHASE
 from .errors_bad_param import CASE as ERRORS_BAD_PARAM
 from .errors_bad_runp_param import CASE as ERRORS_BAD_RUNP_PARAM
 from .errors_console_absent import CASE as ERRORS_CONSOLE_ABSENT
@@ -77,6 +78,10 @@ ALL_CASES = [
     # `realflow` last: it is the slowest case (a real headless build) and it is the
     # only one that leaves a scratch project tree behind for `post` to remove.
     REALFLOW_BUILD_ARTIFACT,
+    # The hardware case is the slowest of all (it brings its own instance up), and
+    # it is the only one that needs the run's workspace to itself before the IDE
+    # starts; it therefore runs last and skips on a run that already has a project.
+    BOARD_LED_CHASE,
 ]
 
 
