@@ -19,6 +19,7 @@ description: 从外部读取或控制 Eclipse 系 IDE（GS32_Studio / CCS 等）
 | 桥超时 / 界面疑似卡死 / 换一台机器（内置 target 的安装根不是你的） | [`references/recovery.md`](references/recovery.md) |
 | 点按钮 / 按键 / 写文本（元素寻址输入） | [`references/input.md`](references/input.md) |
 | 截图 / 窗口枚举 / `shots` 与 `shadow` 的区别 | [`references/observation.md`](references/observation.md) |
+| 某个行为「上游怎么写的 / 有没有写」 | [`references/upstream-docs.md`](references/upstream-docs.md) |
 
 ## 一、何时用
 
