@@ -86,8 +86,11 @@ bridge jar), i.e. a new machine's state:
         # is gitignored, so a fresh clone has no jar and `install` stops with
         # `no bridge jar built yet`
 
-Then the RERUN below.  Measured from that exact state, end to end: 113.6 s, ``rc=0``, and
-it stopped at the ASK THE HUMAN line (machine-checkable segment green).
+Then the RERUN below.  Measured **twice** from that exact state (2026-10-07, same machine):
+``rc=0`` both times, and both stopped at the ASK THE HUMAN line (machine-checkable segment
+green).  Wall clock was **113.6 s** and **229.4 s** -- a **2x spread**, so the duration is a
+*stock* number: quote it with its own measurement, never use it as a threshold
+(``measurement-hygiene`` 13.9).
 
 Read the **verdict line**, not ``rc``: a SKIP -- no ``--run-id`` yet, no probe, or the
 port held by another run -- also exits ``0``.  ``ctl verify`` uses ``0`` for "nothing
