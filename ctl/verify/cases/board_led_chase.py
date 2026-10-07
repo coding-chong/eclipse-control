@@ -39,14 +39,41 @@ produced it; nothing here is inferred)
    wizards, and the bridge has no text input).  => the project is seeded into the
    *run's* workspace **before** the IDE starts and the IDE is started with
    ``--keep-workspace`` -- the pattern ``ctl/lifecycle.py:install`` documents.
-4. **Probe in place** -- ``<install_dir>/ccs_base/common/uscif/xds100serial.exe``
-   prints a device table.  Measured 2026-10-07, both states, same machine:
-   **board attached** = **two** rows (`0403/6010  generic FT2232 …` **and** one carrying
-   `XDS100`), and only the second is the probe; **board absent** = **one** row, the
-   `0403/6010  generic FT2232  GJBDRPSS  USB <-> Serial Converter` -- so "the table has
-   a row" is not the probe test, `"XDS100" in row` is (that is what `_probe_report`
-   filters on).  No such row => no probe => **SKIP** (measured: rc=0 with the verbatim
-   rows in the message).
+4. **Probe in place** -- two INDEPENDENT channels, and the *attachment* question is
+   answered only by the second one:
+
+   * ``<install_dir>/ccs_base/common/uscif/xds100serial.exe`` prints a device table.
+     An ``XDS100`` row in it is evidence the tool can **see** the probe -- it is
+     **not** evidence the probe is attached, and a *missing* row is not evidence it
+     is gone.  Measured 2026-10-07, same machine, **driver binding unchanged across
+     the A/B** (``Get-PnpDevice -PresentOnly`` reported
+     ``USB\\VID_0403&PID_A6D0&MI_00\\8&1A7F3620&0&0000`` under class ``TI_Debug_Probe``
+     in *both* states, so the cause is the held handle, not a rebind):
+
+         # instance ccs12-p42 alive (pid 31160; it had run a debug session):
+         VID/PID    Type            Serial #    Description
+         0403/6010  generic FT2232  GJBDRPSS    USB <-> Serial Converter
+
+         # same instance stopped via `python -m ctl uninstall --target ccs12
+         #   --run-id ccs12-p42 --verify-clean`:
+         VID/PID    Type            Serial #    Description
+         0403/6010  generic FT2232  GJBDRPSS    USB <-> Serial Converter
+         0403/a6d0  XDS100v1/v2     USB100V2    Texas Instruments Inc.XDS100 Ver 2.0
+
+     A live **debug session** keeps the probe's FTDI handle open, so the tool cannot
+     enumerate it at all.  (A fresh, session-less instance does not: measured
+     2026-10-07, row present while ``ctl install --run-id <tmp>`` was live.)
+   * ``_probe_present()`` asks Windows itself -- ``Get-PnpDevice``, the read-only PnP
+     query -- for a present device whose hardware id contains
+     ``VID_0403&PID_A6D0``.  That channel answers whether or not an instance holds
+     the probe.
+
+   So ``rows == 1`` has **two** causes -- probe physically absent, or probe held by a
+   live debug session -- and the verdict is three-valued: an ``XDS100`` row => go on;
+   else OS-absent => **SKIP**; else OS-present => **SKIP** naming the held handle
+   (and this is why ``_pre`` stops *this run's own* leftover instance before it reads
+   the tool at all); else the OS query failed => **SKIP** saying it cannot tell --
+   never "absent".
 
 RERUN (from the product repo; ~2-4 min, it brings the instance up itself):
 
@@ -925,7 +952,7 @@ def _probe_tool(install_dir: str) -> str:
 
 
 def _probe_report(install_dir: str) -> Dict[str, Any]:
-    """Ask the CCS debug-service tool whether the board's emulator is attached.
+    """Ask the CCS debug-service tool which FTDI devices it can **see**.
 
     ``xds100serial.exe`` enumerates **every** FTDI device it can see -- not only
     XDS100s -- so the table's first row need not be the probe at all.  Measured on
@@ -940,6 +967,19 @@ def _probe_report(install_dir: str) -> Dict[str, Any]:
     XDS100v2 this case's launch configuration names (``_PROBE``).  So "the table
     has a row" is not "the probe is attached": keying R8's SKIP on any row would
     let a board with no probe attached run the whole case (the AC4 hole).
+
+    The converse is true as well, and it is the trap this channel used to fall into:
+    a row carrying ``XDS100`` is evidence of **visibility**, not of **attachment**.
+    While a live debug session holds the probe the tool enumerates **one** row and
+    the XDS100 is invisible (A/B on run ``ccs12-p42``, verbatim in the module
+    docstring under "Probe in place"), so ``probe_rows == []`` has two causes and
+    this function cannot tell them apart.  ``_probe_present()`` is the channel that
+    can, and ``_pre`` decides on the pair.
+
+    RERUN (either state, ~0.1 s; the A/B is the presence of a live debug session
+    holding the probe):
+
+        "D:/ti/ccs1281/ccs/ccs_base/common/uscif/xds100serial.exe"
     """
     tool = _probe_tool(install_dir)
     out: Dict[str, Any] = {"tool": tool, "rc": None, "rows": [], "probe_rows": [],
@@ -962,6 +1002,113 @@ def _probe_report(install_dir: str) -> Dict[str, Any]:
     #: an XDS100v2, and that is what R8 has to be keyed on.
     out["probe_rows"] = [row for row in out["rows"] if "XDS100" in row]
     return out
+
+
+#: The hardware id Windows binds the TI XDS100 driver to **on this machine**,
+#: verbatim from the PnP database while the probe was invisible to
+#: ``xds100serial.exe`` (an instance holding it) -- ``Get-PnpDevice -PresentOnly``
+#: reports it under class ``TI_Debug_Probe`` in *both* states of the A/B, which is
+#: why presence is keyed on the id and not on any driver state:
+#:
+#:     USB\VID_0403&PID_A6D0&MI_00\8&1A7F3620&0&0000
+#:
+#: The unqualified ``USB\VID_0403&PID_A6D0\USB100V2`` node comes first in the query
+#: and is matched by the same needle (it is the same board).
+_XDS100_HWID = "VID_0403&PID_A6D0"
+
+#: The read-only PnP presence query.  Through PowerShell, matching the repo's own
+#: convention for Windows-native read-only queries -- ``ctl/lifecycle.py:213-217``
+#: (``_pwsh``), whose user is ``list_processes`` (``Get-CimInstance Win32_Process``).
+#: ``-match`` is a regex and ``&`` is a literal there, so the needle is passed as-is.
+_PNP_QUERY = ("Get-PnpDevice -PresentOnly | "
+              "Where-Object { $_.InstanceId -match '%s' } | "
+              "Select-Object -ExpandProperty InstanceId" % _XDS100_HWID)
+
+#: The PnP query's wall budget.  Measured cost on this machine 2026-10-07:
+#: **1.0-1.2 s** per invocation (three runs: 1.07 s / 1.13 s / 1.00 s), so 60 s is
+#: a valve, not a race.
+_PNP_TIMEOUT = 60.0
+
+
+def _pnp_ids_from_text(text: str) -> List[str]:
+    """The hardware ids one PnP answer names: one per line, blanks and noise dropped.
+
+    Only lines carrying the needle are kept, so a stray warning line on the same
+    stream cannot be read as a device (the query already filters, and this is the
+    second, cheaper gate).
+    """
+    ids: List[str] = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if line and _XDS100_HWID.lower() in line.lower():
+            ids.append(line)
+    return ids
+
+
+def _pnp_xds100_ids() -> Tuple[List[str], str]:
+    """``([hardware ids], "")`` or ``([], error)`` -- never a guess (fail closed).
+
+    Every failure mode (no PowerShell, spawn failure, non-zero exit, timeout, and a
+    non-empty stream that names no matching id) comes back as the second element,
+    never as an empty list: an unanswerable question must not be spelled the same
+    way as the answer "none".
+
+    The last one is why a *blank* stream and a *noisy* one are told apart: the
+    answer "no such device" is an **empty** stream (measured 2026-10-07: the query
+    with a needle that matches nothing writes 0 bytes on both streams, rc=0), so a
+    stream that carries text but yields no id is not an answer at all -- it is a
+    warning/error the command swallowed (stderr is merged into stdout by
+    ``_run_capture``) and must not read as "absent".
+    """
+    exe = shutil.which("pwsh") or shutil.which("powershell")
+    if not exe:
+        return [], "no PowerShell on PATH (pwsh or powershell)"
+    done = _run_capture([exe, "-NoProfile", "-NonInteractive", "-Command", _PNP_QUERY],
+                        timeout=_PNP_TIMEOUT)
+    if done["killed"]:
+        return [], "PnP query killed after %ss" % _PNP_TIMEOUT
+    if done["rc"] != 0:
+        return [], "PnP query rc=%s: %s" % (done["rc"], _tail(str(done["text"]), 3))
+    ids = _pnp_ids_from_text(str(done["text"]))
+    if not ids and str(done["text"]).strip():
+        return [], ("PnP query rc=0 but named no %r hardware id; the stream carried: %s"
+                    % (_XDS100_HWID, _tail(str(done["text"]), 3)))
+    return ids, ""
+
+
+def _probe_present() -> Dict[str, Any]:
+    """Is an XDS100 probe attached?  The channel a held handle cannot blind.
+
+    ``xds100serial.exe`` answers "can this tool enumerate the probe", which a live
+    debug session can turn into ``False`` while the probe sits plugged in (A/B in the
+    module docstring: the XDS100 is exclusive, `design.md` H3).  This asks the OS,
+    which the held handle does not change -- that is the whole reason it exists; if it
+    merely re-asked ``xds100serial.exe`` it would be a second name for one answer.  It
+    is what separates the two causes of ``probe_rows == []``:
+
+    * ``present is True``  -- attached, but the tool cannot see it => a held handle;
+    * ``present is False`` -- genuinely not attached (that is R8/AC4's case);
+    * ``present is None``  -- the query itself did not answer => say *that*.
+
+    ``ECLIPSE_CTL_BOARD_PRESENCE=present|absent`` forces the value (the case's usual
+    override seam, `_override`); an unrecognised value is ``None`` + an error, never
+    a guess.  RERUN on this machine (~1.0-1.2 s, prints the matched hardware ids):
+
+        python -c "from ctl.verify.cases import board_led_chase as c; print(c._probe_present())"
+    """
+    override = _override("presence")
+    if override:
+        value = {"present": True, "absent": False}.get(override.strip().lower())
+        if value is None:
+            return {"present": None, "source": "override", "ids": [],
+                    "error": "%sPRESENCE=%r is not a recognized value "
+                             "(use present|absent)" % (_BOARD_ENV, override)}
+        return {"present": value, "source": "override", "ids": [], "error": ""}
+
+    ids, error = _pnp_xds100_ids()
+    if error:
+        return {"present": None, "source": "pnp", "ids": [], "error": error}
+    return {"present": bool(ids), "source": "pnp", "ids": ids, "error": ""}
 
 
 def _run_ctl(args: List[str], timeout: float) -> Dict[str, Any]:
@@ -1096,19 +1243,83 @@ def _pre(ctx):
                    % (", ".join(repr(n) for n in foreign), ctx.target.name,
                       ctx.run_id + "-2"))
 
+    # The run's OWN leftover instance is stopped **before** the probe is read, and
+    # the order is the point: an instance left behind by a green invocation of this
+    # case still has the debug session it ended with, and a live debug session holds
+    # the probe's FTDI handle -- while it is held, `xds100serial.exe` enumerates ONE
+    # row and the XDS100 is invisible (A/B in the module docstring, run `ccs12-p42`).
+    # Reading the tool first would make the case read "the tool is blind" as "the
+    # board is gone" and SKIP its own re-run -- the one thing AC1's one-command
+    # repeat cannot afford, because AC5 deliberately leaves that instance running.
+    # (Measured 2026-10-07: a *session-less* live instance does not blind the tool --
+    # 2 rows with `ctl install` live -- so what has to be freed is the debug session.)
+    #
+    # `_stop_instance` is defined further down this module; the name is resolved when
+    # this function runs, so the forward reference is fine.
+    stop = _stop_instance(ctx, plan)
+    plan["stop"] = stop
+    ctx.note("pre: stop %s (rc=%s) before the probe is read -- this run's own leftover "
+             "instance would hold the probe's handle"
+             % ("ran" if stop["needed"] else "not needed", stop["rc"]))
+
     probe = _probe_report(ctx.target.install_dir or "")
     plan["probe"] = probe
+    tool = os.path.basename(probe["tool"])
+    rows = " | ".join(probe["rows"]) or "<none>"
+    # Emitted before any SKIP below, so a skipped run still carries the reading that
+    # produced the verdict (`prd.md` R7: the evidence is the reading, not the story).
+    ctx.note("pre: probe %s rc=%s ftdi_rows=%d xds100_rows=%d xds100=%r others=%r"
+             % (tool, probe["rc"], len(probe["rows"]), len(probe["probe_rows"]),
+                probe["probe_rows"][0] if probe["probe_rows"] else "",
+                [row for row in probe["rows"] if row not in probe["probe_rows"]]))
     if not probe["probe_rows"]:
-        # R8: no probe => SKIP, never FAIL.  Keyed on the XDS100 row specifically:
-        # `xds100serial` lists *every* FTDI device, and this case's launch
-        # configuration names `_PROBE`, so some *other* FTDI device being present
-        # must not stand in for the probe (measured 2026-10-07: a generic FT2232
-        # enumerates first, an XDS100v2 second).
-        raise Skip("no XDS100 probe among the %d FTDI device(s) %s enumerated "
-                   "(rc=%s, %s); this case drives %r, so attach that probe -- rows: %s"
-                   % (len(probe["rows"]), os.path.basename(probe["tool"]), probe["rc"],
-                      probe["error"] or "no emulator row", _PROBE,
-                      " | ".join(probe["rows"]) or "<none>"))
+        # Three-valued, and the order carries the meaning:
+        # * `XDS100` in a row is a positive proof of ATTACHMENT (the tool could only
+        #   put that row there by enumerating the device) -- so a row short-circuits
+        #   the whole question, above this branch;
+        # * no row is NOT proof of absence.  `rows == 1` has two causes: the probe is
+        #   physically gone, or a live debug session holds it (A/B in the module
+        #   docstring).  `_probe_present()` asks the OS, which the held handle does
+        #   not change, and this is where the two are told apart.
+        presence = _probe_present()
+        plan["presence"] = presence
+        ids = ", ".join(presence["ids"]) or "<none>"
+        ctx.note("pre: presence source=%s present=%s ids=%s error=%r"
+                 % (presence["source"], presence["present"], ids, presence["error"]))
+        # What answered, in words -- the same two messages have to read correctly
+        # whether the OS answered or the override forced the value.
+        where = ("the %sPRESENCE override" % _BOARD_ENV
+                 if presence["source"] == "override"
+                 else "the OS presence query (Get-PnpDevice)")
+        if presence["present"] is False:
+            # R8/AC4's genuine case: nothing is attached.  SKIP, never FAIL.
+            raise Skip("no XDS100 probe attached: %s enumerated %d FTDI device(s) "
+                       "(rc=%s, %s) and none of them carries 'XDS100', and %s reports "
+                       "no present device whose hardware id contains %r; this case "
+                       "drives %r, so attach that probe -- rows: %s"
+                       % (tool, len(probe["rows"]), probe["rc"],
+                          probe["error"] or "no emulator row", where, _XDS100_HWID,
+                          _PROBE, rows))
+        if presence["present"] is True:
+            # The tool is blind; the board is not.  The message must name that cause,
+            # because "attach the probe" would send the operator to the wrong end.
+            held = (" -- %s reports hardware id %s" % (where, ids)
+                    if presence["ids"] else " -- %s says so" % where)
+            raise Skip("the XDS100 probe IS attached%s but %s cannot enumerate it -- it "
+                       "listed only %d FTDI device(s) (rc=%s, %s): a live CCS debug "
+                       "session is holding the probe's handle, so the tool cannot see "
+                       "it.  The board is not missing: stop the instance holding it "
+                       "(python -m ctl uninstall --target %s --run-id <that run>) and "
+                       "retry -- rows the tool could see: %s"
+                       % (held, tool, len(probe["rows"]), probe["rc"],
+                          probe["error"] or "no emulator row", ctx.target.name, rows))
+        raise Skip("cannot determine whether the XDS100 probe is attached: %s listed %d "
+                   "FTDI device(s) and none of them carries 'XDS100' (rc=%s, %s), and %s "
+                   "did not answer (%s).  This is a statement about the query, not "
+                   "about the board -- %r may well be attached -- rows: %s"
+                   % (tool, len(probe["rows"]), probe["rc"],
+                      probe["error"] or "no emulator row", where,
+                      presence["error"] or "no error recorded", _PROBE, rows))
 
     # The target's port must end up ours: this case starts the instance itself, and
     # `install` refuses a port another run holds.  Same predicate as
@@ -1142,11 +1353,6 @@ def _pre(ctx):
              % (root, spec, plan["spec_device"], _EXPECTED_DEVICE))
     ctx.note("pre: workspace=%s registered_projects=%s"
              % (workspace, registered or "<none>"))
-    ctx.note("pre: probe %s rc=%s ftdi_rows=%d xds100_rows=%d xds100=%r others=%r"
-             % (os.path.basename(probe["tool"]), probe["rc"], len(probe["rows"]),
-                len(probe["probe_rows"]),
-                probe["probe_rows"][0] if probe["probe_rows"] else "",
-                [row for row in probe["rows"] if row not in probe["probe_rows"]]))
     return "workspace=%s probe_rows=%d xds100_rows=%d" % (
         workspace, len(probe["rows"]), len(probe["probe_rows"]))
 

@@ -198,7 +198,10 @@ class ProbeReportTest(unittest.TestCase):
         self.assertNotIn("FT2232", out["probe_rows"][0])
 
     def test_a_foreign_ftdi_device_is_not_a_probe(self):
-        # AC4: with the XDS100 unplugged, only the generic FT2232 remains -> SKIP.
+        # The tool enumerates a foreign FTDI device but no XDS100 row => `probe_rows`
+        # is empty.  That reading has TWO causes (probe gone / probe held by a live
+        # debug session), so it is *not* proof the board is unplugged -- the split is
+        # `_pre`'s job (`_probe_present`); this test only pins the row filter.
         generic_only = self.REAL.replace(
             "0403/a6d0  XDS100v1/v2     USB100V2    "
             "Texas Instruments Inc.XDS100 Ver 2.0 \n", "")
@@ -483,6 +486,11 @@ class _PreCtx:
         def __init__(self, workspace):
             self.workspace = workspace
             self.configuration = os.path.join(workspace, ".metadata")
+            # No `endpoint.json` in the fixture workspace: `_stop_instance` really is
+            # called (that is the order `_pre` now has to have) but returns before it
+            # would spawn `python -m ctl uninstall`, so nothing on the machine moves.
+            self.endpoint = os.path.join(workspace, "endpoint.json")
+            self.run_id = "unit"
 
     def __init__(self, workspace):
         self.paths = self._Paths(workspace)
@@ -586,15 +594,22 @@ class PreGuardTest(unittest.TestCase):
         return root
 
     @contextlib.contextmanager
-    def _pre_environment(self, device, rows, probe_rows):
+    def _pre_environment(self, device, rows, probe_rows, presence=None):
         workspace = tempfile.mkdtemp(prefix="eclipse-ctl-pre-ws-")
         self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
         root = self._spec_root(device)
         ctx = _PreCtx(workspace)
         probe = {"rows": list(rows), "probe_rows": list(probe_rows),
                  "tool": "xds100serial.exe", "rc": 0, "error": ""}
+        # The OS presence channel is *always* stubbed: a unit test must not run
+        # `Get-PnpDevice` against the machine it happens to be on (that is how the
+        # defect this fixture now pins got read backwards).  Default = absent, which
+        # is the AC4/R8 shape the existing tests exercise.
+        if presence is None:
+            presence = {"present": False, "source": "pnp", "ids": [], "error": ""}
         with mock.patch.dict(os.environ, {case._BOARD_ENV + "C2000WARE": root}), \
                 mock.patch.object(case, "_probe_report", return_value=probe), \
+                mock.patch.object(case, "_probe_present", return_value=presence), \
                 mock.patch.object(case, "list_processes", return_value=[]), \
                 mock.patch.object(case, "list_port_listeners", return_value=[]):
             yield ctx
@@ -632,6 +647,173 @@ class PreGuardTest(unittest.TestCase):
             self.assertIsNone(ctx.board_plan)
         self.assertIn("no XDS100 probe", caught.exception.reason)
         self.assertIn(_GENERIC_FTDI_ROW, caught.exception.reason)
+
+    #: The hardware id of the board's probe, verbatim from `Get-PnpDevice -PresentOnly`
+    #: on this machine while it was invisible to `xds100serial.exe` (a live debug
+    #: session held it).  Written here as this test's own literal (C10): mutate the
+    #: case's needle and the fixtures below stop matching, so the test goes red.
+    HWID = "USB\\VID_0403&PID_A6D0&MI_00\\8&1A7F3620&0&0000"
+    HWID_NEEDLE = "VID_0403&PID_A6D0"
+
+    def test_a_blind_tool_never_reads_as_an_absent_board(self):
+        """The defect this change closes: `rows == 1` has TWO causes.
+
+        Same tool reading (one generic FTDI row), only the OS presence value differs,
+        and the verdict must follow it: attached => "held", never "gone".
+        """
+        held = {"present": True, "source": "pnp", "ids": [self.HWID], "error": ""}
+        with self._pre_environment("TMS320F280025C", [_GENERIC_FTDI_ROW], [],
+                                   presence=held) as ctx:
+            with self.assertRaises(case.Skip) as caught:
+                case._pre(ctx)
+            self.assertTrue(any("presence source=pnp present=True" in line
+                                for line in ctx.notes), ctx.notes)
+            # the reading is emitted before the verdict, so a SKIP still carries the
+            # evidence that produced it (the note used to sit past the gate)
+            self.assertTrue(any(line.startswith("pre: probe xds100serial.exe")
+                                for line in ctx.notes), ctx.notes)
+        reason = caught.exception.reason
+        self.assertIn(self.HWID, reason)              # the OS reading is quoted ...
+        self.assertIn("holding the probe", reason)    # ... and named as the cause
+        self.assertNotIn("no XDS100 probe", reason)   # never the absence wording ...
+        self.assertNotIn("attach that probe", reason)  # ... and never that instruction
+        # The flip: the same tool rows with the *other* presence value must NOT
+        # produce this verdict.  What the absent probe's own wording is stays pinned
+        # by `test_only_a_foreign_ftdi_row_skips_before_anything_is_driven` (one
+        # branch, one pinning test -- so the R-5 mutation keeps reddening exactly
+        # that one); here the contract is that the two causes are not conflated.
+        with self._pre_environment("TMS320F280025C", [_GENERIC_FTDI_ROW], []) as ctx:
+            with self.assertRaises(case.Skip) as caught:
+                case._pre(ctx)
+        absent_reason = caught.exception.reason
+        self.assertNotIn("holding the probe", absent_reason)
+        self.assertNotIn(self.HWID, absent_reason)
+
+    def test_an_unanswerable_presence_query_skips_without_claiming_absence(self):
+        """A failed OS query is `None`: say "cannot tell", never "not there"."""
+        blind = {"present": None, "source": "pnp", "ids": [],
+                 "error": "PnP query rc=1: Get-PnpDevice : not recognized"}
+        with self._pre_environment("TMS320F280025C", [_GENERIC_FTDI_ROW], [],
+                                   presence=blind) as ctx:
+            with self.assertRaises(case.Skip) as caught:
+                case._pre(ctx)
+        reason = caught.exception.reason
+        self.assertIn("cannot determine", reason)
+        self.assertIn("not recognized", reason)        # the query's own error, verbatim
+        self.assertNotIn("no XDS100 probe", reason)
+        self.assertIn(_GENERIC_FTDI_ROW, reason)
+
+    def test_the_runs_own_instance_is_stopped_before_the_probe_is_read(self):
+        """Order, recorded: freeing this run's instance is what unblinds the tool.
+
+        An instance left by a green invocation keeps its debug session, and that
+        session holds the probe's handle -- so a run that read the tool first would
+        SKIP its own re-run (AC1's one-command repeat).
+        """
+        order = []
+        probe = {"rows": [_XDS100_ROW], "probe_rows": [_XDS100_ROW],
+                 "tool": "xds100serial.exe", "rc": 0, "error": ""}
+        real_stop = case._stop_instance
+
+        def record_stop(ctx, plan):
+            order.append("stop")
+            return real_stop(ctx, plan)
+
+        def record_probe(install_dir):
+            order.append("probe")
+            return probe
+
+        with self._pre_environment("TMS320F280025C", [_XDS100_ROW], [_XDS100_ROW]) as ctx:
+            with mock.patch.object(case, "_stop_instance", record_stop), \
+                    mock.patch.object(case, "_probe_report", record_probe):
+                out = case._pre(ctx)
+        self.assertEqual(order, ["stop", "probe"])
+        self.assertIn("stop", ctx.board_plan)          # published with the plan
+        self.assertTrue(any("pre: stop" in line for line in ctx.notes), ctx.notes)
+        self.assertIn("xds100_rows=1", out)
+
+
+class ProbePresenceTest(unittest.TestCase):
+    """`_probe_present()`: the OS channel, its parse, and the override seam.
+
+    No Win32 call runs here -- the enumeration is stubbed or the override short
+    circuits it -- so the suite is machine-independent (a test that read the *host's*
+    PnP state would have passed for the wrong reason on the machine where the probe
+    happened to be plugged in, which is precisely how the old rule survived).
+    """
+
+    #: This test's own literals (C10), not `case._XDS100_HWID`.
+    HWID_NEEDLE = "VID_0403&PID_A6D0"
+    HWID = "USB\\VID_0403&PID_A6D0&MI_00\\8&1A7F3620&0&0000"
+    #: The board's *other* node and a foreign FTDI device: same text stream, no match.
+    BOARD_NODE = "USB\\VID_0403&PID_A6D0\\USB100V2"
+    FOREIGN = "USB\\VID_0403&PID_6010\\5&2C1B4E3F&0&1"
+
+    def test_the_pnp_answer_is_parsed_one_id_per_line(self):
+        text = ("%s\r\n\r\n%s\r\n%s\r\nGet-PnpDevice : a warning on the same stream\r\n"
+                % (self.HWID, self.BOARD_NODE, self.FOREIGN))
+        self.assertEqual(case._pnp_ids_from_text(text),
+                         [self.HWID, self.BOARD_NODE])
+        self.assertEqual(case._pnp_ids_from_text(""), [])
+        self.assertEqual(case._pnp_ids_from_text(self.FOREIGN + "\r\n"), [])
+
+    def test_a_named_device_is_present(self):
+        with mock.patch.object(case, "_pnp_xds100_ids",
+                               return_value=([self.HWID], "")):
+            out = case._probe_present()
+        self.assertIs(out["present"], True)
+        self.assertEqual(out["ids"], [self.HWID])
+        self.assertEqual(out["error"], "")
+
+    def test_no_named_device_is_absent_and_not_an_error(self):
+        with mock.patch.object(case, "_pnp_xds100_ids", return_value=([], "")):
+            out = case._probe_present()
+        self.assertIs(out["present"], False)
+        self.assertEqual(out["error"], "")
+
+    def test_a_failed_query_is_none_and_carries_the_reason(self):
+        with mock.patch.object(case, "_pnp_xds100_ids",
+                               return_value=([], "PnP query rc=1: not recognized")):
+            out = case._probe_present()
+        self.assertIsNone(out["present"])
+        self.assertIn("not recognized", out["error"])
+
+    def test_the_pnp_query_asks_for_the_boards_own_hardware_id(self):
+        # the needle the OS is asked about is this test's literal, not the case's
+        self.assertIn(self.HWID_NEEDLE, case._PNP_QUERY)
+        self.assertIn("Get-PnpDevice -PresentOnly", case._PNP_QUERY)
+
+    def test_the_override_forces_the_value(self):
+        with mock.patch.dict(os.environ, {case._BOARD_ENV + "PRESENCE": "absent"}):
+            self.assertIs(case._probe_present()["present"], False)
+        with mock.patch.dict(os.environ, {case._BOARD_ENV + "PRESENCE": "present"}):
+            self.assertIs(case._probe_present()["present"], True)
+        with mock.patch.dict(os.environ, {case._BOARD_ENV + "PRESENCE": "maybe"}):
+            out = case._probe_present()
+        self.assertIsNone(out["present"])
+        self.assertIn("maybe", out["error"])
+
+    def test_a_noisy_stream_is_not_read_as_an_absent_board(self):
+        """rc=0 with text but no matching id is *unparsable*, not "none".
+
+        The answer "no such device" is an **empty** stream (measured on this machine
+        2026-10-07: the query with a needle that matches nothing writes 0 bytes,
+        rc=0) -- so a stream carrying a swallowed warning/error must fail closed
+        (`present=None`), never be spelled the same way as "absent".
+        """
+        noisy = {"killed": None, "rc": 0, "timed_out": False,
+                 "text": "Get-PnpDevice : Access is denied.\r\n", "elapsed": 0.0}
+        with mock.patch.object(case, "_run_capture", return_value=noisy), \
+                mock.patch.object(case.shutil, "which", return_value="pwsh"):
+            ids, error = case._pnp_xds100_ids()
+        self.assertEqual(ids, [])
+        self.assertIn("named no", error)
+        self.assertIn("Access is denied", error)
+        # the contrast that makes the guard meaningful: a *blank* stream is "none".
+        blank = dict(noisy, text="")
+        with mock.patch.object(case, "_run_capture", return_value=blank), \
+                mock.patch.object(case.shutil, "which", return_value="pwsh"):
+            self.assertEqual(case._pnp_xds100_ids(), ([], ""))
 
 
 class GeneratedMuxTest(unittest.TestCase):
