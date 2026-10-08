@@ -327,11 +327,29 @@ _BOARD_ENV = ENV_PREFIX + "BOARD_"
 #: "install-relative or a measured fact".
 _C2000WARE_GLOBS = ("c2000/C2000Ware_*", "C2000Ware_*")
 
-#: Device family directory under ``<C2000Ware>/driverlib``.  Eleven same-named
-#: ``empty_driverlib_project.projectspec`` files live under this tree
-#: (f280013x/f280015x/f28002x/f28003x/f28004x/f2807x/f2837xd/f2837xs/f2838x/
-#: f28p55x/f28p65x) -- picking the wrong one builds another silicon silently, so
+#: Device family directory under ``<C2000Ware>/driverlib``.  The same-named
+#: ``empty_driverlib_project.projectspec`` lives under **several** families, in
+#: **several path shapes**, and *which* ones exist depends on the releases installed
+#: (so no count belongs in this comment):
+#:
+#: The shape table below is a reading taken 2026-10-08 on one developer machine --
+#: that bench at that moment, not a property of this tool:
+#:
+#: * ``examples/empty_projects/CCS/`` -- f280013x f280015x f28002x f28003x f28004x
+#:   f28e12x f28p551x f28p55x
+#: * ``examples/cpu1/empty_projects/CCS/`` -- f2807x f2837xd f2837xs
+#: * ``examples/c28x/empty_projects/CCS/`` -- f2838x f28p65x
+#: * ``examples/dual/empty_projects/CCS/`` -- f2837xd (the part's second core; f2837xd
+#:   appears under ``cpu1/`` too, so a family is not a key of exactly one shape)
+#:
+#: ``_SPEC_REL`` below hard-codes the **first** shape, which is the right one for
+#: ``_FAMILY`` alone -- picking the wrong family builds another silicon silently, so
 #: the family is a *constant* here and the generated device is read back (R2).
+#:
+#: Rerun (the table above is that one bench's reading, not this tool's contract):
+#: ``find <ti>/c2000 -name empty_driverlib_project.projectspec`` -- keep the
+#: ``driverlib/<family>/`` part of each hit for the family set, and the part after
+#: ``driverlib/<family>/examples/`` for the shapes.
 _FAMILY = "f28002x"
 
 #: The board's device: 源芯科 DSP280025 Lite (docs/dsp280025/...:8), i.e. the
