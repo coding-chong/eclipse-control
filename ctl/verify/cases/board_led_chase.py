@@ -138,7 +138,7 @@ silent wrong answer:
   that instance and restarts it on the wiped workspace).  A port held by *another*
   run SKIPs -- the XDS100 is exclusive and this case must own the instance that
   opens it.
-* ``ctl verify --all`` needs a live bridge for the other 26 cases
+* ``ctl verify --all`` needs a live bridge for the other 27 cases
   (``ENV-NOT-READY`` otherwise): ``ctl install --target ccs12 --run-id <id>``
   first.  This case itself is ``requires_bridge=False`` and will start the
   instance; the others are not.

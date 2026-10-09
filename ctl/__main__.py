@@ -1919,7 +1919,16 @@ _MACHINE_PATH_DIRS = ("ctl/verify/cases",)
 #: a *directory* on some machine (`D:/ti/ccs1281/ccs`).  A bare `C:/` root spelling
 #: (which appears when talking about drive letters) has no second separator and is not
 #: flagged: the gate's precision has to be isomorphic to what it guards (C11).
-_MACHINE_PATH_RE = re.compile(r"[A-Za-z]:[\\/][^\"'\s]*[\\/]")
+#:
+#: The lookbehind is the other half of C11, measured 2026-10-09 in
+#: `10-09-gs32-board-led-chase`: a *drive letter* opens a token, and a letter that
+#: follows another letter or digit is not one.  Without it, two legal spellings that
+#: merely contain `<letter>:<sep>` were flagged as machine paths -- a readelf regex
+#: spelled `Class:\s+(.+?)\s*$` (the `s:\` of `\s` after `s` and a colon) and any URL
+#: literal (`https://…`).  The fix is here, in the pattern, not in the case's spelling:
+#: `tests/unit/test_machine_path_gate.py` pins both directions (a real path must be
+#: caught, those legal spellings must be let through).
+_MACHINE_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\"'\s]*[\\/]")
 
 
 def _machine_path_check(roots: Sequence[str] = _MACHINE_PATH_DIRS) -> Tuple[bool, str]:
@@ -1936,8 +1945,10 @@ def _machine_path_check(roots: Sequence[str] = _MACHINE_PATH_DIRS) -> Tuple[bool
     ``roots``, parsed with :mod:`ast`; the unit is the **string constant**, and
     docstrings are excluded -- a docstring is where a *measured fact* and a rerun
     recipe legitimately live, and `measurement-hygiene` §13.10 requires those to stay
-    verbatim.  Four trees are pinned by ``tests/unit/test_machine_path_gate.py``
-    against an independent literal.
+    verbatim.  The scanned set is pinned by ``tests/unit/test_machine_path_gate.py``
+    against that file's **own** literal (``_REQUIRED_DIRS``), never by this module's
+    ``_MACHINE_PATH_DIRS`` -- C10: a gate's test must not be certified by the gate's
+    own constant, or weakening the set would silently free the tree it covers.
 
     Known blind spots -- green here is not "no machine path anywhere": only string
     literals are read, so a path assembled from parts (``"D:" + "/ti/" + name``) or

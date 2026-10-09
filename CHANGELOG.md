@@ -35,6 +35,31 @@
   ⇒ `(True, '30 module(s) scanned in ctl/verify/cases')`；往任一用例里塞一个**字面量**机器路径
   ⇒ 报 `ctl/verify/cases/board_led_chase.py:<行号>: machine-local path '…'`（实测过，见下条）。
 
+- **GS32 板级灯光用例 `board.led.chase.gs32`**（2026-10-09）：`ctl/verify/cases/board_led_chase_gs32.py`，
+  `board_led_chase.py` 的 GS32 版（`targets=("gs32",)`、`group="realflow"`、`requires_bridge=False`）。
+  **形状同、驱动面不同**：它**不走桥** —— 构建是 `GS32.exe -application …headlessbuild`（配置 `Flash_ILM`），
+  烧写是 `GS32ProgCommand.exe -chip GS32F035P -elf <ELF>` ⇒ 机器段判据是**两个 CLI 的 rc + 各自成功标志 +
+  ELF 回读**，不是 CCS12 那种「结果词 + `OK executed <命令 id>`」。
+  覆盖层（LED 引脚定义 + 两灯交替 + 本轮标记）叠在 SDK 模板的**临时副本**上；引脚只引用 `inc/board_cfg.h`
+  的宏，**不手写 mux**。
+  **链路逐环带闸门、断了就停**（syntax → build → marker → flash）：语法预检用工具链自带的
+  `gs-riscv-elf-gcc -fsyntax-only`（**不经过 launcher，故失败不会在用户桌面弹错误框**）；构建要 rc=0
+  **且** `error:` 行数为 0；产物要 `e_machine=243`、`stale=False`、且**本次运行唯一的标记**
+  （`CTL-GS32-<8 hex>`）能在镜像字节里找到；任何一环红 ⇒ 后面**不再执行**。这道闸门不是装饰：
+  实测一次坏补丁让构建失败，而**没有闸门的脚本会接着把上一次的旧 ELF 烧回板上**（标记检查会显示 0，
+  那时才知道拿错了产物）。
+  无硬件 ⇒ **SKIP 不是 FAIL**，判据按 `deliverable-shape.md` C14 立在两条**互不遮蔽**的通道上：
+  ① OpenOCD attach（`ftdi vid_pid 0x0403 0x6010` + `adapter serial GJBDRPSSA`、`gs32_cfg_mode 2`，
+  rc=0 且含 tap idcode）② OS 设备面 `Get-PnpDevice`（`VID_0403&PID_6010`）；「没看到 / 答不上来 /
+  事实不成立 / **该通道根本没跑起来**」**四态判词逐字不同**（C14 及 2026-10-07 补记）。三态可非侵入复现：
+  `ECLIPSE_CTL_GS32_BOARD_ATTACH=absent` + `ECLIPSE_CTL_GS32_BOARD_PNP=absent|cannot`。
+  **判据**（一条命令，实测 2026-10-09）：
+  `python -m ctl verify --case board.led.chase.gs32 --target gs32` ⇒ `rc=0`，
+  `build rc=0 'Build Finished. 0 errors, 0 warnings'` · `elf size=551060 e_machine=243 marker=ascii@32864` ·
+  `flash rc=0 success_line=True` · 末行 `ASK THE HUMAN: …`。
+  ⚠️ **人眼段**（两个灯是否交替）是本用例**唯一读不回来**的一环：`tgt-RESET mode=run.` 与
+  `flash rc=0` 都只证明镜像写进去了，**不证明 `main()` 跑起来了**。
+
 ### Fixed
 
 - **板级用例的 C2000Ware 底座改为**解析**，不再写死一台机器的路径**（2026-10-07）：

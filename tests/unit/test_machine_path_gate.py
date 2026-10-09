@@ -75,6 +75,31 @@ class MachinePathGateTest(unittest.TestCase):
         ok, detail = _machine_path_check((root,))
         self.assertTrue(ok, detail)
 
+    def test_a_regex_metasequence_is_not_a_machine_path(self):
+        """C11's "must be let through" side, measured 2026-10-09 (GS32 board case): a
+        readelf regex spelled with `\\s` after the letter `s` and a colon contains the
+        three characters `s:\\`, which a bare `[A-Za-z]:[\\\\/]` reads as a drive.  The
+        2026-10-09 fix is in the pattern (a drive letter opens a token), not in the
+        case's spelling -- so this stays green *and* the row below still reddens."""
+        root = self._package('PAT = r"Class:\\s+(.+?)\\s*$"\n')
+        ok, detail = _machine_path_check((root,))
+        self.assertTrue(ok, detail)
+
+    def test_a_url_literal_is_not_a_machine_path(self):
+        """The same false-positive class, in its most common spelling: `https://` has
+        `s:` followed by `//`."""
+        root = self._package('DOC = "see https://example.com/foo for the format"\n')
+        ok, detail = _machine_path_check((root,))
+        self.assertTrue(ok, detail)
+
+    def test_a_drive_letter_opening_a_token_is_still_caught(self):
+        """The "must be caught" side of the lookbehind: `D:/…` after punctuation."""
+        root = self._package('ELF = "D:/ProgramFiles/GS32Prog/x.exe"\n')
+        ok, detail = _machine_path_check((root,))
+        self.assertFalse(ok)
+        self.assertIn("c.py:1", detail)
+        self.assertIn("D:/ProgramFiles", detail)
+
     def test_an_install_relative_literal_is_not_flagged(self):
         """The shape the resolver is supposed to produce."""
         root = self._package('REL = "c2000/C2000Ware_5_04_00_00"\n')

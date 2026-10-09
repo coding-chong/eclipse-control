@@ -14,7 +14,7 @@
 
 ## 一、验收用例（`ctl verify`）
 
-27 个用例（存量数字，随时刻变；复算 `python -c "from ctl.verify.cases import ALL_CASES; print(len(ALL_CASES))"`，
+28 个用例（**产出型数字**，随代码变；复算 `python -c "from ctl.verify.cases import ALL_CASES; print(len(ALL_CASES))"`，
 不得当判据 —— `measurement-hygiene` §13.9），跑在**目标实例**上：
 
 ```bash
@@ -25,13 +25,21 @@ python -m ctl verify --case  read.ping --target gs32 --run-id dev
 ```
 
 - 退出码：`0` **没有任何结论是 FAIL**（**含 `[SKIP]`** —— 跳过也是 `0`，别读成"全过"）/ `1` 有 FAIL 结论 / `2` 前置未就绪（无实例、target 不认识、缺 `pwsh`）。**读判据行，不要只读 `rc`**。
-- **回归基线**（2026-10-03，26 用例，**GS32**）：`--all` = **25 PASS + 1 SKIP / 0 FAIL**，`rc=0`
-  （SKIP = `read.console`，该实例的 Console 视图没有 console 页 ⇒ 如实跳过）。
+- **回归基线**（2026-10-09，**28 用例**，**GS32**）：`--all` = **26 PASS + 2 SKIP / 0 FAIL**，`rc=0`
+  （两条 SKIP = `read.console`（该实例的 Console 视图没有 console 页）＋ `board.led_chase`
+  （`targets=("ccs12",)`；`--all` **不按 target 过滤**，会给不适用 target 的用例各记一条 SKIP
+  ⇒ 用例集一变，**两侧的合计都要重跑**）。
+  ⚠️ 同日的**第一次**整列跑（**同期有并发负载** —— `measurement-hygiene` §1）出过 **1 条 FAIL**
+  （`resilience.timeout-applied`：`applied=no`）；**隔离复跑**与**第二次整列跑**都 PASS ⇒ 判为**并发污染，未复现**。
+  基线只按**无并发**的那一次记。
 - `input.fixture` 是 `requires_bridge=False` 的自带夹具，**不需要实例**，自己起停。
-- `realflow.build_artifact` 是唯一**真的跑一遍工作流**的用例（含一次无头构建），见下。
-- `board.led_chase` 是唯一**需要真实硬件**的用例：XDS100v2 探针 + DSP280025 板子。
+- `realflow.build_artifact` 是**跨 target** 真跑一遍工作流的那条（建工程 → 写代码 → IDE 认它 → 构建出产物），见下。
+  `board.led.chase.gs32` 也含一次真无头构建，但它判的是**板子上的灯**，不是 IDE 的工作流。
+- **两条需要真实硬件的用例**：`board.led_chase`（CCS12 侧：XDS100v2 探针 `PID_A6D0` + DSP280025 板）与
+  `board.led.chase.gs32`（GS32 侧：板载 FT2232H `PID_6010` + H1017A 板）。
+  同机两把探针共存（`VID_0403&PID_6010` = 本板，`VID_0403&PID_A6D0` = XDS100v2），**不得按枚举序混选**。
   探针不在位 / 被别的调试会话握着 ⇒ **SKIP**（不是 FAIL）；端口被别的 run 占 ⇒ 也 SKIP。
-  它 `requires_bridge=False`，**自己起停实例**，所以 `--run-id` 必须是一个工作区里还没有工程的 run。
+  两条都 `requires_bridge=False`，**自己起停实例**，所以 `--run-id` 必须是一个工作区里还没有工程的 run。
   **前置、`--run-id` 的要求、以及判据的形状都写在用例自己的 docstring 里**（R11：知识归用例注释，
   不在这份清单里重复）。从空克隆到跑起来是三条命令（clone → 按需 `targets add` → `build --target ccs12`），
   也已写在那里。

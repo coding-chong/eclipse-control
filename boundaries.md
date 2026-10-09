@@ -49,9 +49,11 @@
 ### A5 跨产品复现
 - **能力**：同一套技术对 CCS 12（Eclipse 4.23 / JRE 11）复现成功，不只 GS32（4.30 / JRE 23）。
   **两个 target 各自跑通全量门禁** —— **当前数字以 §5.2 / §5.3 为唯一权威**：
-  `verify --all` 实测 **GS32 25 PASS + 1 SKIP / 0 FAIL**（rc=0）· **CCS12 24 PASS + 1 SKIP / 1 FAIL**（rc=1）；
-  唯一那条 FAIL（`input.fixture` 的 `key`）已归因到**平台版本 / SWT 派发行为**（§5.3），**未结案 0 条**。
-  （26 用例：比旧快照多一条 `realflow.build_artifact`，两侧都 PASS —— 见 §5.2 / §5.4。）
+  `verify --all` 实测（**28 用例**，2026-10-09 重跑）**GS32 26 PASS + 2 SKIP / 0 FAIL**（rc=0）；
+  **CCS12 列待重跑** —— 旧快照（24 PASS + 1 SKIP / 1 FAIL）已按 §13.8 撤下，理由与复跑命令见 §5.2 合计行
+  （`--all` 不按 target 过滤 ⇒ 用例集 +1 后该列也必须同批重跑）。
+  那条已归因的 FAIL（`input.fixture` 的 `key`）属**平台版本 / SWT 派发行为**（§5.3），**未结案 0 条**。
+  （比旧快照多 `realflow.build_artifact` 与**两条板级用例** —— 见 §5.2 / §5.4。）
   > ⚠️ **本节此前那张旧表已于 2026-10-02 作废 —— 按 §13.8，只留指针，不留作废的数字。**
   > 作废原因：那是 **CCS 腿双 target 化之前**的快照，与现在两条腿都跑满 26 用例的事实不符
   > （`read.console` 两侧同因 SKIP），两张表并存在同一文件里属自相矛盾。
@@ -847,7 +849,10 @@ grep -rn "EModelService\|MApplication\|MWindow\|MPart" bridge/src/
 
 ### 5.2 两列对照表（同一用例集，逐条）
 
-`ctl verify --all` 在两侧各跑一遍（26 用例 = read 11 + write 4 + errors 7 + resilience 2 + input 1 + realflow 1）。
+`ctl verify --all` 在两侧各跑一遍（**28 用例** = read 11 + write 4 + errors 7 + resilience 2 + input 1 + realflow 1 + **板级 2**）。
+⚠️ `--all` **不按 target 过滤**（`ctl/verify/runner.py::Runner.run`：不适用 target 的用例记一条
+`skipped: not applicable to target …`）⇒ **用例集一变，两侧的合计都必须重跑**。
+下表读数 = **2026-10-09 重跑**（先 `ctl install --target <名>`，`ECLIPSE_CTL_AUTO_GC=false`，**无并发负载**）。
 
 | 用例 | GS32 | CCS | 差异与归因 |
 |---|---|---|---|
@@ -877,7 +882,9 @@ grep -rn "EModelService\|MApplication\|MWindow\|MPart" bridge/src/
 | `resilience.modal-reset` | PASS | PASS | — |
 | `resilience.timeout-applied` | PASS | PASS | — |
 | **`realflow.build_artifact`** | **PASS** | **PASS** | 判据、配方形状、产物名与 `e_machine` 见 §5.4（差异只在值上：构建入口 / 配置名 / 标记的字节编码） |
-| **合计** | **25 PASS + 1 SKIP / 0 FAIL**（rc=0） | **24 PASS + 1 SKIP / 1 FAIL**（rc=1） | 归因 1 条，未结案 **0** 条 |
+| **`board.led_chase`** | **SKIP** | **PASS** | CCS12 侧硬件用例（XDS100v2 `PID_A6D0` + DSP280025 板）；GS32 侧不适用（`targets=("ccs12",)`）⇒ `skipped: not applicable to target gs32` |
+| **`board.led.chase.gs32`** | **PASS** | **SKIP** | GS32 侧硬件用例（板载 FT2232H `PID_6010` + H1017A 板，2026-10-09 新增）；**不走桥**：判据 = 两个 CLI 的 rc + 各自成功标志 + ELF 回读（见 §5.4 与用例 docstring；人眼段不可省） |
+| **合计** | **26 PASS + 2 SKIP / 0 FAIL**（rc=0；28 用例，**2026-10-09 实测**） | **待重跑**（见右格） | GS32 列 2026-10-09 重跑；**CCS12 列的旧快照（24 PASS + 1 SKIP / 1 FAIL）已按 §13.8 撤下**——用例集 +1（本任务新增的 GS32 专用用例在该侧记一条 `not applicable` SKIP）⇒ 该列须同批重跑：`ctl install --target ccs12` → `ECLIPSE_CTL_AUTO_GC=false python -m ctl verify --all --target ccs12`。归因 1 条（`input.fixture` 的 `key`，§5.3），未结案 **0** 条 |
 
 原始输出片段（`input.fixture` 的差异 + 新增 `realflow` 两侧原文）：
 

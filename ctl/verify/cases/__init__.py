@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Dict
 
 from .board_led_chase import CASE as BOARD_LED_CHASE
+from .board_led_chase_gs32 import CASE as BOARD_LED_CHASE_GS32
 from .errors_bad_param import CASE as ERRORS_BAD_PARAM
 from .errors_bad_runp_param import CASE as ERRORS_BAD_RUNP_PARAM
 from .errors_console_absent import CASE as ERRORS_CONSOLE_ABSENT
@@ -82,6 +83,10 @@ ALL_CASES = [
     # it is the only one that needs the run's workspace to itself before the IDE
     # starts; it therefore runs last and skips on a run that already has a project.
     BOARD_LED_CHASE,
+    # The GS32 sibling of the hardware case: it drives the *other* toolchain (GS32_Studio
+    # 1.2.5.2 + the H1017A board) entirely through CLIs -- no bridge, no Eclipse command
+    # id -- and it too builds and flashes a scratch copy, so it runs last as well.
+    BOARD_LED_CHASE_GS32,
 ]
 
 
