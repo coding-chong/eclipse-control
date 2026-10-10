@@ -1,20 +1,24 @@
-"""The GS32 board case's own gate: its verdict, its channel words, its overlay.
+"""The GS32 board case's own gate: its verdict, its channel words, its overlay, its load.
 
 Two shapes this file exists for (`deliverable-shape.md`):
 
-* **C10** -- every literal pinned here is *this file's own*: the programmer's success
-  line, the pin-mux needles and the three channel-state words are written out below, and
-  the case's constants are asserted **equal** to them.  Reading them back
-  (`self.assertEqual(case.PROG_SUCCESS, case.PROG_SUCCESS)`) would certify nothing: a
-  typo in the constant would keep both sides of the comparison wrong together.
+* **C10** -- every literal pinned here is *this file's own*: the pin-mux statements, the
+  chase's four complementary writes, the toggle idiom it forbids, and the three
+  channel-state words are written out below, and the case's constants are asserted
+  **equal** to them.  Reading them back (`self.assertEqual(case.MUX, case.MUX)`) would
+  certify nothing: a typo in the constant would keep both sides of the comparison wrong
+  together.  The command ids and the confirmation marker are pinned the same way, because
+  R4's criterion is exactly "a line `OK executed <command id>` and no `dialog=` line".
 * **C12** -- one mutation per predicate.  `ExpectLedgerTest` reddens exactly the
-  predicate it weakens (never a neighbour's), and `ChannelStateTest` gives each of C14's
-  four channel states its own wording so they cannot be confused for one another.
+  predicate it weakens (never a neighbour's), `OverlayGateTest` does the same for the
+  payload gates, `RanCriterionTest` pins the three shapes of a driven command's frame,
+  and `ChannelStateTest` gives each of C14's four channel states its own wording so they
+  cannot be confused for one another.
 
-Nothing here touches a board, `GS32.exe` or `GS32ProgCommand.exe`.  `_expect` is driven
-with synthetic results, `_overlay` with a synthetic two-file template, and the two
-hardware channels only through their `ECLIPSE_CTL_GS32_BOARD_*` override seam (which by
-construction never spawns anything).
+Nothing here touches a board, `GS32.exe` or the bridge.  `_expect` is driven with
+synthetic results, `_overlay` with a synthetic two-file template, `_ran` with synthetic
+frames, and the two hardware channels only through their `ECLIPSE_CTL_GS32_BOARD_*`
+override seam (which by construction never spawns anything).
 """
 
 from __future__ import annotations
@@ -26,12 +30,25 @@ import tempfile
 import unittest
 import unittest.mock as mock
 
+from ctl.client import Response
 from ctl.verify.cases import board_led_chase_gs32 as case
 
-#: The mux datum, as this file's own literal (C10).
-_MUX = ("GPIO_MUX_DATA(BOARD_LED1_MUX)", "GPIO_MUX_DATA(BOARD_LED2_MUX)")
-#: The programmer's verbatim success line, as this file's own literal (C10).
-_SUCCESS = "Programming succeeded for 1 file(s)."
+#: The mux datum, as this file's own literal (C10) -- **whole statements**, not the
+#: `GPIO_MUX_DATA(...)` fragments: with the fragment form the mutation `GPAMUX2` ->
+#: `GPAMUX1` stayed green (GPIO24/GPIO21 are not in `GPAMUX1`'s range, so the pins would
+#: keep their reset peripheral function and the LEDs could never light).
+_MUX = ("GpioCtrlRegs.GPAMUX2.bit.BOARD_LED1 = GPIO_MUX_DATA(BOARD_LED1_MUX);",
+        "GpioCtrlRegs.GPAMUX2.bit.BOARD_LED2 = GPIO_MUX_DATA(BOARD_LED2_MUX);")
+#: The chase's semantics, as this file's own literal (C10): every step drives **both**
+#: pins to complementary levels, so exactly one LED is lit at any time.
+_CHASE = ("GpioDataRegs.GPACLEAR.bit.BOARD_LED1 = 0x1;",
+          "GpioDataRegs.GPASET.bit.BOARD_LED2 = 0x1;",
+          "GpioDataRegs.GPASET.bit.BOARD_LED1 = 0x1;",
+          "GpioDataRegs.GPACLEAR.bit.BOARD_LED2 = 0x1;")
+#: The toggle idiom the payload must not carry, and the two command ids R4 judges.
+_FORBIDDEN = "GPATOGGLE.bit.BOARD_LED"
+_LAUNCH_ACTIVE = "org.eclipse.launchbar.ui.command.launchActive"
+_RESUME = "org.eclipse.debug.ui.commands.Resume"
 
 
 class _Ctx(object):
@@ -91,11 +108,22 @@ class CaseContractTest(unittest.TestCase):
         self.assertIs(case.CASE.requires_bridge, False)
         self.assertIs(case.CASE.screen_guard, False)
 
-    def test_the_success_line_and_states_are_pinned_independently(self):
-        self.assertEqual(case._PROG_SUCCESS, _SUCCESS)
+    def test_the_payload_gates_and_channel_words_are_pinned_independently(self):
+        """C15: the payload's semantics are pinned by this file's own literals, so a
+        weakened payload gate reddens *here* as well as in the case."""
         self.assertEqual(tuple(case._MUX_NEEDLES), _MUX)
+        self.assertEqual(tuple(case._CHASE_NEEDLES), _CHASE)
+        self.assertEqual(case._CHASE_FORBIDDEN, _FORBIDDEN)
         self.assertEqual((case._PRESENT, case._ABSENT, case._UNKNOWN),
                          ("present", "absent", "unknown"))
+
+    def test_the_driven_command_ids_and_the_confirmation_marker_are_pinned(self):
+        """R4's criterion, as literals: the id that was sent, and the line that confirms
+        the handler ran -- both named by the case, both checked against this file."""
+        self.assertEqual(case._CMD_LAUNCH_ACTIVE, _LAUNCH_ACTIVE)
+        self.assertEqual(case._CMD_RESUME, _RESUME)
+        self.assertEqual(case._OK_MARK, "OK executed ")
+        self.assertEqual(case._DIALOG_MARK, "dialog=")
 
     def test_the_board_facts_and_artifact_identity_are_pinned(self):
         self.assertEqual((case._CHIP, case._SERIAL), ("GS32F035P", "GJBDRPSSA"))
@@ -104,49 +132,105 @@ class CaseContractTest(unittest.TestCase):
         self.assertEqual(case._MARKER_PREFIX, "CTL-GS32-")
         self.assertEqual(case._E_MACHINE_RISCV, 243)
 
+    def test_the_ram_configuration_recipe_is_pinned(self):
+        """R2's recipe, as literals: the clone source, the segment script it swaps in,
+        the **P** part script (512K/128K/32K -- the non-P file is 256K/64K/16K), the
+        register script that must not move, and the `-D` that must be dropped."""
+        self.assertEqual(case._CONFIG, "RAM")
+        self.assertEqual(case._FLASH_CONFIG, "Flash_ILM")
+        self.assertEqual(case._FLASHILM_SCRIPT, "gs32f00xx_dsp_flashilm.ld")
+        self.assertEqual(case._RAM_SCRIPT, "gs32f00xx_dsp_ram.ld")
+        self.assertEqual(case._MEM_SCRIPT, "GS32F035_mem.ld")
+        self.assertEqual(case._MEM_SCRIPT_P, "GS32F035P_mem.ld")
+        self.assertEqual(case._REGS_SCRIPT, "gs32f00xx_dsp_3.0_regs.ld")
+        self.assertEqual(case._FLASH_DEFINE, "FLASH_TARGET")
+        self.assertEqual(case._APP, "org.eclipse.cdt.managedbuilder.core.headlessbuild")
+
 
 # --------------------------------------------------------------------------- #
 # The judgement layer: one mutation per predicate (C12)
 # --------------------------------------------------------------------------- #
 
+def _frame(*lines):
+    """A bridge frame with this file's own shape: a status line, then the body."""
+    return Response("\n".join(list(lines) + ["END"]))
+
+
+def _ran(command_id):
+    return _frame("OK", "OK executed " + command_id)
+
+
+def _disabled():
+    return _frame("ERR disabled")
+
+
 def _green():
     """A result in which every predicate holds (the values are the measured ones)."""
     return {
         "errors": [],
-        "name": "gs32f035", "config": "Flash_ILM", "chip": "GS32F035P",
-        "marker": "CTL-GS32-deadbeef", "project": "<p>", "started_at": 1.0,
-        "overlay": {"ok": True, "error": "", "applied": [], "missing": []},
+        "name": "gs32f035", "config": "RAM", "chip": "GS32F035P",
+        "marker": "CTL-GS32-deadbeef", "project": "<p>", "run": "gs32-gate",
+        "started_at": 1.0,
+        "seed": {"ok": True, "error": "",
+                 "overlay": {"ok": True, "error": "", "applied": [], "missing": []},
+                 "ram": {"ok": True, "id": "com.hpec…flash.980314703.490272334",
+                         "configs": ["Flash_ILM", "RAM"], "dropped": 2, "checks": []},
+                 "launch": {"ok": True, "name": "gs32f035_openocd",
+                            "files": ["<p>/.launches/gs32f035_openocd.launch"],
+                            "program": "RAM/gs32f035.elf", "gdb_server_other": ""}},
         "syntax": {"available": True, "rc": 0, "errors": [], "tail": ""},
         "build": {"rc": 0, "timed_out": False,
                   "summary": "Build Finished. 0 errors, 0 warnings.",
                   "errors": "0", "warnings": "0", "compiler_errors": [],
                   "tail": "", "elapsed": 15.4, "argv": [], "text": "", "native": True},
-        "artifact": {"path": "<ws>/Flash_ILM/gs32f035.elf", "pattern": "<glob>",
+        "artifact": {"path": "<ws>/RAM/gs32f035.elf", "pattern": "<glob>",
                      "size": 551060,
                      "sha256": "x", "mtime": 2.0, "stale": False,
                      "elf": {"class": 1, "endian": 1, "machine": 243},
                      "marker_offset": 32864, "marker_encoding": "ascii",
                      "readelf": {"tool": "readelf", "rc": 0, "text": "",
                                  "elf_class": "ELF32", "machine": "RISC-V", "error": ""}},
-        "flash": {"rc": 0, "timed_out": False, "text": "", "success": True,
-                  "reset_run": True, "tail": "", "argv": [], "elapsed": 2.7},
+        "start": {"rc": 0, "text": "", "error": ""},
+        "load": {"launch": _ran(_LAUNCH_ACTIVE), "resume": _ran(_RESUME),
+                 "resume_before": _disabled(), "wait": ["OK (8 lines)"],
+                 "attempts": 1, "resume_at": "00:00:01", "console": "", "log_tail": "",
+                 "transport_error": "",
+                 "loadbar": {"path": "<ws>/…/org.eclipse.launchbar.core.prefs",
+                             "lines": [],
+                             "modes": {"org.eclipse.launchbar.core.descriptorType"
+                                       ".default\\:gs32f035_openocd": "debug"},
+                             "error": ""}},
         "plan": {"hardware": {"attach": {"state": "present"},
                               "pnp": {"state": "present"}, "state": "present",
                               "reason": ""},
                  "killed": []},
-        "blocked": [], "stopped_at": None, "flash_skipped": "",
+        "blocked": [], "stopped_at": None, "not_run": "",
     }
 
 
 class ExpectLedgerTest(unittest.TestCase):
-    """Each row weakens exactly one guard and reddens exactly that guard's predicate."""
+    """Each row weakens exactly one guard and reddens exactly that guard's predicate.
+
+    The red list is captured where it is *built*, not parsed back out of the verdict
+    string: `verdict` joins the problems with `"; "`, and a message of its own may
+    contain that sequence (the chase complaint does), so splitting the prose would
+    miscount one problem as two.
+    """
 
     def _red(self, mutate):
         result = _green()
         mutate(result)
-        passed, detail = case._expect(_Ctx(), result)
+        captured = []
+        original = case.verdict
+
+        def record(problems, detail):
+            captured.extend(problems)
+            return original(problems, detail)
+
+        with mock.patch.object(case, "verdict", record):
+            passed, detail = case._expect(_Ctx(), result)
         self.assertFalse(passed, "the mutation left the verdict green: %s" % detail)
-        return detail.split(" | FAILED: ")[-1].split("; ")
+        return list(captured)
 
     def test_the_unmutated_result_is_green(self):
         passed, detail = case._expect(_Ctx(), _green())
@@ -196,35 +280,102 @@ class ExpectLedgerTest(unittest.TestCase):
         self.assertEqual(len(red), 1)
         self.assertIn("is not in the image in any encoding", red[0])
 
-    def test_flash_success_line_absent(self):
-        red = self._red(lambda r: r["flash"].update(success=False))
-        self.assertEqual(red, ["flash: the log does not carry the verbatim success line "
-                               "'%s'" % _SUCCESS])
-
-    def test_flash_rc_nonzero(self):
-        red = self._red(lambda r: r["flash"].update(rc=1))
+    def test_resume_confirmation_line_absent(self):
+        """R4's criterion: the result word alone is not it -- the frame must carry
+        `OK executed <id>`.  A bare `ERR disabled` cannot separate "no usable session"
+        from "already running", which is why the failure says exactly that."""
+        red = self._red(lambda r: r["load"].update(resume=_disabled(), attempts=3))
         self.assertEqual(len(red), 1)
-        self.assertIn("flash: rc=1 (expected 0)", red[0])
+        self.assertIn("did not run in 3 attempt(s)", red[0])
+        self.assertIn("could not certify the target was released", red[0])
 
-    def test_overlay_failure_is_named_not_summarised(self):
-        red = self._red(lambda r: r["overlay"].update(ok=False, error="main.c: x"))
-        self.assertEqual(red, ["overlay: main.c: x"])
+    def test_launch_confirmation_line_absent(self):
+        red = self._red(lambda r: r["load"].update(launch=_disabled()))
+        self.assertEqual(len(red), 1)
+        self.assertIn(_LAUNCH_ACTIVE, red[0])
+        self.assertIn(case._OK_MARK + _LAUNCH_ACTIVE, red[0])
+
+    def test_a_dialog_line_vetoes_a_confirmation_line(self):
+        """Measured on the sibling: `OK executed …Resume` and `dialog=appeared "Run
+        Control not available"` arrive in the *same frame* -- the handler ran, the target
+        was never released."""
+        red = self._red(lambda r: r["load"].update(
+            resume=_frame("OK", "OK executed " + _RESUME,
+                          'dialog=appeared "Run Control not available"')))
+        self.assertEqual(len(red), 1)
+        self.assertIn(case._DIALOG_MARK, red[0])
+
+    def test_a_dead_bridge_conversation_is_named(self):
+        red = self._red(lambda r: r["load"].update(
+            transport_error="cmd.run X -> ConnectionResetError(10054)"))
+        self.assertEqual(len(red), 1)
+        self.assertIn("the bridge conversation died", red[0])
+
+    def test_a_launchbar_that_retreated_to_run_mode_is_red(self):
+        """Fact 6: in `run` mode `launchActive` is accepted with a clean answer and no
+        session is ever created, so the confirmation line above cannot be read as a load."""
+        red = self._red(lambda r: r["load"]["loadbar"].update(
+            modes={"…descriptorType.default\\:gs32f035_openocd": "run"}))
+        self.assertEqual(len(red), 1)
+        self.assertIn("active mode is `run`", red[0])
+
+    def test_a_launchbar_with_no_descriptor_is_red(self):
+        red = self._red(lambda r: r["load"]["loadbar"].update(modes={}))
+        self.assertEqual(len(red), 1)
+        self.assertIn("names no descriptor", red[0])
+
+    def test_a_launchbar_that_could_not_be_read_is_not_red(self):
+        """C14's shape at the judgement layer: "could not tell" is its own answer, and it
+        never becomes a failure -- the load's own criterion still stands."""
+        result = _green()
+        result["load"]["loadbar"].update(modes={}, error="the file was never written")
+        passed, detail = case._expect(_Ctx(), result)
+        self.assertTrue(passed, detail)
+
+    def test_a_seed_failure_is_named_not_summarised(self):
+        red = self._red(lambda r: r["seed"].update(ok=False, error="main.c: x"))
+        self.assertEqual(red, ["seed: main.c: x"])
 
     def test_a_chain_stop_names_every_step_it_did_not_reach(self):
         def mutate(r):
             r["blocked"] = ["build"]
             r["stopped_at"] = "build"
             r["artifact"].update(path="")
-            r["flash"].update(rc=1)
+            r["load"].update(resume=_disabled())
 
         red = self._red(mutate)
         self.assertEqual(red, ["artifact: not reached -- the chain stopped at build",
-                               "flash: not reached -- the chain stopped at build"])
+                               "load: not reached -- the chain stopped at build"])
 
 
 # --------------------------------------------------------------------------- #
-# The four channel states (C14): four word-for-word different sentences
+# R4's criterion, on the frame itself: the confirmation line, and the dialog veto
 # --------------------------------------------------------------------------- #
+
+class RanCriterionTest(unittest.TestCase):
+    """The three shapes of a driven command's frame, as this file's own literals."""
+
+    def test_a_confirmation_line_with_no_dialog_is_a_run(self):
+        self.assertTrue(case._ran(_frame("OK", "OK executed " + _RESUME), _RESUME))
+        self.assertTrue(case._ran(_frame("OK", "OK executed " + _LAUNCH_ACTIVE),
+                                  _LAUNCH_ACTIVE))
+
+    def test_the_wrong_command_id_does_not_count(self):
+        """A frame that confirms a *different* command is not this command's proof."""
+        self.assertFalse(case._ran(_frame("OK", "OK executed " + _RESUME),
+                                   _LAUNCH_ACTIVE))
+        self.assertFalse(case._ran(_frame("OK", "OK executed  " + _RESUME), _RESUME))
+
+    def test_a_dialog_line_vetoes_even_with_the_confirmation_line(self):
+        self.assertFalse(case._ran(
+            _frame("OK", "OK executed " + _RESUME,
+                   'dialog=appeared "Run Control not available"'), _RESUME))
+
+    def test_a_disabled_answer_never_runs(self):
+        self.assertFalse(case._ran(_disabled(), _RESUME))
+
+
+
 
 def _attach(forced):
     with mock.patch.dict(os.environ, {"ECLIPSE_CTL_GS32_BOARD_ATTACH": forced}):
@@ -333,16 +484,18 @@ class OverlayGateTest(unittest.TestCase):
             return handle.read()
 
     def test_the_marker_and_the_mux_land_in_the_patched_source(self):
+        """Asserts its own subject only (C12: one mutation, one predicate).  Whether the
+        overlay as a whole succeeded is the *next* test's subject."""
         _, out = self._overlay()
-        self.assertTrue(out["ok"], out["error"])
         src = self._read("src", "main.c")
         self.assertIn("CTL-GS32-review01", src)
         for needle in _MUX:
             self.assertIn(needle, src)
+        self.assertTrue(out["applied"])
 
     def test_the_led_block_lands_in_the_header(self):
-        _, out = self._overlay()
-        self.assertTrue(out["ok"], out["error"])
+        """Same rule: the header's content, not the overlay's verdict."""
+        self._overlay()
         header = self._read("inc", "board_cfg.h")
         self.assertIn("#define BOARD_LED1        GPIO24", header)
         self.assertIn("#define BOARD_LED2        GPIO21", header)
@@ -365,6 +518,63 @@ class OverlayGateTest(unittest.TestCase):
         self.assertFalse(out["ok"])
         for needle in _MUX:
             self.assertIn(needle, out["error"])
+
+    def test_the_chase_lines_land_and_the_toggle_idiom_does_not(self):
+        _, out = self._overlay()
+        self.assertTrue(out["ok"], out["error"])
+        src = self._read("src", "main.c")
+        for needle in _CHASE:
+            self.assertIn(needle, src)
+        self.assertNotIn(_FORBIDDEN, src)
+
+    def _edits_without(self, needle):
+        """`_SOURCE_EDITS` with every payload line carrying `needle` dropped."""
+        edits = []
+        for anchor, replacement in case._SOURCE_EDITS:
+            edits.append((anchor, "".join(
+                line for line in replacement.splitlines(keepends=True)
+                if needle not in line)))
+        return tuple(edits)
+
+    def test_dropping_one_chase_line_is_a_named_failure(self):
+        """C15 at the payload layer: one of the four complementary writes is gone, so a
+        step leaves the other LED where it was -- the both-lit / both-dark states R1
+        forbids.  The named missing line is what says so, and it is the *chase* complaint
+        (not the mux one)."""
+        needle = _CHASE[2]
+        with mock.patch.object(case, "_SOURCE_EDITS", self._edits_without(needle)):
+            _, out = self._overlay()
+        self.assertFalse(out["ok"])
+        self.assertIn(needle, out["error"])
+        self.assertIn("does not drive the two LED pins complementarily", out["error"])
+        self.assertNotIn("pin mux", out["error"])
+
+    def test_the_toggle_idiom_is_a_named_failure(self):
+        """The first payload toggled one pin per step -- a four-state cycle whose
+        "both lit" quarter is exactly the phenomenon R1 forbids -- while every machine
+        predicate stayed green.  `_CHASE_FORBIDDEN` names that shape."""
+        edits = tuple(
+            (anchor, repl + "\n                    GpioDataRegs." + _FORBIDDEN + "1 = 0x1;")
+            if anchor == "GpioDataRegs.GPATOGGLE.bit.GPIO24=0x1;" else (anchor, repl)
+            for (anchor, repl) in case._SOURCE_EDITS)
+        with mock.patch.object(case, "_SOURCE_EDITS", edits):
+            _, out = self._overlay()
+        self.assertFalse(out["ok"])
+        self.assertIn(_FORBIDDEN, out["error"])
+        self.assertIn("toggling one pin per step", out["error"])
+
+    def test_the_mux_must_be_the_whole_statement(self):
+        """C15: with a *substring* needle (`GPIO_MUX_DATA(BOARD_LED1_MUX)`) this mutation
+        stayed green -- same defect, because GPIO24/GPIO21 are not in `GPAMUX1`'s range,
+        so the pins would keep their reset peripheral function and no LED could light."""
+        edits = tuple((anchor, repl.replace("GPAMUX2.bit.BOARD_LED",
+                                            "GPAMUX1.bit.BOARD_LED"))
+                      for (anchor, repl) in case._SOURCE_EDITS)
+        with mock.patch.object(case, "_SOURCE_EDITS", edits):
+            _, out = self._overlay()
+        self.assertFalse(out["ok"])
+        self.assertIn("GPAMUX2.bit.BOARD_LED1", out["error"])
+        self.assertIn("pin mux", out["error"])
 
     def test_a_missing_marker_is_a_named_failure(self):
         edits = tuple((anchor, repl.replace('    log_info("@MARKER@\\r\\n");\n', ""))

@@ -1,43 +1,93 @@
-"""board.led.chase.gs32 -- the GS32 sibling of `board.led_chase`: build OUR payload,
-flash it with the vendor's CLI programmer, and let a human confirm two LEDs chase.
+"""board.led.chase.gs32 -- the GS32 sibling of `board.led_chase`: build OUR payload into
+this run's own workspace, seed a launch configuration, let GS32_Studio load and run it,
+and ask a human to confirm two LEDs chase.
 
-What is verified: a scratch copy of the GS32 SDK template project is overlaid with the
-board's real LED pins and a two-LED chase payload, built by **GS32_Studio's headless
-build** (a plain CLI, no Eclipse command id, no bridge), flashed by the vendor's
-`GS32ProgCommand.exe`, and the machine-checkable half of that chain is judged here; the
-second half (LED1/LED2 alternating) is printed as an explicit request for a human.
+What is verified: a copy of the GS32 SDK template project, living **in this run's
+workspace**, is overlaid with the board's real LED pins and a two-LED chase payload,
+built by **GS32_Studio's own Eclipse application** with `-data` pointing at that same
+workspace, and loaded/run **by GS32_Studio itself** through the bridge; the
+machine-checkable half of that chain is judged here, and the second half (LED1/LED2
+alternating) is printed as an explicit request for a human.
 
-WHY THE JUDGEMENT IS NOT THE CCS12 ONE (the shape is copied, the criteria are not)
+WHY THIS IS NOT A "NO BRIDGE" CASE (the earlier wording of this file was wrong)
+=============================================================================
+This case used to build and flash with vendor CLIs only.  That throws away the point of
+a board case: its value is the *drivability* of the IDE -- proving our tooling can put
+this product to work.  So the driver surface is the CCS12 sibling's, spelled with GS32's
+own measured command ids:
 
-`board_led_chase.py` drives *CCS12* through the **bridge** (`launchActive` / `Resume`)
-and judges the answers' shape.  Nothing here touches the bridge (`requires_bridge=False`):
-the driver surface is two CLIs, so the machine segment is **their rc + their own success
-markers + reading the artifact back**:
+    build  `GS32.exe -nosplash -application
+            org.eclipse.cdt.managedbuilder.core.headlessbuild -data <THE RUN'S ws>
+            -import <proj> -build "<project>/RAM"`
+    load   `cmd.run org.eclipse.launchbar.ui.command.launchActive`  (the human's F11)
+    run    `cmd.run org.eclipse.debug.ui.commands.Resume`           (the human's F8)
+    judged the result word **plus** a reply line `OK executed <command id>` and **no
+           `dialog=` line** in that frame
 
-    build  rc=0 and the CDT summary says 0 errors   (measured: "Build Finished. 0 errors, 0 warnings.")
-    elf    readelf -h says ELF32 + RISC-V, and this run's marker is IN the image
-    flash  rc=0 and the log says "Programming succeeded for 1 file(s)."
+`requires_bridge=False` here does **not** mean "this case does not drive the bridge" --
+it means **the runner must not demand a live bridge before `pre`**.  The workspace has to
+be seeded and built while the IDE is *down* (T10 below), so this case brings its own
+instance up (`ctl install --keep-workspace`) and only then speaks to the bridge; the
+CCS12 sibling carries the same flag for the same reason.  (`ctx.request` connects
+lazily, so the unconnected `pre` is not a problem.)
 
-`rc=0` is not "the target is running": the flash log's own `tgt-RESET mode=run.` is
-**auxiliary evidence only** (a wrong clock source would leave the payload spinning before
-`main()`), which is exactly why the human segment cannot be dropped.
+`GS32ProgCommand.exe` is no longer an entry point or a criterion: it programs **flash**,
+which is a different target from this RAM case.  It is kept only as a side channel -- and
+only so `_prog_root` can find the install that also carries channel A's OpenOCD.
 
-FOUR SCOUT ANSWERS (S0 -- each a measured fact, with the command that produced it)
+SEVEN MEASURED FACTS, and they decide the whole chain (2026-10-09/10; every one is a
+reading with a rerun recipe in `research/`, not an inference)
 
 1. **The build base** -- `gs32_examples/gs32f035/GPIO/gpio_ex2_toggle_regs/` carries only
    project scaffolding (`.cproject`/`.project`/`debugConfigs`/`inc/board_cfg.h`), no
    `src/`; `template/gs32f035/` is the buildable one (`src/main.c` + `inc/board_cfg.h`).
    Both have an **empty** "Configuration of the LED pins" section, so the pins can only
    come from this case (the SDK gives none).
-2. **The headless build** -- `GS32.exe -nosplash -application
+2. **The workspace lock (T10)** -- a headless build with `-data <a workspace an IDE is
+   running on>` answers `Workspace already in use!` (rc=-1) *and* pops a modal error box
+   on the operator's desktop.  So the order is forced: **stop the instance -> seed and
+   build -> start the instance**.  That is what `_stop_instance`/`_start` do, and it is
+   also why the artifact must live in the run's workspace: `launchActive` only sees
+   projects the running IDE has registered, and a project dropped into a live workspace
+   is never registered.
+3. **The build itself** -- `GS32.exe -nosplash -application
    org.eclipse.cdt.managedbuilder.core.headlessbuild -data <ws> -import <proj> -build
    "<name>/<config>"`.  `-data`/`-import` **must be native backslash paths**: forward
    slashes are parsed as a URI scheme => `CoreException: No file system is defined for
    scheme: D` (rc=13) *and* a modal error box on the operator's desktop.  Measured
    2026-10-09: rc=13 (forward) vs rc=0 (backslash), log `research/s2*.txt`.
-3. **The programmer** -- `GS32ProgCommand.exe -chip GS32F035P -elf <elf>`, measured
-   rc=0 with the verbatim last line `Programming succeeded for 1 file(s).`
-4. **The board's two channels, both measured in place** (C14: a negative answer needs a
+4. **The RAM configuration has to be authored** -- the template's `.cproject` declares
+   exactly one real configuration, `Flash_ILM` (`-D FLASH_TARGET`, `-T
+   gs32f00xx_dsp_flashilm.ld`), and the SDK ships **no** RAM configuration for
+   `gs32f035`.  The shape copied here is the vendor's own
+   (`…/gs32_examples/gs32f379/adc/adc_ex01_soc_software/.cproject`, the only `.cproject`
+   in the tree with a real `name="RAM"`): same `parent`, **own element ids**,
+   `buildPath=${workspace_loc:/<proj>}/RAM`, `-T gs32f00xx_dsp_ram.ld` + the `_mem.ld` +
+   the `_regs.ld`, **no `FLASH_TARGET`**.
+   🔴 the memory map must match the **P** variant: this board is a `GS32F035P` (512K
+   eFlash / 128K ILM / 32K DLM, 2 banks -- datasheet p8/p12, and the programmer reads
+   back the part number `GS32F035PPN`), and the two `_mem.ld` files differ by exactly
+   that (`GS32F035_mem.ld` = 256K/64K/16K).  The vendor's own 38 `gs32f035` examples all
+   use the non-P script; that is their default for the non-P part, not this board.
+5. **The launch must be ours, not the SDK's** -- the shipped
+   `debugConfigs/gs32f035_openocd.launch` is a **flash** configuration: no
+   `gs32_cfg_mode`, `gs32_model GS32F035` (no `P`),
+   `PROGRAM_NAME=Flash_ILM/gs32f035.elf`, and it hard-codes the artifact path because
+   **nothing on GS32 resolves `${build_artifact:…}`** (0 occurrences tree-wide).  Run as
+   shipped, OpenOCD takes the flash path and dies with `Init: algorithm verification
+   mismatch!` x3 -> `flash init failed` -- the `OpenOCD failed with code (1)` the
+   operator sees.  So this case seeds its own `.launch` with
+   `-c "set gs32_cfg_mode 2"` (no flash bank is created at all => gdb's `load` can only
+   write RAM, which is the other half of fact 4) and `-c "set gs32_model GS32F035P"`,
+   with `PROGRAM_NAME` naming the RAM artifact.
+6. **Where LaunchBar keeps its state** -- GS32 writes
+   `.metadata/…/org.eclipse.launchbar.core.prefs` itself, and a new instance records
+   `activeLaunchMode=debug` *before* any `launchActive` (unlike CCS12, whose default is
+   `run`, where the command answers a clean `OK` with zero effect).  CCS12's
+   `DEFAULT_CCS_TARGET_CONFIGURATION` does not exist on GS32 (that string is in none of
+   the 350 jars).  `_loadbar_mode` re-reads the file, so a retreat to `run` is named
+   rather than silently accepted.
+7. **The board's two channels, both measured in place** (C14: a negative answer needs a
    second, independent channel; the two are *mutually unblocking*, and "did not see" /
    "could not answer" / "the board is not there" are three different sentences):
 
@@ -57,6 +107,9 @@ FOUR SCOUT ANSWERS (S0 -- each a measured fact, with the command that produced i
 
 PREREQUISITES -- none of these can be installed by the case:
 
+    * a **run directory to seed** -- `--run-id <id>` (or a previously installed run for
+      `gs32`, which `verify` resolves for itself).  This case owns that run's workspace
+      and brings its own instance up on it; it never touches another run's project.
     * a **GS32_Studio 1.2.5.2** install tree (the target's own `install_dir`;
       override with ``ECLIPSE_CTL_GS32_BOARD_STUDIO``);
     * the **GS32Prog** programmer install carrying `GS32ProgCommand.exe` (and, inside it,
@@ -74,15 +127,19 @@ EVERY SKIP THIS CASE CAN RAISE, so a verdict line is never a mystery
 | verdict contains | means | do this |
 |---|---|---|
 | `skipped: not applicable to target` | wrong `--target` -- this case only runs on `gs32` | `--target gs32` |
+| `no run directory to seed` | `verify` resolved no run for `gs32` | add `--run-id <a fresh id>` |
+| `the run's workspace registers` | that run already holds somebody else's project | use a fresh `--run-id` |
+| `port N is held by another run` | another instance owns the bridge port | stop it, or `verify --port <free>` |
 | `no GS32_Studio install tree` | the target has no `install_dir` (or it is not there) | `ctl targets add gs32 --source-dir <...>` |
 | `no SDK template project` | the install tree does not carry the example | check ``…BOARD_TEMPLATE`` |
 | `no GS32Prog install carrying` | the programmer was not found beside the studio root | set ``ECLIPSE_CTL_GS32_BOARD_PROG`` |
 | `no GS32 H1017A board … both channels agree the board is ABSENT` | neither channel sees the board | plug the board's USB in |
 | `cannot tell whether the GS32 H1017A board is attached` | at least one channel could not be read (or they disagree) -- **not** a statement about the board | read the named channel |
 
-RERUN (from the repo root; ~40-60 s here, most of it the build):
+RERUN (from the repo root; ~60-120 s here: stop, seed, build, start, launch, resume).
+One command from zero, exactly as the CCS12 sibling:
 
-    python -m ctl verify --case board.led.chase.gs32 --target gs32
+    python -m ctl verify --case board.led.chase.gs32 --target gs32 --run-id <fresh>
 
 Read the verdict line, not `rc`: a SKIP also exits ``0`` (`--json` carries
 `passed`/`skipped`).  The three detection states can be exercised with no board at all:
@@ -102,11 +159,14 @@ import shutil
 import struct
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+from ...client import Response
+from ...errors import CtlError
+from ...lifecycle import (REPO_ROOT, list_port_listeners, list_processes,
+                          run_live_pid)
 from ..runner import Case, Skip
 from ._util import verdict
 
@@ -120,10 +180,41 @@ from ._util import verdict
 ENV_PREFIX = "ECLIPSE_CTL_"
 _BOARD_ENV = ENV_PREFIX + "GS32_BOARD_"
 
-#: The build configuration the SDK template declares (`parent=
-#: "com.hpec.toolchains.riscv.config.elf.debug.flash"`), i.e. the name the headless
-#: build is asked for: `-build "<project>/Flash_ILM"`.
-_CONFIG = "Flash_ILM"
+#: The build configuration this case **authors itself** (see `_ram_config`) and the name
+#: the headless build is asked for: `-build "<project>/RAM"`.  The SDK template declares
+#: only `Flash_ILM`; the vendor's own `name="RAM"` configuration (gs32f379's adc example)
+#: is the shape copied, and the two edits that matter are both named constants below.
+_CONFIG = "RAM"
+
+#: The configuration the RAM one is cloned from.  Spelled out rather than assumed, so an
+#: SDK that renames it is a named failure instead of a silent no-op.
+_FLASH_CONFIG = "Flash_ILM"
+
+#: The linker-script triple.  Against the template's `Flash_ILM` list, exactly **two**
+#: entries change and both are here so a diff is readable:
+#:   * the *segment* script: `_flashilm.ld` -> `_ram.ld` (this is what makes the image
+#:     RAM-only: no flash LOAD address, and an empty copy table);
+#:   * the *part* script: `GS32F035_mem.ld` -> `GS32F035P_mem.ld`.  **Not** cosmetic --
+#:     `_ram.ld`'s `MEMORY` block consumes `__FLASH_SIZE/__ILM_SIZE/__DLM_SIZE`, so the
+#:     part script sets the region lengths and the stack placement; the non-P file is
+#:     256K/64K/16K and this board's part is 512K/128K/32K (datasheet p8/p12, and the
+#:     programmer reads back `GS32F035PPN`).
+#:   * the *register* script is left alone.
+#: The series (`f00xx`) and the version (`3.0`) are the template's own: the vendor's
+#: gs32f379 example names `gs32f3xx_dsp_ram.ld` / `GS32F379D_mem.ld` /
+#: `gs32f3xx_dsp_2.2_regs.ld`, which belong to a different series and must not be copied.
+_FLASHILM_SCRIPT = "gs32f00xx_dsp_flashilm.ld"
+_RAM_SCRIPT = "gs32f00xx_dsp_ram.ld"
+_MEM_SCRIPT = "GS32F035_mem.ld"
+_MEM_SCRIPT_P = "GS32F035P_mem.ld"
+_REGS_SCRIPT = "gs32f00xx_dsp_3.0_regs.ld"
+
+#: The `-D` the flash configuration carries and the RAM configuration must not: RAM-only
+#: images do not take the flash path (`_ram.ld` has no `AT>ROM`, and the flash driver
+#: never runs).  Measured occurrence in the template `.cproject`: two, both
+#: `<listOptionValue builtIn="false" value="FLASH_TARGET"/>` -- one in the assembler's
+#: `-D` list, one in the C compiler's.
+_FLASH_DEFINE = "FLASH_TARGET"
 
 #: The project name the SDK template's `.project` declares, and the one the artifact is
 #: named after (`artifactName="${ProjName}"` => `<project>.elf`).  The name that is
@@ -150,9 +241,126 @@ _TEMPLATE_REL = ("packages/GS32-DSPWare/gs32_examples/gs32f035/template/gs32f035
 #: The launcher and the application id, verbatim from the measured rerun.  The plugin
 #: that *declares* this id is `org.eclipse.cdt.managedbuilder.headlessbuilderapp_*.jar`
 #: (its `plugin.xml` has `point="org.eclipse.core.runtime.applications"`), **not** the
-#: same-named `...managedbuilder.core` bundle.
+#: same-named `...managedbuilder.core` bundle.  `-data` is this case's **run workspace**
+#: (never a scratch tree of its own): the artifact has to be inside the workspace the
+#: instance then opens, or `launchActive` cannot see it.
 _LAUNCHER = "GS32.exe"
 _APP = "org.eclipse.cdt.managedbuilder.core.headlessbuild"
+
+#: The launch configuration this case seeds, and the two Eclipse **command ids** the
+#: bridge drives (R3/R6: every command names its identity -- these go through the
+#: existing bridge method `cmd.run`, they are not bridge methods of their own).
+#:  * `…launchbar.ui.command.launchActive` -- declared by `org.eclipse.launchbar.ui`; the
+#:    human's F11.  Measured live: `defined=true handled=true`.
+#:  * `…debug.ui.commands.Resume` -- declared by `org.eclipse.debug.ui`; the human's F8.
+#:    `defined=true handled=true`.
+#: The launch file is named after the project (as the SDK's own is), so whichever
+#: descriptor the LaunchBar claims, it is a copy of an identical file.
+_LAUNCH_SUFFIX = "_openocd"
+_CMD_LAUNCH_ACTIVE = "org.eclipse.launchbar.ui.command.launchActive"
+_CMD_RESUME = "org.eclipse.debug.ui.commands.Resume"
+
+#: The bridge answer's confirmation line (R4's criterion) and the veto.  A frame counts
+#: only if it carries `OK executed <command id>` for the id that was sent **and** carries
+#: no `dialog=` line: measured on the CCS12 sibling, a `Resume` answered
+#: `OK executed …Resume` **and** `dialog=appeared "Run Control not available"` in the
+#: same frame -- the handler ran, the target was never released.
+_OK_MARK = "OK executed "
+_DIALOG_MARK = "dialog="
+
+#: The LaunchBar's own state file, under the run workspace's `.metadata`, and the mode
+#: this case requires of it.  GS32 writes this itself; `debug` is what makes
+#: `launchActive` create a debug session (see fact 6 in the module docstring).
+_LAUNCHBAR_PREFS_REL = os.path.join(
+    ".metadata", ".plugins", "org.eclipse.core.runtime", ".settings",
+    "org.eclipse.launchbar.core.prefs")
+_LAUNCHBAR_DEBUG = "activeLaunchMode=debug"
+#: `_loadbar_mode` splits the prefs line at the **last** `=` and keeps the value alone, so the
+#: comparison in `_expect` must be against the bare mode word.  There is deliberately **no**
+#: `activeLaunchMode=run` sibling constant: one in the file-line form compares against a bare value
+#: and can never be true, which would leave a retreat to `run` green (exactly what the gate test
+#: `…_retreated_to_run_mode_is_red` caught on 2026-10-11).
+_LAUNCHBAR_MODE_RUN = "run"
+
+#: The seeded `.launch`.  Modelled on the SDK's own
+#: `debugConfigs/gs32f035_openocd.launch` with the four measured corrections:
+#:  * `gdbServerOther` carries `-c "set gs32_cfg_mode 2"` -- with no flash bank created,
+#:    gdb's `load` can only write RAM (that is why the build must be RAM too);
+#:  * the model is `GS32F035P`, not the factory's `GS32F035`;
+#:  * `PROGRAM_NAME` names **this** configuration's artifact (nothing on GS32 resolves
+#:    `${build_artifact:…}`, measured: 0 occurrences tree-wide);
+#:  * `doDebugInRam=true` and `doSecondReset=false`.  These two are the whole difference
+#:    between the factory's flash口径 launch and the vendor's own **RAM** launch
+#:    (`libraries/bootloader/…/ram_ex3_dsp_ramload_3.0/debugConfigs/
+#:    ram_ex3_dsp_ramload_3_0_openocd.launch` -- measured: identical in every other key
+#:    this file sets, `setPcRegister` still `false` in both).  A second reset *after*
+#:    gdb's `load` would put the PC back on the reset vector, which for a RAM image is
+#:    system flash, not our payload -- the measured "clean `OK`, zero effect" specimen.
+#: `@…@` tokens are substituted verbatim (never through a regex, whose backslash escapes
+#: would land a real CR/LF inside an XML attribute).
+_LAUNCH_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="ilg.gnumcueclipse.debug.gdbjtag.openocd.launchConfigurationType">
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doContinue" value="true"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doDebugInRam" value="true"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doFirstReset" value="true"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doGdbServerAllocateConsole" value="true"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doGdbServerAllocateTelnetConsole" value="false"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doSecondReset" value="false"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doStartGdbCLient" value="true"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doStartGdbServer" value="true"/>
+    <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.enableSemihosting" value="true"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.firstResetType" value="init"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbClientOtherCommands" value="set mem inaccessible-by-default off"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbClientOtherOptions" value=""/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerConnectionAddress" value=""/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerExecutable" value="${openocd_path}/${openocd_executable}"/>
+    <intAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerGdbPortNumber" value="3355"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerLog" value=""/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerOther" value="@GDBOTHER@"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerTclPortNumber" value="6666"/>
+    <intAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerTelnetPortNumber" value="4444"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.otherInitCommands" value=""/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.otherRunCommands" value=""/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.openocd.secondResetType" value="halt"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.svdPath" value="${GS32_FW_PATH}\\utilities\\svd\\gs32f00xx\\gs32f00xx_dsp_v3.0.svd"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.imageFileName" value=""/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.imageOffset" value=""/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.ipAddress" value="localhost"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.jtagDevice" value="GNU MCU OpenOCD"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.loadImage" value="true"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.loadSymbols" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.pcRegister" value=""/>
+    <intAttribute key="org.eclipse.cdt.debug.gdbjtag.core.portNumber" value="3355"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.setPcRegister" value="false"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.setResume" value="false"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.setStopAt" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.stopAt" value="main"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.symbolsFileName" value=""/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.symbolsOffset" value=""/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useFileForImage" value="false"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useFileForSymbols" value="false"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useProjBinaryForImage" value="true"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useProjBinaryForSymbols" value="true"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useRemoteTarget" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.dsf.gdb.DEBUG_NAME" value="${cross_prefix}gdb${cross_suffix}"/>
+    <booleanAttribute key="org.eclipse.cdt.dsf.gdb.UPDATE_THREADLIST_ON_SUSPEND" value="false"/>
+    <intAttribute key="org.eclipse.cdt.launch.ATTR_BUILD_BEFORE_LAUNCH_ATTR" value="2"/>
+    <stringAttribute key="org.eclipse.cdt.launch.COREFILE_PATH" value=""/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" value="@PROGRAM@"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="@PROJECT@"/>
+    <booleanAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_AUTO_ATTR" value="false"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_ID_ATTR" value=""/>
+    <booleanAttribute key="org.eclipse.debug.core.ATTR_FORCE_SYSTEM_CONSOLE_ENCODING" value="false"/>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+        <listEntry value="/@PROJECT@"/>
+    </listAttribute>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+        <listEntry value="4"/>
+    </listAttribute>
+    <stringAttribute key="org.eclipse.dsf.launch.MEMORY_BLOCKS" value="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;no&quot;?&gt;&#13;&#10;&lt;memoryBlockExpressionList context=&quot;Context string&quot;/&gt;&#13;&#10;"/>
+    <stringAttribute key="process_factory_id" value="org.eclipse.cdt.dsf.gdb.GdbProcessFactory"/>
+</launchConfiguration>
+"""
 
 #: Where the RISC-V toolchain sits under an install root.  The `toolchain/*/bin` glob is
 #: used so a differently-versioned tree still resolves.
@@ -167,18 +375,18 @@ _READELF = "gs-riscv-elf-readelf.exe"
 _ARCH_FLAGS = ("-march=rv32imafc_xgsdida", "-mabi=ilp32f", "-msmall-data-limit=8",
                "-mno-save-restore", "--gsdi_ext1p2h", "-mgs_aux")
 
-#: The programmer CLI and its success line.  Measured 2026-10-09 (verbatim, rc=0):
-#: `target partnumber: GS32F035PPN` / `partnumber check finished.` /
-#: `wrote 32768 bytes …` / `verified 21312 bytes …` / `tgt-RESET mode=run.` /
-#: **`Programming succeeded for 1 file(s).`**
+#: The programmer CLI.  **Side channel only** (PRD R3): it programs *flash*, which is not
+#: this case's target, so it is not an entry point here and nothing in `_expect` reads
+#: it.  It is kept because the install that carries it also carries
+#: `openocd/bin/gs-openocd.exe` (channel A's tool) -- `_prog_root` finds the install by
+#: looking for this file.
+#: Measured 2026-10-09 (verbatim, rc=0): `target partnumber: GS32F035PPN` /
+#: `partnumber check finished.` / `wrote 32768 bytes …` / `verified 21312 bytes …` /
+#: `tgt-RESET mode=run.` / `Programming succeeded for 1 file(s).`
+#: ⚠️ 2026-10-10: the same command failed 3/3 with `Init: algorithm verification
+#: mismatch!` x3 -> `flash init failed` (reason still `未证实`), which is exactly why the
+#: load path here is RAM + `gs32_cfg_mode 2` rather than this CLI.
 _PROG_CMD = "GS32ProgCommand.exe"
-_PROG_SUCCESS = "Programming succeeded for 1 file(s)."
-
-#: The flash log's release line.  **Auxiliary evidence, never a criterion**: the one
-#: thing it proves is that the programmer asked for a run, not that the payload reached
-#: `main()`.  A payload whose clock source is wrong spins before `main()` while this
-#: line is still printed.
-_PROG_RUN = "tgt-RESET mode=run."
 
 #: Where the vendor's programmer install lives, **relative to the studio install**: the
 #: GS32_Studio root measured on this machine is `<parent>/<product>/<product>`
@@ -225,13 +433,30 @@ _ABSENT = "absent"
 _UNKNOWN = "unknown"
 
 #: Timeouts (seconds).  The measured costs are named so a budget can be read as a budget:
-#: a headless build here took ~9.4 s warm / ~24 s cold, the flash ~2.1 s, the OpenOCD
-#: attach ~0.7 s, the PnP query ~1.0-1.2 s.
+#: a headless build here took ~9.4 s warm / ~24 s cold, the OpenOCD attach ~0.7 s, the
+#: PnP query ~1.0-1.2 s, `install` (which starts a fresh IDE) tens of seconds.
 _BUILD_TIMEOUT = 900.0
-_FLASH_TIMEOUT = 300.0
+_INSTALL_TIMEOUT = 900.0
+_STOP_TIMEOUT = 180.0
 _ATTACH_TIMEOUT = 60.0
 _PNP_TIMEOUT = 60.0
 _SYNTAX_TIMEOUT = 120.0
+
+#: The load stage's budget.  `launchActive` answers `OK` as soon as the launch *starts*
+#: (measured on the sibling: it answers a clean `OK` with zero effect while the LaunchBar
+#: is still recording the configuration), so the Resume is only issued after the
+#: instance's own jobs go idle.  `sys.wait jobs-idle` is a bridge **method** (read/wait)
+#: and takes no argument; each call uses the bridge's own 15 s budget and an exhausted
+#: budget is a normal `OK` with `idle=false`, never `ERR timeout`.
+_LOAD_LAUNCH_WAIT_ROUNDS = 20
+_LOAD_RESUME_ATTEMPTS = 6
+_LOAD_RESUME_POLL_S = 2.0
+_LOAD_CONSOLE_TAIL = 60
+
+#: How many times to try emptying the run's workspace before giving up.  A JVM that has
+#: just been asked to exit can still hold a file in it for a moment (measured on the
+#: sibling target: 1 s apart, a handful of attempts).
+_WIPE_ATTEMPTS = 10
 
 #: The run marker: `CTL-GS32-<8 hex>`, printed by the payload through `log_info` so it
 #: lands in `.rodata` of *this run's* image.  The artefact is only acceptable if the
@@ -294,9 +519,11 @@ _SOURCE_EDITS: Tuple[Tuple[str, str], ...] = (
 
     ("GpioDataRegs.GPATOGGLE.bit.GPIO24=0x1;",
      "if (((tickCnt / 25) & 1) == 1) {\n"
-     "                    GpioDataRegs.GPATOGGLE.bit.BOARD_LED1 = 0x1;\n"
+     "                    GpioDataRegs.GPACLEAR.bit.BOARD_LED1 = 0x1;  /* LED1 lit  */\n"
+     "                    GpioDataRegs.GPASET.bit.BOARD_LED2 = 0x1;    /* LED2 dark */\n"
      "                } else {\n"
-     "                    GpioDataRegs.GPATOGGLE.bit.BOARD_LED2 = 0x1;\n"
+     "                    GpioDataRegs.GPASET.bit.BOARD_LED1 = 0x1;    /* LED1 dark */\n"
+     "                    GpioDataRegs.GPACLEAR.bit.BOARD_LED2 = 0x1;  /* LED2 lit  */\n"
      "                }"),
 
     ('log_info("ticks: %d\\r\\n", dspTicks);',
@@ -309,17 +536,54 @@ _SOURCE_EDITS: Tuple[Tuple[str, str], ...] = (
 #: from the edits while leaving this literal alone gets a **named** failure instead of a
 #: silently un-muxed build whose LEDs stay dark while every machine-checkable link is
 #: green (PRD AC6(3): "delete the LED pin mux" must go red).
-_MUX_NEEDLES = ("GPIO_MUX_DATA(BOARD_LED1_MUX)", "GPIO_MUX_DATA(BOARD_LED2_MUX)")
+#:
+#: **Whole statements**, not fragments (`deliverable-shape.md` C15): with the substring
+#: form `GPIO_MUX_DATA(BOARD_LED1_MUX)` the mutation `GPAMUX2` -> `GPAMUX1` stayed green
+#: while being exactly the same defect -- GPIO24/GPIO21 are not in `GPAMUX1`'s range, so
+#: the pins would never leave their reset peripheral function and the LEDs could not
+#: light.  The register is the vendor's own choice (their `src/main.c` writes
+#: `GpioCtrlRegs.GPAMUX2.bit.GPIO24 = GPIO_MUX_DATA(GPIO_24_GPIO24);`), so pinning the
+#: whole statement is pinning a measured fact, not a style.
+_MUX_NEEDLES = (
+    "GpioCtrlRegs.GPAMUX2.bit.BOARD_LED1 = GPIO_MUX_DATA(BOARD_LED1_MUX);",
+    "GpioCtrlRegs.GPAMUX2.bit.BOARD_LED2 = GPIO_MUX_DATA(BOARD_LED2_MUX);",
+)
+
+#: The chase's *semantics*: every step must DRIVE both pins to complementary levels
+#: (one `GPACLEAR` = lit, one `GPASET` = dark), so **exactly one LED is lit at any
+#: time**.  Spelled out as four literals so a payload that merely *toggles one pin per
+#: step* -- which necessarily walks through the "both lit" and "both dark" states --
+#: is caught by name instead of being left to the human segment.
+#:
+#: MEASURED FAILURE this guards (2026-10-10, the operator's own eyes): the first
+#: payload toggled one pin per 250 ms step, alternating which pin.  With two active-low
+#: LEDs that is a four-state cycle (LED2 lit -> both -> LED1 -> neither): the two LEDs
+#: were lit TOGETHER for 250 ms out of every 1000 ms.  Build, ELF, marker and the
+#: programmer were all green -- nothing on the toolchain can see it
+#: (`deliverable-shape.md` C15).  The vendor's own example uses the complementary
+#: idiom (`gs32_examples/examples_src/gpio/GS32F035_Regs/gpio_ex2_toggle_regs/`:
+#: `GPASET.all = 0xAAAAAAAA; GPACLEAR.all = 0x55555555;`), so "strict alternation is
+#: impossible with single-bit toggles" was never true: it was a false constraint that
+#: the payload had been designed around.
+_CHASE_NEEDLES = (
+    "GpioDataRegs.GPACLEAR.bit.BOARD_LED1 = 0x1;",
+    "GpioDataRegs.GPASET.bit.BOARD_LED2 = 0x1;",
+    "GpioDataRegs.GPASET.bit.BOARD_LED1 = 0x1;",
+    "GpioDataRegs.GPACLEAR.bit.BOARD_LED2 = 0x1;",
+)
+
+#: ...and the toggle idiom must be **gone**: toggling one LED pin per step is exactly
+#: the shape that produces the both-lit state this case's criterion forbids.
+_CHASE_FORBIDDEN = "GPATOGGLE.bit.BOARD_LED"
 
 #: The chase's own paragraph, kept next to the edits so the shape is readable in one
-#: place: each step toggles **exactly one** of the two pins, alternately.  With two
-#: active-low LEDs that is a four-state cycle (LED1 -> both -> LED2 -> neither), i.e.
-#: each LED is lit for 500 ms out of every 1000 ms with the two offset by 250 ms -- a
-#: strict one-at-a-time alternation is **impossible** with single-bit toggles, because
-#: toggling one bit of a two-bit field necessarily flips whether the two are equal.
+#: place: every step drives **both** pins to complementary levels, so exactly one LED is
+#: lit at any time and the two alternate every 250 ms -- never both, never neither.
 _CHASE_COMMENT = """\
-/* two-LED chase, 250 ms per step (the CPUTimer0 tick is 10 ms): each step toggles
- * exactly one pin, alternately, so the lit focus walks LED1 -> both -> LED2 -> none.
+/* two-LED chase, 250 ms per step (the CPUTimer0 tick is 10 ms): both pins are driven
+ * to complementary levels every step, so exactly one LED is lit at a time and the two
+ * alternate -- never both, never neither.  GPASET/GPACLEAR act on a written 1 (reading
+ * them is meaningless), which is why the pair is written out rather than toggled.
  */"""
 
 # --------------------------------------------------------------------------- #
@@ -354,6 +618,12 @@ def _read_gbk(path: str) -> str:
 def _write_gbk(path: str, text: str) -> None:
     """Write GBK with LF newlines -- the encoding the rest of the project reads."""
     with open(path, "w", encoding="gbk", newline="") as handle:
+        handle.write(text)
+
+
+def _write_text(path: str, text: str) -> None:
+    """Write UTF-8 with the newlines as given (`.cproject`/`.launch` are UTF-8)."""
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write(text)
 
 
@@ -456,6 +726,51 @@ def _insert_once(text: str, anchor: str, replacement: str) -> Tuple[str, int]:
     into `error: unterminated argument list invoking macro "log_info"`.
     """
     return text.replace(anchor, replacement), text.count(anchor)
+
+
+# --------------------------------------------------------------------------- #
+# The CLI's own doors, and the LaunchBar's state file
+# --------------------------------------------------------------------------- #
+
+def _run_ctl(args: List[str], timeout: float) -> Dict[str, Any]:
+    """One `python -m ctl …` door, from the repo root (never a shell string).
+
+    The case drives the *same* CLI the operator does -- `install --keep-workspace` to
+    bring the instance up on the workspace this case just seeded, `uninstall` to free it
+    again.  No capability is added to `ctl` or the bridge (R10); these are existing
+    doors, exactly as the CCS12 sibling calls them.
+    """
+    argv = [sys.executable, "-m", "ctl"] + args
+    return _run_capture(argv, timeout, cwd=REPO_ROOT)
+
+
+def _loadbar_mode(workspace: str) -> Dict[str, Any]:
+    """Read back the LaunchBar's active launch mode for this workspace.
+
+    GS32 writes `<ws>/.metadata/.../org.eclipse.launchbar.core.prefs` itself, and its own
+    new instance records `activeLaunchMode=debug` *before* any `launchActive` (measured
+    2026-10-10; CCS12 is the mirror image and records `run`, in which `launchActive`
+    answers a clean `OK` with zero effect).  This is a **pin**, not a criterion: the
+    verdict still rests on the result words, but a future retreat to `run` gets named
+    instead of passing silently.
+
+    Returns `{"path", "lines", "modes", "error"}`; `modes` is `descriptor -> mode`.
+    """
+    path = os.path.join(workspace, _LAUNCHBAR_PREFS_REL)
+    out: Dict[str, Any] = {"path": path, "lines": [], "modes": {}, "error": ""}
+    if not os.path.isfile(path):
+        out["error"] = "the LaunchBar state file was never written (%s)" % path
+        return out
+    text = _read_text(path)
+    out["lines"] = [line for line in text.splitlines() if line.strip()]
+    for line in out["lines"]:
+        # `rpartition`, matching this function's note: the *last* `=` separates the key
+        # from the value (a descriptor id that carried an `=` of its own would otherwise
+        # shift the split and the mode would be read off the wrong end).
+        key, _, value = line.rpartition("=")
+        if key.endswith("/activeLaunchMode"):
+            out["modes"][key[: -len("/activeLaunchMode")]] = value
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -640,21 +955,17 @@ def _hardware(prog_root: str, serial: str, chip: str) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# Plan (`pre`) -- the scratch copy of the SDK template, then the two channels
+# Plan (`pre`) -- resolve the environment, then the run's own state
 # --------------------------------------------------------------------------- #
 
-def _scratch_root(ctx) -> str:
-    """A per-run scratch root under the OS temp dir (PRD R9: never a user project).
-
-    One directory per invocation, so two concurrent runs cannot collide on the shared
-    workspace or on the artifact the flash step reads.  ``ctx.run_id`` is borrowed **only
-    as a readable name prefix** -- this case never reads or writes a run directory (no
-    bridge, no ``--run-id``); uniqueness comes from the uuid suffix, so a run id that is
-    days old is only a label.
-    """
-    safe = re.sub(r"[^A-Za-z0-9._-]", "-", str(ctx.run_id or "adhoc"))
-    return os.path.join(tempfile.gettempdir(), "eclipse-ctl-gs32",
-                        "%s-%s" % (safe, uuid.uuid4().hex[:6]))
+def _registered_projects(workspace: str) -> List[str]:
+    """The project names the run's workspace has registered, as Eclipse serializes them."""
+    root = os.path.join(workspace, ".metadata", ".plugins",
+                        "org.eclipse.core.resources", ".projects")
+    if not os.path.isdir(root):
+        return []
+    return sorted(entry for entry in os.listdir(root)
+                  if os.path.isdir(os.path.join(root, entry)))
 
 
 def _studio_root(ctx) -> str:
@@ -719,6 +1030,19 @@ def _project_name(project_dir: str) -> Optional[str]:
 
 
 def _pre(ctx):
+    """Resolve the environment, then the preconditions that live on the run.
+
+    No bridge is connected at this point (`requires_bridge=False`): this case seeds and
+    builds the run's workspace **while the IDE is down**, which is what fact 2 forces.
+    So the thing that must exist is `ctx.paths` -- a run to own -- not a live bridge.
+
+    Nothing of this run is written here: the seed happens in `action`, after the
+    instance that holds the workspace has been stopped.
+    """
+    if ctx.paths is None:
+        raise Skip("no run directory to seed: `verify` resolved no run for target %r and "
+                   "none was given; retry with --run-id <a fresh id> -- this case seeds "
+                   "<run>/ws and starts its own instance on it" % ctx.target.name)
     plan: Dict[str, Any] = {"errors": [], "killed": []}
     ctx.board_plan = plan
 
@@ -737,7 +1061,10 @@ def _pre(ctx):
                    % (template, _TEMPLATE_REL, _BOARD_ENV))
 
     chip = _override("chip") or _CHIP
-    config = _override("config") or _CONFIG
+    # The build configuration is **authored** by this case (`_ram_config`), not a board
+    # fact, so it is deliberately not an environment seam: a variable could rename it in
+    # the build request while the `.cproject` behind it still said `RAM`.
+    config = _CONFIG
     serial = _override("serial") or _SERIAL
     prog = _prog_root(ctx)
     if not prog:
@@ -749,15 +1076,10 @@ def _pre(ctx):
                    % (_PROG_CMD, studio, _prog_candidates_text(ctx), _BOARD_ENV))
     plan.update({"chip": chip, "config": config, "serial": serial, "prog": prog})
 
-    scratch = _scratch_root(ctx)
-    ws = os.path.join(scratch, "ws")
+    workspace = ctx.paths.workspace
     name = _project_name(template) or _PROJECT
-    project = os.path.join(scratch, "proj", name)
-    plan.update({"scratch": scratch, "workspace": ws, "project": project,
-                 "project_name": name})
-    os.makedirs(os.path.join(scratch, "proj"), exist_ok=True)
-    os.makedirs(ws, exist_ok=True)
-    shutil.copytree(template, project)
+    project = os.path.join(workspace, name)
+    plan.update({"workspace": workspace, "project": project, "project_name": name})
     expected = _override("project") or _PROJECT
     if name != expected:
         plan["errors"].append(
@@ -765,9 +1087,48 @@ def _pre(ctx):
             "this case builds the template as shipped (the ELF is named after it), so a "
             "renamed example is a wrong input, not a wrong expectation"
             % (name, expected))
-    ctx.note("pre: studio=%s template=%s scratch=%s project=%s (name read back from "
-             ".project) config=%s chip=%s prog=%s"
-             % (studio, template, scratch, project, config, chip, prog))
+    ctx.note("pre: studio=%s template=%s run=%s workspace=%s project=%s (name read back "
+             "from .project) config=%s chip=%s prog=%s"
+             % (studio, template, ctx.run_id, workspace, project, config, chip, prog))
+
+    # A workspace that already registers somebody else's project makes the launch
+    # configuration ambiguous -- and this case is about to start an IDE on that same
+    # workspace.  Nothing is deleted to resolve that: it SKIPs.
+    registered = _registered_projects(workspace)
+    plan["registered_before"] = registered
+    foreign = [entry for entry in registered if entry != name]
+    if foreign:
+        raise Skip("the run's workspace registers %s -- this case owns its workspace (it "
+                   "seeds the project before the IDE starts, so a foreign project would "
+                   "make the launch configuration ambiguous) and will not delete another "
+                   "session's project; retry on a fresh instance: python -m ctl install "
+                   "--target %s --run-id %s-2"
+                   % (", ".join(repr(entry) for entry in foreign), ctx.target.name,
+                      ctx.run_id))
+
+    # The instance that holds this workspace has to go before anything is read or
+    # written: a live IDE holds `<ws>/.metadata/.lock` (fact 2), and its debug session
+    # would hold the probe's FTDI handle -- the very handle channel A needs.
+    stop = _stop_instance(ctx, plan)
+    ctx.note("pre: stop %s (rc=%s) before the probe is read -- this run's own leftover "
+             "instance would hold the workspace lock and the probe's handle"
+             % ("ran" if stop["needed"] else "not needed", stop["rc"]))
+    if stop["error"]:
+        plan["errors"].append("stop: %s" % stop["error"])
+
+    port = ctx.runner.port or ctx.target.port
+    holders = list_port_listeners(port)
+    ours = _own_pids(ctx, plan)
+    foreign_holders = [pid for pid in holders if pid not in ours]
+    plan.update({"port": port, "port_holders": holders})
+    ctx.note("pre: port %d holders=%s (ours=%s)"
+             % (port, holders or "<none>", sorted(ours) or "<none>"))
+    if foreign_holders:
+        raise Skip("port %d is held by another run (pid %s) and this case must start the "
+                   "instance itself; stop it first (python -m ctl uninstall --target %s "
+                   "--run-id <that run>) or pass --port <free>"
+                   % (port, ", ".join(str(pid) for pid in foreign_holders),
+                      ctx.target.name))
 
     hardware = _hardware(prog, serial, chip)
     plan["hardware"] = hardware
@@ -782,18 +1143,71 @@ def _pre(ctx):
             ctx.note("attach| " + line)
 
     if hardware["state"] != _PRESENT:
-        # A SKIP raised from `pre` never reaches `post` (the runner treats it as
-        # "cannot be exercised here"), so the scratch tree this case just made is
-        # removed on this path too -- R9's "clean up after yourself" has no exception.
-        shutil.rmtree(scratch, ignore_errors=True)
-        plan["scratch"] = ""
-        ctx.note("pre: %s -- scratch tree removed (%s)"
-                 % (hardware["state"], not os.path.isdir(scratch)))
+        # Nothing of this run has been written yet (the seed happens in `action`), so
+        # there is nothing to undo here -- R9's "clean up after yourself" is about the
+        # workspace the case *did* seed, and it names that state below.
+        ctx.note("pre: %s -- nothing of this run was written (the workspace is seeded in "
+                 "`action`) and the instance this run had was stopped (rc=%s)"
+                 % (hardware["state"], stop["rc"]))
         raise Skip(hardware["reason"])
 
     ctx.note("pre: %s" % hardware["reason"])
-    return "scratch=%s project=%s attach=%s pnp=%s" % (
-        scratch, project, attach["state"], pnp["state"])
+    return "run=%s workspace=%s attach=%s pnp=%s" % (
+        ctx.run_id, workspace, attach["state"], pnp["state"])
+
+
+# --------------------------------------------------------------------------- #
+# Freeing the run: stop the instance that holds the workspace and the probe
+# --------------------------------------------------------------------------- #
+
+def _stop_instance(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Free the workspace's lock and the port before anything is read or seeded.
+
+    `uninstall` is the CLI's own door: it stops the run's pid and anything still holding
+    its port or configuration area, and it does **not** delete the run.  It returns 0
+    when there is nothing to stop, so this is safe to call twice (once from `pre`, once
+    from the action).  Measured on the sibling target: a live IDE holds
+    `<ws>/.metadata/.lock`, and a second JVM on that workspace is refused with
+    `Workspace already in use!` (fact 2).
+    """
+    out: Dict[str, Any] = {"needed": False, "rc": None, "text": "", "error": ""}
+    if not os.path.isfile(ctx.paths.endpoint):
+        ctx.note("stop: no endpoint.json in run %s -- no live instance to stop"
+                 % ctx.run_id)
+        return out
+    out["needed"] = True
+    run = _run_ctl(["uninstall", "--target", ctx.target.name, "--run-id", ctx.run_id],
+                   timeout=_STOP_TIMEOUT)
+    out["rc"] = run["rc"]
+    out["text"] = str(run["text"])
+    for line in _tail(out["text"], 12).splitlines():
+        ctx.note("stop| " + line)
+    if run["rc"] != 0:
+        out["error"] = "uninstall rc=%s" % run["rc"]
+    return out
+
+
+def _own_pids(ctx, plan: Dict[str, Any]) -> set:
+    """The pids that belong to **this run** -- the same predicate `lifecycle.install`
+    uses to decide whether a port listener is ours: the recorded instance, widened by
+    command line over this run's configuration area and workspace.  Anything else on the
+    port is another run's, and this case SKIPs rather than killing it.
+    """
+    pids = set()
+    run_dir = os.path.dirname(ctx.paths.endpoint)
+    live = run_live_pid(run_dir)
+    if live:
+        pids.add(int(live))
+    conf = ctx.paths.configuration.replace("\\", "/")
+    workspace = (plan.get("workspace") or "").replace("\\", "/")
+    for row in list_processes():
+        cmdline = (row.get("cmdline") or "").replace("\\", "/")
+        if (conf and conf in cmdline) or (workspace and workspace in cmdline):
+            try:
+                pids.add(int(row["pid"]))
+            except (TypeError, ValueError):
+                continue
+    return pids
 
 
 # --------------------------------------------------------------------------- #
@@ -862,12 +1276,30 @@ def _overlay(ctx, project: str, marker: str) -> Dict[str, Any]:
         # would all still be green (the human segment is the only other place that would
         # notice, and it is not a verdict).  Named here so the red is machine-checkable.
         out["error"] = ("main.c: the LED pin mux is not in the patched source -- missing "
-                        "%s (the pins would not be GPIO outputs)" % "; ".join(absent))
+                        "%s (the pins would not be GPIO outputs)" % " ".join(absent))
+        return out
+    # AC6(4) + `deliverable-shape.md` C15.  The mux says "the pins are GPIO *outputs*"; it
+    # says nothing about what the payload DOES with them.  The first version toggled one
+    # pin per step -- a four-state cycle whose "both lit" quarter is exactly the
+    # phenomenon R1 forbids -- and every machine predicate stayed green (build, ELF,
+    # marker, programmer all fine).  Named here so that red is machine-checkable too.
+    absent_chase = [needle for needle in _CHASE_NEEDLES if needle not in src]
+    toggling = _CHASE_FORBIDDEN in src
+    if absent_chase or toggling:
+        out["error"] = (
+            "main.c: the chase does not drive the two LED pins complementarily -- missing "
+            "%s%s (toggling one pin per step walks through the both-lit and both-dark "
+            "states, so the LEDs do not alternate; the criterion is exactly one lit at a "
+            "time)" % (" ".join(absent_chase) or "none",
+                       "; and the toggle idiom %r is still present" % _CHASE_FORBIDDEN
+                       if toggling else ""))
         return out
     _write_gbk(source, src)
     out["ok"] = True
-    ctx.note("overlay: board_cfg.h LED section + main.c (%d edit(s)); mux=%d/%d marker=%s"
+    ctx.note("overlay: board_cfg.h LED section + main.c (%d edit(s)); mux=%d/%d chase=%d/%d "
+             "marker=%s"
              % (len(out["applied"]), len(_MUX_NEEDLES) - len(absent), len(_MUX_NEEDLES),
+                len(_CHASE_NEEDLES) - len(absent_chase), len(_CHASE_NEEDLES),
                 marker))
     return out
 
@@ -876,20 +1308,326 @@ def _overlay(ctx, project: str, marker: str) -> Dict[str, Any]:
 # Steps
 # --------------------------------------------------------------------------- #
 
-def _cproject_flags(project: str, studio: str) -> Dict[str, Any]:
-    """The project's own `-I` and `-D` sets, read from its `.cproject`.
+def _wipe_workspace(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Empty the run's **own** workspace, so the seed starts from nothing.
+
+    A workspace is not just its project directories: Eclipse serializes a resource tree
+    under `.metadata/…/org.eclipse.core.resources/.root/`, and a project still listed
+    there makes the next import land in a half-there tree.  `ctl install` empties the
+    workspace by default; this case does it itself because the seed has to happen while
+    the IDE is *not* running (fact 2).  The workspace is the run's own -- `pre` refused a
+    workspace that registers somebody else's project, and stopped the instance holding it.
+    """
+    workspace = plan["workspace"]
+    out: Dict[str, Any] = {"path": workspace, "removed": False, "error": "",
+                           "had": sorted(os.listdir(workspace))
+                           if os.path.isdir(workspace) else []}
+    last: Optional[Exception] = None
+    for _attempt in range(_WIPE_ATTEMPTS):
+        try:
+            if os.path.isdir(workspace):
+                shutil.rmtree(workspace)
+            os.makedirs(workspace, exist_ok=True)
+            out["removed"] = True
+            break
+        except OSError as exc:               # the JVM may still be letting go of the lock
+            last = exc
+            time.sleep(1.0)
+    if not out["removed"]:
+        out["error"] = ("could not empty %s after %d attempts: %r"
+                        % (workspace, _WIPE_ATTEMPTS, last))
+    ctx.note("wipe: %s removed=%s (had %s)%s"
+             % (workspace, out["removed"], out["had"] or "<nothing>",
+                "" if out["removed"] else " ERROR " + out["error"]))
+    return out
+
+
+def _ram_config(ctx, project: str, name: str) -> Dict[str, Any]:
+    """Author the RAM build configuration the SDK does not ship for this part (fact 4).
+
+    Clones the template's `Flash_ILM` `<cconfiguration>` -- both halves of CDT's pair,
+    which share one id -- under a fresh id, and applies exactly the edits the vendor's own
+    RAM configuration (`gs32f379/adc/adc_ex01_soc_software/.cproject`) shows are needed:
+
+        name          Flash_ILM -> RAM      (2 places: the cconfiguration's storageModule
+                                             and the embedded <configuration>)
+        buildPath     .../<foreign proj>/Flash -> ${workspace_loc:/<this proj>}/RAM
+        segment .ld   gs32f00xx_dsp_flashilm.ld -> gs32f00xx_dsp_ram.ld
+        part .ld      GS32F035_mem.ld -> GS32F035P_mem.ld    (this board is the **P** part)
+        -D            FLASH_TARGET dropped   (2 list entries: assembler and C compiler)
+
+    The register script is deliberately untouched.  The toolChain and builder ids get
+    fresh values too: two configurations sharing one element id is what the vendor's own
+    file avoids, and an id collision is the kind of thing that shows up as "the build ran
+    the *other* configuration".
+
+    Nothing is assumed: the clone source must be present exactly once, every replacement
+    is counted, and the written file is read back and re-checked.  A `.cproject` that
+    still names the flash segment script, still defines `FLASH_TARGET`, or has lost the
+    `_mem.ld` swap is a **named failure** rather than a build that silently links flash.
+    """
+    path = os.path.join(project, ".cproject")
+    out: Dict[str, Any] = {"ok": False, "error": "", "path": path, "id": "",
+                           "configs": [], "dropped": 0, "checks": []}
+    if not os.path.isfile(path):
+        out["error"] = "no .cproject at %s" % path
+        return out
+    text = _read_text(path)
+    block = _config_block(text, _FLASH_CONFIG)
+    if not block:
+        out["error"] = ("the .cproject declares no %r configuration -- the clone source "
+                        "moved, so this case will not guess what to clone" % _FLASH_CONFIG)
+        return out
+    end = text.find(block) + len(block)
+
+    found = re.search(r'<cconfiguration [^>]*id="([^"]+)"', block)
+    flash_id = found.group(1) if found else ""
+    if not flash_id:
+        out["error"] = "the <cconfiguration> declares no id"
+        return out
+    out["id"] = flash_id
+    for script, label in ((_FLASHILM_SCRIPT, "segment"), (_MEM_SCRIPT, "part"),
+                          (_REGS_SCRIPT, "registers")):
+        if script not in block:
+            out["error"] = ("the %s linker script %r is not in the %r configuration"
+                            % (label, script, _FLASH_CONFIG))
+            return out
+    if ('value="%s"' % _FLASH_DEFINE) not in block:
+        out["error"] = ("%r is not among the %r configuration's -D entries, so there is "
+                        "nothing to drop" % (_FLASH_DEFINE, _FLASH_CONFIG))
+        return out
+
+    # The template's `.cproject` is **CRLF** (measured: 189 CRLF, 0 bare LF), so the
+    # line-drop below tolerates it and the clone is separated with the file's own
+    # newline -- `.cproject` is XML and does not care, but a file that mixes the two
+    # makes every later diff fight the reader.
+    newline = "\r\n" if "\r\n" in text else "\n"
+    ram_id = flash_id + ".ram"
+    clone = block.replace(flash_id, ram_id)
+    clone = clone.replace('name="%s"' % _FLASH_CONFIG, 'name="%s"' % _CONFIG)
+    clone = clone.replace(_FLASHILM_SCRIPT, _RAM_SCRIPT)
+    clone = clone.replace(_MEM_SCRIPT, _MEM_SCRIPT_P)
+    clone, dropped = re.subn(
+        r'[ \t]*<listOptionValue builtIn="false" value="%s"/>\r?\n' % _FLASH_DEFINE, "",
+        clone)
+    out["dropped"] = dropped
+    if dropped != 2:
+        out["error"] = ("dropping %r hit %d list entr(y/ies), expected 2 (assembler + C "
+                        "compiler)" % (_FLASH_DEFINE, dropped))
+        return out
+
+    # -- fresh element ids for the tool chain and the builder --------------------
+    for tag, key in (("toolChain", "toolchain"), ("builder", "builder")):
+        found = re.search(r'<%s [^>]*id="([^"]+)"' % tag, clone)
+        if not found:
+            out["error"] = "the cloned configuration carries no <%s> id" % tag
+            return out
+        clone = clone.replace(found.group(1), found.group(1) + ".ram")
+        out["checks"].append("%s id -> %s.ram" % (key, found.group(1)))
+
+    # -- the builder's output directory ------------------------------------------
+    clone, patched = re.subn(r'(<builder buildPath=")[^"]*(")',
+                             lambda found: found.group(1) + "${workspace_loc:/%s}/%s"
+                             % (name, _CONFIG) + found.group(2), clone, count=1)
+    if patched != 1:
+        out["error"] = ("the cloned configuration's builder buildPath was patched %d "
+                        "time(s), expected 1" % patched)
+        return out
+    out["checks"].append("buildPath -> ${workspace_loc:/%s}/%s" % (name, _CONFIG))
+
+    _write_text(path, text[:end] + newline + "\t\t" + clone + text[end:])
+
+    # -- read the written file back, and check it --------------------------------
+    back = _read_text(path)
+    out["configs"] = re.findall(r'<configuration [^>]*name="([^"]+)"', back)
+    ram_block = _config_block(back, _CONFIG)
+    flash_block = _config_block(back, _FLASH_CONFIG)
+    checks = (("%r is a configuration of its own" % _CONFIG, bool(ram_block)),
+              ("the RAM configuration carries %r" % _RAM_SCRIPT,
+               _RAM_SCRIPT in ram_block and _FLASHILM_SCRIPT not in ram_block),
+              ("the RAM configuration carries the P part script %r" % _MEM_SCRIPT_P,
+               _MEM_SCRIPT_P in ram_block and _MEM_SCRIPT not in ram_block),
+              ("the RAM configuration keeps %r" % _REGS_SCRIPT, _REGS_SCRIPT in ram_block),
+              ("the RAM configuration defines no %r" % _FLASH_DEFINE,
+               _FLASH_DEFINE not in ram_block),
+              ("the flash configuration is untouched (still %r, %r, %r)"
+               % (_FLASHILM_SCRIPT, _MEM_SCRIPT, _FLASH_DEFINE),
+               bool(flash_block) and _FLASHILM_SCRIPT in flash_block
+               and _MEM_SCRIPT in flash_block and _FLASH_DEFINE in flash_block),
+              ("%r is declared twice (storageModule + configuration)" % _CONFIG,
+               back.count('name="%s"' % _CONFIG) == 2))
+    for label, ok in checks:
+        out["checks"].append("%s: %s" % (label, "ok" if ok else "NO"))
+        if not ok:
+            out["error"] = "read-back: %s" % label
+            return out
+    out["ok"] = True
+    ctx.note("ram: %s -> %s (id %s.ram); configs now %s; dropped %d %r entr(y/ies)"
+             % (_FLASH_CONFIG, _CONFIG, flash_id, out["configs"], dropped, _FLASH_DEFINE))
+    ctx.note("ram: %s" % "; ".join(out["checks"]))
+    return out
+
+
+def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
+    """Seed this case's own launch configuration, in the project **and** over the SDK's.
+
+    Two things are written, with identical content, on purpose:
+
+    * `<project>/.launches/<name>_openocd.launch` -- the CCS12 sibling's shape, and where
+      a launch configuration belongs;
+    * every `<project>/debugConfigs/*.launch` -- the SDK's own flash口径 files, inside
+      *this case's copy* of the project.  Measured (T8): `debugConfigs/*.launch` **is**
+      registered by the LaunchBar, and which of two same-named files wins was never
+      measured -- so leaving the factory's flash口径 file live is a coin flip that would
+      hand `launchActive` a launch with no `gs32_cfg_mode` (measured failure:
+      `flash init failed`).  Both copies identical removes the coin flip.
+
+    The `gdbServerOther` is built from the measured working argv of the IDE's own
+    OpenOCD, and `PROGRAM_NAME` names this configuration's artifact -- nothing on GS32
+    resolves `${build_artifact:…}` (fact 5).
+    """
+    out: Dict[str, Any] = {"ok": False, "error": "", "files": [], "program": "",
+                           "gdb_server_other": "", "name": name + _LAUNCH_SUFFIX}
+    project = plan["project"]
+    program = "%s/%s.elf" % (plan["config"], name)
+    gdb_other = ("-c &quot;set dsp_gport 3355&quot; -c &quot;set gs32_telnet_port 4444&quot; "
+                 "-c &quot;set gs32_tcl_port 6666&quot; -c &quot;set cJTAG 0&quot; "
+                 "-c &quot;set gs32_adapter_serial %s&quot; -c &quot;set gs32_model %s&quot; "
+                 "-c &quot;set gs32_cfg_mode 2&quot; -f &quot;%s&quot;"
+                 % (plan["serial"], plan["chip"], _OCD_CFG))
+    text = (_LAUNCH_TEMPLATE.replace("@GDBOTHER@", gdb_other)
+            .replace("@PROGRAM@", program)
+            .replace("@PROJECT@", name))
+    out["program"] = program
+    out["gdb_server_other"] = gdb_other
+
+    targets = [os.path.join(project, ".launches", out["name"] + ".launch")]
+    debug_configs = os.path.join(project, "debugConfigs")
+    if os.path.isdir(debug_configs):
+        targets += sorted(os.path.join(debug_configs, entry)
+                          for entry in os.listdir(debug_configs)
+                          if entry.endswith(".launch"))
+    for path in targets:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _write_text(path, text)
+        out["files"].append(path)
+
+    # Read one written file back: a launch that lost its model or its cfg mode is the
+    # exact defect this seeding exists for.
+    back = _read_text(targets[0])
+    for needle, label in (("gs32_cfg_mode 2", "the RAM cfg mode"),
+                          ("set gs32_model %s" % plan["chip"], "the part number"),
+                          ('value="%s"' % program, "PROGRAM_NAME"),
+                          ('key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doDebugInRam" '
+                           'value="true"', "doDebugInRam=true"),
+                          ('key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doSecondReset" '
+                           'value="false"', "doSecondReset=false")):
+        if needle not in back:
+            out["error"] = "the seeded launch does not carry %s (%r)" % (label, needle)
+            return out
+    if re.search(r'set gs32_model GS32F03[0-9]+"', back):
+        out["error"] = ("the seeded launch still carries a model without the P suffix "
+                        "(%r)" % re.search(r'set gs32_model ([A-Z0-9]+)', back).group(1))
+        return out
+    out["ok"] = True
+    ctx.note("launch: seeded %d file(s): %s; PROGRAM_NAME=%s"
+             % (len(out["files"]),
+                ", ".join(os.path.relpath(path, plan["workspace"])
+                          for path in out["files"]), program))
+    return out
+
+
+def _seed_project(ctx, plan: Dict[str, Any], name: str,
+                  marker: str) -> Dict[str, Any]:
+    """Step 1 -- everything that has to exist while the IDE is **down** (fact 2).
+
+    Wipe the run's own workspace, copy the SDK template into it, apply the R1 overlay,
+    author the RAM configuration and seed the launch configuration.  All of it before
+    `ctl install`: a project dropped into a live workspace is never registered, and a
+    live IDE holds the workspace lock.
+    """
+    out: Dict[str, Any] = {"ok": False, "error": "", "wipe": None, "overlay": None,
+                           "ram": None, "launch": None}
+    wipe = _wipe_workspace(ctx, plan)
+    out["wipe"] = wipe
+    if wipe["error"]:
+        out["error"] = wipe["error"]
+        return out
+    try:
+        shutil.copytree(plan["template"], plan["project"])
+    except OSError as exc:
+        out["error"] = ("could not copy %s -> %s: %r"
+                        % (plan["template"], plan["project"], exc))
+        return out
+    ctx.note("seed: workspace=%s project=%s (copied from %s)"
+             % (plan["workspace"], plan["project"], plan["template"]))
+
+    overlay = _overlay(ctx, plan["project"], marker)
+    out["overlay"] = overlay
+    if not overlay["ok"]:
+        out["error"] = "overlay: %s" % overlay["error"]
+        return out
+
+    ram = _ram_config(ctx, plan["project"], name)
+    out["ram"] = ram
+    if not ram["ok"]:
+        out["error"] = "RAM configuration: %s" % ram["error"]
+        return out
+
+    launch = _seed_launch(ctx, plan, name)
+    out["launch"] = launch
+    if not launch["ok"]:
+        out["error"] = "launch configuration: %s" % launch["error"]
+        return out
+
+    out["ok"] = True
+    return out
+
+
+def _config_block(text: str, config: str) -> str:
+    """The `<cconfiguration>` element whose embedded `<configuration>` is `config`.
+
+    CDT writes one such element per configuration, and after `_ram_config` the file
+    declares two: the callers below must not mix their `-D`/`-I` sets, nor clone the
+    wrong one.  `""` means no element declares that configuration.
+    """
+    for found in re.finditer(r'<cconfiguration [^>]*id="([^"]+)"', text):
+        end = text.find("</cconfiguration>", found.start())
+        if end < 0:
+            continue
+        end += len("</cconfiguration>")        # the element, closer included: a slice
+        block = text[found.start():end]        # that stopped short of the closer would
+        if re.search(r'<configuration [^>]*name="%s"' % re.escape(config), block):
+            return block
+    return ""
+
+
+def _cproject_flags(project: str, studio: str, config: str) -> Dict[str, Any]:
+    """The *built configuration's* own `-I` and `-D` sets, read from the `.cproject`.
 
     Read rather than invented: the IDE's own answer is the only defensible set for a
     syntax pre-check, and it is what makes "10 include dirs" a measurement.  Values
     carry Eclipse macros (`${GS32_DRIVER_PATH}`, `${ProjDirPath}`, `${eclipse_home}`),
     expanded here against the `.cproject`'s own `stringMacro` table.
+
+    Scoped to the configuration that will be built, not to the whole file: after
+    `_ram_config` the file declares **two** configurations, and reading both would hand
+    the pre-check a superset -- including the flash configuration's `-D FLASH_TARGET`,
+    which the RAM build does not define.  A pre-check that compiles the wrong `#ifdef`
+    branch is worse than no pre-check.
     """
     path = os.path.join(project, ".cproject")
-    out: Dict[str, Any] = {"includes": [], "defs": [], "error": ""}
+    out: Dict[str, Any] = {"includes": [], "defs": [], "error": "", "scope": config}
     if not os.path.isfile(path):
         out["error"] = "no .cproject at %s" % path
         return out
     text = _read_text(path)
+    scoped = _config_block(text, config)
+    if not scoped:
+        out["error"] = ("the .cproject declares no %r configuration, so the pre-check "
+                        "cannot read the flags it would be built with" % config)
+        return out
+    text = scoped
     macros = dict(re.findall(r'<stringMacro name="([^"]+)"[^>]*value="([^"]*)"', text))
     macros.update({"ProjDirPath": project, "eclipse_home": studio,
                    "ECLIPSE_HOME": studio})
@@ -937,7 +1675,7 @@ def _syntax_check(ctx, plan: Dict[str, Any], project: str) -> Dict[str, Any]:
         out["error"] = "no %s under %s" % (_COMPILER, os.path.join(studio, _TOOLCHAIN_GLOB))
         ctx.note("syntax: unavailable -- %s" % out["error"])
         return out
-    flags = _cproject_flags(project, studio)
+    flags = _cproject_flags(project, studio, plan["config"])
     if flags["error"]:
         out["error"] = flags["error"]
         ctx.note("syntax: unavailable -- %s" % out["error"])
@@ -954,8 +1692,9 @@ def _syntax_check(ctx, plan: Dict[str, Any], project: str) -> Dict[str, Any]:
     out["tail"] = _tail(str(run["text"]), 12)
     out["errors"] = [line.strip() for line in str(run["text"]).splitlines()
                      if re.search(r":\d+:\d+:\s*error:", line)]
-    ctx.note("syntax: rc=%s include_dirs=%d defs=%d errors=%d"
-             % (run["rc"], len(flags["includes"]), len(flags["defs"]), len(out["errors"])))
+    ctx.note("syntax: config=%s rc=%s include_dirs=%d defs=%d errors=%d"
+             % (flags.get("scope"), run["rc"], len(flags["includes"]),
+                len(flags["defs"]), len(out["errors"])))
     for line in out["tail"].splitlines():
         ctx.note("syntax| " + line)
     return out
@@ -1075,49 +1814,168 @@ def _artifact(ctx, plan: Dict[str, Any], project: str, name: str,
     return out
 
 
-def _flash(ctx, plan: Dict[str, Any], elf: str) -> Dict[str, Any]:
-    """Hand the artifact to the vendor's programmer CLI."""
-    out: Dict[str, Any] = {"argv": [], "rc": None, "timed_out": False, "text": "",
-                           "elapsed": 0.0, "success": False, "reset_run": False,
-                           "tail": ""}
-    exe = os.path.join(plan["prog"], _PROG_CMD)
-    if not os.path.isfile(exe):
-        out["text"] = "no %s under %s" % (_PROG_CMD, plan["prog"])
-        out["tail"] = out["text"]
-        ctx.note("flash: NOT RUN -- %s" % out["text"])
-        return out
-    argv = [exe, "-chip", plan["chip"], "-elf", elf]
-    out["argv"] = argv
-    ctx.note("flash: %s" % " ".join(argv))
-    run = _run_capture(argv, _FLASH_TIMEOUT, cwd=plan["prog"])
+def _shape(response) -> str:
+    return "%s (%d lines)" % (response.status_line, len(response.lines))
+
+
+def _ran(response, command_id: str) -> bool:
+    """Did the frame carry `OK executed <command id>` **and** no `dialog=` line?
+
+    That pair is R4's criterion.  The confirmation line says the handler ran; the
+    absence of a `dialog=` line says the IDE did not raise a modal on the way.
+    Measured on the sibling target: a `Resume` answered `OK executed …Resume` **and**
+    `dialog=appeared "Run Control not available"` in the same frame -- the handler ran,
+    the target was never released, and the frame's own words are what says so.
+    """
+    lines = [line.strip() for line in (response.raw or "").splitlines()]
+    if any(line.startswith(_DIALOG_MARK) for line in lines):
+        return False
+    return any(line.startswith(_OK_MARK + command_id) for line in lines)
+
+
+def _ask(ctx, request: str, out: Dict[str, Any]):
+    """One bridge request whose loss is *recorded*, never raised.
+
+    A mid-conversation socket reset -- the IDE dies, the port closes -- arrives as a
+    bare `OSError`: `Client.talk` wraps only the connect, not the read (measured on the
+    sibling target: `unexpected: ConnectionResetError(10054)` aborted a whole case run,
+    and the verdict never named the stage that failed).  The load stage must *report*
+    that state, so the failure becomes a not-ok `Response` plus a `transport_error` on
+    the load record, and the verdict names it.
+    """
+    try:
+        return ctx.request(request)
+    except (CtlError, OSError) as exc:
+        out["transport_error"] = "%s -> %r" % (request, exc)
+        ctx.note("load: %s failed at the transport level: %r" % (request, exc))
+        return Response("ERR internal load transport (%r)" % (exc,))
+
+
+def _start(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Step 5 -- bring the instance up on the workspace this case just seeded.
+
+    `--keep-workspace` is the whole point: `ctl install` empties the workspace by
+    default, and the seed has to survive into the IDE (a project dropped into a live
+    workspace is never registered -- fact 2).  The requested port is passed through, so
+    the port `pre` guarded is the port opened: on a machine where several runs share the
+    default port, letting `install` pick its own is not isolation.
+    """
+    out: Dict[str, Any] = {"rc": None, "text": "", "error": ""}
+    argv = ["install", "--target", ctx.target.name, "--run-id", ctx.run_id]
+    port = getattr(ctx.runner, "port", None)
+    if port:
+        argv += ["--port", str(port)]
+    argv.append("--keep-workspace")
+    run = _run_ctl(argv, _INSTALL_TIMEOUT)
     out["rc"] = run["rc"]
-    out["timed_out"] = run["timed_out"]
-    out["elapsed"] = run["elapsed"]
     out["text"] = str(run["text"])
-    out["success"] = _PROG_SUCCESS in out["text"]
-    out["reset_run"] = _PROG_RUN in out["text"]
-    out["tail"] = _tail(out["text"], 35)
-    ctx.note("flash: rc=%s timed_out=%s elapsed=%.1fs success_line=%s reset_run=%s "
-             "(auxiliary only)"
-             % (out["rc"], out["timed_out"], out["elapsed"], out["success"],
-                out["reset_run"]))
-    for line in out["tail"].splitlines():
-        ctx.note("flash| " + line)
+    for line in _tail(out["text"], 15).splitlines():
+        ctx.note("install| " + line)
+    if run["rc"] != 0:
+        out["error"] = "install rc=%s" % run["rc"]
+    return out
+
+
+def _load(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Step 6 -- make GS32_Studio load and run OUR image, and judge the answer's shape.
+
+    The three readings, in this order (each one is a measured requirement):
+
+    1. **the negative control**: a `Resume` *before* any launch has nothing suspended
+       (measured on the sibling: `ERR disabled`), so recording that shape is what makes
+       the `OK` below mean anything;
+    2. **`launchActive`** -- it answers `OK` as soon as the launch *starts*, and the
+       answer is identical whether the IDE moved or not (fact 5's T1).  So the Resume is
+       held until the instance's own jobs go idle (`sys.wait jobs-idle`, a bridge
+       **method** taking no argument; an exhausted budget is a normal `OK` with
+       `idle=false`, never `ERR timeout`);
+    3. **`Resume`** -- R4's criterion is the result word **plus** `OK executed
+       <command id>` and **no `dialog=` line** (`_ran`).  `ERR disabled` after the launch
+       means nothing was suspended (the launch produced no usable session, or it is still
+       in flight), so it is retried for a bounded window and then fails naming that state
+       -- the case never invents "still halted".
+
+    The **effect side** is recorded, never judged: the IDE's own console and its
+    `.metadata/.log` are read back, because that is where the measured "clean `OK`, zero
+    effect" specimen shows itself (image written to RAM, CPU never entering it).  The
+    LaunchBar's mode is re-read for the same reason: a retreat to `run` answers a clean
+    `OK` and creates no session at all.
+    """
+    out: Dict[str, Any] = {"launch": None, "resume": None, "resume_before": None,
+                           "wait": [], "console": "", "log_tail": "", "loadbar": None,
+                           "transport_error": "", "resume_at": "", "attempts": 0}
+    out["loadbar"] = _loadbar_mode(plan["workspace"])
+    if out["loadbar"]["error"]:
+        ctx.note("load: LaunchBar state not readable -- %s" % out["loadbar"]["error"])
+    else:
+        ctx.note("load: LaunchBar state %s -> %s (mode %r is required: `run` answers a "
+                 "clean OK and creates no session)"
+                 % (os.path.basename(out["loadbar"]["path"]),
+                    out["loadbar"]["modes"] or "<no descriptor claimed>",
+                    _LAUNCHBAR_DEBUG))
+
+    out["resume_before"] = _ask(ctx, "cmd.run " + _CMD_RESUME, out)
+    ctx.note("load: %s (before the launch, the negative control) -> %s"
+             % (_CMD_RESUME, _shape(out["resume_before"])))
+
+    out["launch"] = _ask(ctx, "cmd.run " + _CMD_LAUNCH_ACTIVE, out)
+    ctx.note("load: cmd.run %s (Eclipse command id, = the human's F11) -> %s"
+             % (_CMD_LAUNCH_ACTIVE, _shape(out["launch"])))
+
+    for _round in range(_LOAD_LAUNCH_WAIT_ROUNDS):
+        wait = _ask(ctx, "sys.wait jobs-idle", out)
+        out["wait"].append(_shape(wait))
+        if "idle=true" in (wait.raw or ""):
+            break
+    ctx.note("load: waited for the launch's own jobs: %s"
+             % " / ".join(out["wait"]))
+
+    resume = None
+    for attempt in range(_LOAD_RESUME_ATTEMPTS):
+        resume = _ask(ctx, "cmd.run " + _CMD_RESUME, out)
+        out["attempts"] = attempt + 1
+        ctx.note("load: cmd.run %s (Eclipse command id, = the human's F8) attempt %d -> %s"
+                 % (_CMD_RESUME, attempt + 1, _shape(resume)))
+        if _ran(resume, _CMD_RESUME):
+            break
+        time.sleep(_LOAD_RESUME_POLL_S)
+    out["resume"] = resume
+    out["resume_at"] = time.strftime("%H:%M:%S", time.localtime())
+
+    # -- the effect side, read back (evidence, never a criterion) ----------------
+    console = _ask(ctx, "ui.console --tail %d" % _LOAD_CONSOLE_TAIL, out)
+    out["console"] = console.raw or ""
+    for line in out["console"].splitlines():
+        if line.strip():
+            ctx.note("console| " + line.strip())
+    log = os.path.join(plan["workspace"], ".metadata", ".log")
+    if os.path.isfile(log):
+        # Read the bytes and decode leniently: Eclipse's `.log` carries whatever the
+        # plugins wrote, and a single undecodable byte must not turn the verdict into an
+        # exception (this read is evidence, not a gate).
+        with open(log, "rb") as handle:
+            blob = handle.read()
+        out["log_tail"] = _tail(blob.decode("utf-8", errors="replace"), 25)
+        for line in out["log_tail"].splitlines():
+            if line.strip():
+                ctx.note("ide.log| " + line.strip())
+    else:
+        ctx.note("load: the IDE wrote no %s -- the launch left no log either way" % log)
     return out
 
 
 def _stop(result: Dict[str, Any], ctx, link: str, why: str) -> Dict[str, Any]:
     """Record that `link` is red and that everything after it was deliberately not run.
 
-    Short-circuiting (rather than running on and gating only the flash) is load-bearing:
-    the launcher must not be invoked for a payload that cannot compile, because
-    GS32_Studio raises a **modal error box on the operator's desktop** whenever its JVM
-    exits non-zero.
+    Short-circuiting is load-bearing twice over: the launcher must not be invoked for a
+    payload that cannot compile (GS32_Studio pops a **modal error box on the operator's
+    desktop** whenever its JVM exits non-zero), and the launch must not be issued against
+    an image that is not this run's -- `launchActive` would happily load whatever is
+    registered, and a stale artifact would make the human segment about the wrong payload.
     """
     result["blocked"] = (result.get("blocked") or []) + [link]
     result["stopped_at"] = link
-    result["flash_skipped"] = ("%s is red -- the steps after it were NOT run (%s)"
-                               % (link, why))
+    result["not_run"] = ("%s is red -- the steps after it were NOT run (%s)" % (link, why))
     ctx.note("chain: %s is red; stops here -- %s" % (link, why))
     return result
 
@@ -1130,30 +1988,36 @@ def _action(ctx):
     plan = ctx.board_plan
     name = plan["project_name"]
     marker = _MARKER_PREFIX + uuid.uuid4().hex[:8]
-    project = plan["project"]
     result: Dict[str, Any] = {"errors": list(plan["errors"]), "plan": plan,
-                              "name": name, "marker": marker, "project": project,
+                              "name": name, "marker": marker, "run": ctx.run_id,
+                              "project": plan["project"],
                               "config": plan["config"], "chip": plan["chip"],
-                              "started_at": time.time(), "flash": None,
-                              "flash_skipped": ""}
-    ctx.note("action: project=%s config=%s chip=%s marker=%s"
-             % (name, plan["config"], plan["chip"], marker))
+                              "started_at": time.time(), "seed": None, "not_run": ""}
+    ctx.note("action: run=%s project=%s config=%s chip=%s marker=%s (workspace=%s)"
+             % (ctx.run_id, name, plan["config"], plan["chip"], marker,
+                plan["workspace"]))
 
-    overlay = _overlay(ctx, project, marker)
-    result["overlay"] = overlay
-    if not overlay["ok"]:
-        # No gate is reached at all; `_expect` names the overlay failure explicitly.
-        result["blocked"] = ["overlay"]
-        result["flash_skipped"] = "the overlay did not apply"
+    # The seed below needs the workspace to itself.  `pre` already stopped this run's
+    # leftover instance; this second call is harmless (`uninstall` returns 0 when there
+    # is nothing to stop) and covers the case where something came up in between.
+    result["stop"] = _stop_instance(ctx, plan)
+
+    result["seed"] = _seed_project(ctx, plan, name, marker)
+    seed = result["seed"]
+    if not seed["ok"]:
+        # No gate is reached at all; `_expect` names the seed failure explicitly.
+        result["blocked"] = ["seed"]
+        result["not_run"] = "the seed did not land: %s" % seed["error"]
+        ctx.note("chain: seed is red; stops here -- %s" % seed["error"])
         return result
 
-    # The chain is strictly ordered and each link gates the next: a failed link must
-    # never let the artefact of a *previous* run reach the programmer, and a payload the
-    # syntax pre-check catches must never reach the **launcher** either -- GS32_Studio
-    # pops a modal error box on the operator's desktop whenever its JVM exits non-zero.
-    # The gate is a local list, deliberately **not** `result["errors"]`: `_expect` is the
-    # single place that words each failed predicate, so nothing is reported twice.
-    result["syntax"] = _syntax_check(ctx, plan, project)
+    # The chain is strictly ordered and each link gates the next: a payload the syntax
+    # pre-check catches must never reach the **launcher** (modal error box on the
+    # operator's desktop), and an artifact that is not this run's must never reach the
+    # **launch**.  The gate is a local list, deliberately **not** `result["errors"]`:
+    # `_expect` is the single place that words each failed predicate, so nothing is
+    # reported twice.
+    result["syntax"] = _syntax_check(ctx, plan, plan["project"])
     syntax = result["syntax"]
     if syntax["available"] and syntax["rc"] != 0:
         return _stop(result, ctx, "syntax",
@@ -1161,14 +2025,14 @@ def _action(ctx):
                      "payload that fails here would otherwise pop a modal error box on "
                      "the operator's desktop)")
 
-    result["build"] = _build(ctx, plan, project, name)
+    result["build"] = _build(ctx, plan, plan["project"], name)
     build = result["build"]
     if (build["rc"] != 0 or build["timed_out"] or build["summary"] is None
             or build["errors"] != "0" or build["compiler_errors"]):
         return _stop(result, ctx, "build",
                      "the build is red, so its output is not this run's image")
 
-    result["artifact"] = _artifact(ctx, plan, project, name, marker,
+    result["artifact"] = _artifact(ctx, plan, plan["project"], name, marker,
                                    result["started_at"])
     art = result["artifact"]
     if not art["path"] or art["stale"] or art["marker_offset"] < 0:
@@ -1177,25 +2041,48 @@ def _action(ctx):
                      "carry this run's marker (%s@%s)"
                      % (art["marker_encoding"] or "-", art["marker_offset"]))
 
-    result["flash"] = _flash(ctx, plan, art["path"])
-    flash = result["flash"]
-    if flash["rc"] != 0 or flash["timed_out"] or not flash["success"]:
-        result["blocked"] = ["flash"]
-        return result
+    # The workspace has been seeded and built with the IDE down (fact 2); only now does
+    # an instance come up on it, and only then is the bridge spoken to.
+    result["start"] = _start(ctx, plan)
+    start = result["start"]
+    if start["error"]:
+        return _stop(result, ctx, "start",
+                     "the instance did not come up, so there is no IDE to drive (%s)"
+                     % start["error"])
+
+    result["load"] = _load(ctx, plan)
+    load = result["load"]
+    if load["transport_error"]:
+        return _stop(result, ctx, "load",
+                     "the bridge conversation died (%s) -- the load stage's transport "
+                     "failure is reported, never raised" % load["transport_error"])
+    if not _ran(load["launch"], _CMD_LAUNCH_ACTIVE):
+        return _stop(result, ctx, "load",
+                     "the launch command did not carry the confirmation line %r"
+                     % (_OK_MARK + _CMD_LAUNCH_ACTIVE))
+    if not _ran(load["resume"], _CMD_RESUME):
+        return _stop(result, ctx, "load",
+                     "the Resume did not carry the confirmation line %r after %d "
+                     "attempt(s)" % (_OK_MARK + _CMD_RESUME, load["attempts"]))
 
     # The one link no tool here can read back.  It is a REQUEST, not a criterion: it is
     # emitted only once every machine-checkable link is green, and it is never allowed to
-    # stand in for one.
-    ctx.note("ASK THE HUMAN: every machine-checkable link is green (the SDK template "
-             "overlaid with LED1=GPIO24/U4 pin 80 and LED2=GPIO21/U4 pin 79, %s built "
-             "with 0 errors, %s carrying this run's marker %s, and the programmer's own "
-             "rc=0 with %r) -- now look at the board: LED1 (RUN1) and LED2 (ERR1) must "
-             "alternate, each changing state every ~250 ms, and they are ACTIVE LOW (lit "
-             "= driven low).  The flash log's %r is auxiliary evidence only and proves "
-             "nothing about the payload having reached main().  This is the one thing "
-             "this case cannot read back."
-             % (os.path.basename(art["path"]), os.path.basename(art["path"]), marker,
-                _PROG_SUCCESS, _PROG_RUN))
+    # stand in for one.  The measured caveat is stated in the note itself, because the
+    # "clean OK, zero effect" specimen had every machine link green.
+    ctx.note("ASK THE HUMAN: every machine-checkable link is green -- the run's project "
+             "(LED1=GPIO24/U4 pin 80, LED2=GPIO21/U4 pin 79) was built as %s with 0 "
+             "errors, %s carries this run's marker %s, and GS32_Studio's own launch "
+             "answered %r then %r with no dialog -- now look at the board: LED1 (RUN1) "
+             "and LED2 (ERR1) must ALTERNATE -- exactly ONE lit at a time, switching "
+             "every ~250 ms -- and they are ACTIVE LOW (lit = driven low).  Both lit at "
+             "once, or neither, means the payload is wrong (not the board).  The bridge "
+             "answer alone is NOT proof the CPU entered the payload: a clean OK with zero "
+             "effect is a measured shape (the image lands in RAM and the PC stays in "
+             "flash), so the console/ide.log lines above are the effect side and the "
+             "human segment is the only thing that closes it.  This case cannot read back "
+             "whether the LEDs are chasing."
+             % (plan["config"], os.path.basename(art["path"]), marker,
+                _OK_MARK + _CMD_LAUNCH_ACTIVE, _OK_MARK + _CMD_RESUME))
     return result
 
 
@@ -1206,16 +2093,18 @@ def _action(ctx):
 def _expect(ctx, result) -> Tuple[bool, str]:
     problems: List[str] = list(result.get("errors") or [])
 
-    overlay = result.get("overlay") or {}
+    seed = result.get("seed") or {}
     syntax = result.get("syntax") or {}
     build = result.get("build") or {}
     art = result.get("artifact") or {}
-    flash = result.get("flash")
+    load = result.get("load") or {}
     marker = result["marker"]
 
-    if not overlay.get("ok"):
-        return verdict(problems + ["overlay: %s" % (overlay.get("error") or "did not apply")],
-                       "project=%s marker=%s overlay=FAILED" % (result["name"], marker))
+    if not seed.get("ok"):
+        # The seed is this case's own fixture: nothing downstream ran at all, so this is
+        # the one place its failure is worded (the chain stopped and said so as well).
+        return verdict(problems + ["seed: %s" % (seed.get("error") or "did not land")],
+                       "project=%s marker=%s seed=FAILED" % (result["name"], marker))
 
     if syntax.get("available") is False:
         # A *reported* limitation, named so it is never mistaken for a silent pass.
@@ -1232,7 +2121,7 @@ def _expect(ctx, result) -> Tuple[bool, str]:
     def reached(link: str) -> bool:
         """Was `link` run at all?  The chain stops at the first red link, so a step is
         reached only when nothing before it is in `blocked` (or was never run)."""
-        order = ("overlay", "syntax", "build", "artifact", "flash")
+        order = ("seed", "syntax", "build", "artifact", "start", "load")
         return not any(step in blocked for step in order[:order.index(link)])
 
     if not reached("build"):
@@ -1290,20 +2179,52 @@ def _expect(ctx, result) -> Tuple[bool, str]:
                             "encoding (ascii/u16le/u16be) -- stale artifact, or the "
                             "marker was optimized out" % marker)
 
-    if not reached("flash") or flash is None:
-        problems.append("flash: not reached -- the chain stopped at %s"
+    if not reached("load") or not load:
+        problems.append("load: not reached -- the chain stopped at %s"
                         % (result.get("stopped_at") or "<no chain stop recorded>"))
     else:
-        if flash.get("timed_out"):
-            problems.append("flash: killed by the %.0fs timeout" % _FLASH_TIMEOUT)
-        elif flash.get("rc") != 0:
-            problems.append("flash: rc=%s (expected 0) -- last lines: %s"
-                            % (flash.get("rc"), _tail(flash.get("tail", ""), 3)))
-        if not flash.get("success"):
-            problems.append("flash: the log does not carry the verbatim success line %r"
-                            % _PROG_SUCCESS)
-    # `tgt-RESET mode=run.` is deliberately NOT here: it is auxiliary evidence only
-    # (PRD R4).  It is reported in the detail line instead.
+        if load.get("transport_error"):
+            problems.append("load: the bridge conversation died (%s)"
+                            % load["transport_error"])
+        if not _ran(load.get("launch") or Response(""), _CMD_LAUNCH_ACTIVE):
+            problems.append(
+                "load: cmd.run %s came back %s, and R4's criterion is a line %r with no "
+                "%r line in the same frame"
+                % (_CMD_LAUNCH_ACTIVE,
+                   _shape(load["launch"]) if load.get("launch") else "<not sent>",
+                   _OK_MARK + _CMD_LAUNCH_ACTIVE, _DIALOG_MARK))
+        if not _ran(load.get("resume") or Response(""), _CMD_RESUME):
+            problems.append(
+                # This text is prose; the problems are counted where the list is built
+                # (`ExpectLedgerTest._red` captures them), so an internal `"; "` is
+                # harmless -- it is only the human-readable join that would blur.
+                "load: cmd.run %s did not run in %s attempt(s) -- last answer %s.  The "
+                "criterion is a line %r with no %r line in the same frame.  A bare "
+                "`ERR disabled` cannot separate 'the launch produced no usable session' "
+                "from 'the target is already running', so this reads as 'could not "
+                "certify the target was released', never 'the target is not running'"
+                % (_CMD_RESUME, load.get("attempts", 0),
+                   _shape(load["resume"]) if load.get("resume") else "<not sent>",
+                   _OK_MARK + _CMD_RESUME, _DIALOG_MARK))
+        modes = (load.get("loadbar") or {}).get("modes") or {}
+        # NB: `modes` values are the bare mode word (`_loadbar_mode` keeps only the text after
+        # the last `=`) -- a comparison against the `activeLaunchMode=run` file-line spelling
+        # would always be False and would leave a retreat to `run` green (caught 2026-10-11).
+        ran_mode = sorted(name for name, mode in modes.items()
+                          if mode == _LAUNCHBAR_MODE_RUN)
+        if ran_mode:
+            # Fact 6: in `run` mode `launchActive` answers a clean `OK` and creates no
+            # debug session at all, so a confirmation line cannot be read as a load.
+            problems.append(
+                "load: the LaunchBar's active mode is `run` for %s -- in run mode "
+                "`launchActive` is accepted with a clean answer and no session is ever "
+                "created (measured), so the answer above cannot be read as a load"
+                % ", ".join(ran_mode))
+        elif not modes and not (load.get("loadbar") or {}).get("error"):
+            problems.append(
+                "load: the LaunchBar state file was read and names no descriptor, so its "
+                "active mode could not be pinned to %r (fact 6) -- the file is %s"
+                % (_LAUNCHBAR_DEBUG, (load.get("loadbar") or {}).get("path")))
 
     return verdict(problems, _detail(result))
 
@@ -1311,24 +2232,37 @@ def _expect(ctx, result) -> Tuple[bool, str]:
 def _detail(result) -> str:
     art = result.get("artifact") or {}
     build = result.get("build") or {}
-    flash = result.get("flash") or {}
+    seed = result.get("seed") or {}
+    ram = seed.get("ram") or {}
+    launch = seed.get("launch") or {}
+    load = result.get("load") or {}
     readelf = art.get("readelf") or {}
     plan = result.get("plan") or {}
     hardware = plan.get("hardware") or {}
-    return ("target=gs32 project=%s config=%s chip=%s | machine: build=%r rc=%s "
-            "readelf=%s/%s elf=%s size=%s e_machine=%s marker=%s flash_success=%s "
-            "flash_rc=%s | auxiliary: reset_run=%s channels=A:%s/B:%s | human="
-            "awaiting-operator (LED1/LED2 alternating is NOT machine-checkable here and "
-            "is not part of this verdict)"
+    modes = (load.get("loadbar") or {}).get("modes") or {}
+    return ("target=gs32 project=%s config=%s chip=%s run=%s | machine: ram_config=%s "
+            "launch=%s build=%r rc=%s readelf=%s/%s elf=%s size=%s e_machine=%s "
+            "marker=%s launchActive=%s resume=%s loadbar_mode=%s | auxiliary: "
+            "channels=A:%s/B:%s | human=awaiting-operator (LED1/LED2 alternating is NOT "
+            "machine-checkable here and is not part of this verdict)"
             % (result["name"], result["config"], result["chip"],
+               result.get("run") or "<unknown>",
+               ("%s cfgs=%s" % (ram.get("id") or "<not cloned>",
+                                ",".join(ram.get("configs") or []) or "-"))
+               if ram else "<not reached>",
+               ("%s" % ", ".join(os.path.basename(path)
+                                 for path in launch.get("files") or []))
+               if launch else "<not reached>",
                build.get("summary"), build.get("rc"),
                readelf.get("elf_class"), readelf.get("machine"),
                os.path.basename(art["path"]) if art.get("path") else "<missing>",
                art.get("size"), (art.get("elf") or {}).get("machine"),
                ("%s@%s" % (art.get("marker_encoding"), art.get("marker_offset")))
                if art.get("marker_offset", -1) >= 0 else False,
-               bool(flash.get("success")), flash.get("rc"),
-               bool(flash.get("reset_run")) if flash else False,
+               _ran(load["launch"], _CMD_LAUNCH_ACTIVE) if load.get("launch") else "n/a",
+               _ran(load["resume"], _CMD_RESUME) if load.get("resume") else "n/a",
+               ",".join("%s=%s" % (name.split(":")[-1], mode)
+                        for name, mode in sorted(modes.items())) or "<unread>",
                (hardware.get("attach") or {}).get("state"),
                (hardware.get("pnp") or {}).get("state")))
 
@@ -1338,11 +2272,20 @@ def _detail(result) -> str:
 # --------------------------------------------------------------------------- #
 
 def _cleanup(ctx, label: str) -> str:
-    """Remove the case's own scratch tree (PRD R9/AC5).
+    """Remove this case's footprint from the run -- but **never under a live IDE**.
 
-    Unlike the CCS12 sibling there is no live IDE to protect: this case never starts
-    GS32_Studio, so the whole scratch root is simply removed.  Because the scratch is
-    under the OS temp dir, no user project and nothing in this repository is touched.
+    Measured on the sibling target, the hard way: deleting the project directory while
+    the instance that opened the workspace is still running leaves Eclipse's serialized
+    resource tree pointing at a project whose `.project` is gone, and the *next* startup
+    raises a blocking `Refreshing workspace` / `Problem Occurred` modal -- which blocks
+    the UI thread, so the next launch never completes.
+
+    So: with a live instance the project is left where it is (it *is* what the debug
+    session is showing, and the running program lives in target RAM), and the next
+    invocation wipes the whole workspace -- after having stopped that instance (`pre`).
+    With no live instance the seed is removed here, together with its workspace registry
+    entry.  The run itself is never deleted: `ctl uninstall` is the operator's door, and
+    this case leaves its instance up so `verify --all` can keep going.
     """
     plan = getattr(ctx, "board_plan", None)
     if not plan:
@@ -1350,20 +2293,35 @@ def _cleanup(ctx, label: str) -> str:
     if getattr(ctx, "board_cleaned", False):
         return "already cleaned"
     ctx.board_cleaned = True
-    scratch = plan.get("scratch") or ""
-    if scratch and os.path.isdir(scratch):
-        shutil.rmtree(scratch, ignore_errors=True)
-        ctx.note("%s scratch tree removed=%s (%s)"
-                 % (label, not os.path.isdir(scratch), scratch))
+    name = plan.get("project_name") or _PROJECT
+    workspace = plan.get("workspace") or ""
+    project = os.path.join(workspace, name) if workspace else ""
+    run_dir = os.path.dirname(ctx.paths.endpoint) if ctx.paths else ""
+    live = run_live_pid(run_dir) if run_dir else None
+    if live:
+        ctx.note("%s instance pid %s is still running on this workspace, so the seeded "
+                 "project is left in place (deleting it under a live IDE makes the next "
+                 "startup raise a blocking 'Refreshing workspace' modal); the next "
+                 "invocation stops that instance and empties the whole workspace; the "
+                 "run is removed with `python -m ctl uninstall --target %s --run-id %s`"
+                 % (label, live, ctx.target.name, ctx.run_id))
+    elif project:
+        shutil.rmtree(project, ignore_errors=True)
+        registry = os.path.join(workspace, ".metadata", ".plugins",
+                                "org.eclipse.core.resources", ".projects", name)
+        shutil.rmtree(registry, ignore_errors=True)
+        ctx.note("%s no live instance: seeded project removed=%s (%s)"
+                 % (label, not os.path.isdir(project), project))
     if plan.get("killed"):
         ctx.note("%s timed-out child process trees killed: %s"
                  % (label, "; ".join(plan["killed"])))
-    return "scratch=%s removed=%s" % (scratch or "<none>",
-                                      bool(scratch) and not os.path.isdir(scratch))
+    return "live=%s project=%s removed=%s" % (
+        live or "none", project or "<none>",
+        bool(project) and not os.path.isdir(project))
 
 
 def _rollback(ctx):
-    """A failed case cleans up the same way."""
+    """A failed case cleans up the same way (never under a live instance)."""
     return _cleanup(ctx, "rollback:")
 
 
@@ -1375,22 +2333,25 @@ CASE = Case(
     name="board.led.chase.gs32",
     group="realflow",
     targets=("gs32",),
-    description=("the GS32 sibling of board.led_chase: overlay a scratch copy of the SDK "
-                 "template with LED1=GPIO24 / LED2=GPIO21 and a two-LED chase, build it "
-                 "with GS32_Studio's headless build, flash it with the vendor's "
-                 "GS32ProgCommand.exe, and ask a human to confirm the LEDs alternate -- "
-                 "this case never touches the bridge"),
+    description=("the GS32 sibling of board.led_chase: seed the run's own workspace with "
+                 "the SDK template overlaid (LED1=GPIO24 / LED2=GPIO21) and a RAM build "
+                 "configuration, build it through GS32_Studio's own Eclipse application "
+                 "with -data pointing at that workspace, bring the instance up on it, then "
+                 "load and run it through the bridge (launchActive -> Resume); the LED "
+                 "chase itself is confirmed by a human"),
     pre=_pre,
     action=_action,
     expect=_expect,
     post=_post,
     rollback=_rollback,
-    # Nothing here touches the bridge: the driver surface is two CLIs (`GS32.exe
-    # -application …headlessbuild` and `GS32ProgCommand.exe`) and the two hardware
-    # channels are the OS device face and OpenOCD.
+    # NOT "this case does not drive the bridge": it drives it for the load and the run.
+    # The flag means the runner must not *require* a live bridge before `pre` -- this
+    # case seeds and builds the workspace with the IDE down (fact 2) and brings its own
+    # instance up, exactly like the CCS12 sibling.  `ctx.request` connects lazily.
     requires_bridge=False,
-    # Nothing is judged by a window: the verdict is the two CLIs' rc + their own success
-    # markers + reading the artifact's bytes back.
+    # Nothing here is judged by the screen: the verdict is the build log, the linked
+    # image's bytes, and the shape of the bridge's own answers.  The IDE is driven, but
+    # never through the screen.
     screen_guard=False,
-    evidence=("raw:action", "build:log", "flash:log", "artifact:probe"),
+    evidence=("raw:action", "build:log", "artifact:probe"),
 )
