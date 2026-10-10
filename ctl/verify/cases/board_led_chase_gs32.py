@@ -298,13 +298,18 @@ _LAUNCHBAR_MODE_RUN = "run"
 #: deterministically: a modal parked on the SWT event thread is one of the ways a `Resume` frame
 #: comes back carrying `dialog=`, and R3's criterion is that the frame must **not** carry it.
 #:
-#: ⚠️ Grading (2026-10-11, after an end-to-end run): key name + value domain + "unwritten means
-#: prompts" are **readings**; that writing `never` keeps the prompt away is now **confirmed for the
-#: case's own path** -- run `gs32-led-1011b` seeded this preference and its launch frames came back
-#: `OK executed org.eclipse.launchbar.ui.command.launchActive` then
-#: `OK executed org.eclipse.debug.ui.commands.Resume` **with no `dialog=` line**, which is exactly
-#: what R3 asks for.  ⚠️ Still owed (so this is not a strict A/B): one run with the key **removed**
-#: must show the box, otherwise "no dialog" could be a property of this path rather than of the value.
+#: ⚠️ Grading (2026-10-11): key name + value domain + "unwritten means prompts" are **readings**;
+#: the value choice is now itself a **reading**, because the wrong one was tried first and caught by
+#: measuring the IDE rather than by assuming.  With `never`, run `gs32-led-1011b` came back with the
+#: launch frames clean (`OK executed …launchActive` then `OK executed …Resume`, **no `dialog=`**) --
+#: R3's shape -- but the bridge's own report was `workbench org.eclipse.cdt.ui.CPerspective` **while
+#: `gs-openocd` and `gs-riscv-elf-gdb` were both alive**.  `never` means "never switch on suspend":
+#: it silences the prompt by silencing the switch, so the operator cannot see the debug session the
+#: case just drove.  `always` is the value that keeps the prompt away **and** shows the session.
+#: ⚠️ Still owed (so this is not a strict A/B): one run with the key **removed** must show the box,
+#: otherwise "no dialog" could be a property of this path rather than of the value.
+_PERSPECTIVE_PREFS = ("org.eclipse.debug.ui.switch_perspective_on_suspend=always\n"
+                      "eclipse.preferences.version=1\n")
 #:
 #: Rerun the readings (scan the install tree for the key and its value literals -- the whole point
 #: is that this is a search, not a memory):
@@ -325,8 +330,6 @@ _LAUNCHBAR_MODE_RUN = "run"
 _PERSPECTIVE_PREFS_REL = os.path.join(
     ".metadata", ".plugins", "org.eclipse.core.runtime", ".settings",
     "org.eclipse.debug.ui.prefs")
-_PERSPECTIVE_PREFS = ("org.eclipse.debug.ui.switch_perspective_on_suspend=never\n"
-                      "eclipse.preferences.version=1\n")
 
 #: The seeded `.launch`.  Modelled on the SDK's own
 #: `debugConfigs/gs32f035_openocd.launch` with the four measured corrections:

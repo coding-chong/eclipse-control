@@ -178,7 +178,7 @@ class CaseContractTest(unittest.TestCase):
             case._PERSPECTIVE_PREFS_REL,
             os.path.join(".metadata", ".plugins", "org.eclipse.core.runtime", ".settings",
                          "org.eclipse.debug.ui.prefs"))
-        self.assertIn("org.eclipse.debug.ui.switch_perspective_on_suspend=never",
+        self.assertIn("org.eclipse.debug.ui.switch_perspective_on_suspend=always",
                       case._PERSPECTIVE_PREFS)
         self.assertIn("eclipse.preferences.version=1", case._PERSPECTIVE_PREFS)
 
