@@ -203,6 +203,19 @@ class CaseContractTest(unittest.TestCase):
         self.assertIsNone(case._perspective(type("R", (), {"payload": []})()),
                           "a frame with no perspective line must read as 'not readable'")
 
+    def test_the_welcome_view_is_named_so_the_case_can_close_it(self):
+        """Eclipse raises its welcome page on the first start of a workspace, and every run is fresh.
+
+        Measured 2026-10-11: a `PrintWindow` capture of a window whose `ui.parts` already read
+        `perspective id=org.eclipse.debug.ui.DebugPerspective` together with `editor name="main.c"`
+        **still showed the welcome page** -- the model said Debug, the pixels said Welcome, and the
+        operator walking up to the machine saw the wrong one.  The case closes it by id.
+
+        Hygiene, never a criterion (R4's 禁用判据 covers view/perspective state), so this row pins the
+        literal rather than asserting anything about a run's verdict.
+        """
+        self.assertEqual(case._WELCOME_VIEW, "org.eclipse.ui.internal.introview")
+
 
 # --------------------------------------------------------------------------- #
 # The judgement layer: one mutation per predicate (C12)

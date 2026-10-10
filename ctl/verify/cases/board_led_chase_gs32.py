@@ -268,6 +268,15 @@ _CMD_RESUME = "org.eclipse.debug.ui.commands.Resume"
 _OK_MARK = "OK executed "
 _DIALOG_MARK = "dialog="
 
+#: Eclipse shows the Welcome (Intro) page on the **first start of a workspace**, and every run this
+#: case drives is a fresh one (`ctl install`), so the window it leaves behind greets the operator with
+#: Welcome instead of the debug session it just drove -- measured 2026-10-11: `ui.parts` reported
+#: `perspective id=org.eclipse.debug.ui.DebugPerspective` with `main.c` open **and**
+#: `view id=org.eclipse.ui.internal.introview title="Welcome"` in the same list, while a `PrintWindow`
+#: capture of that very window showed the welcome page.  Closing it is the same door the operator's own
+#: X uses.  **Hygiene, never a criterion** -- R4's 禁用判据 covers view/perspective state.
+_WELCOME_VIEW = "org.eclipse.ui.internal.introview"
+
 #: Eclipse's **debug** perspective -- where a debug launch lands once a session suspends.  Read out
 #: of the install tree rather than recalled: `plugins/org.eclipse.debug.ui_3.18.200.202501031008.jar`
 #: declares it in `plugin.xml` as `%DebugPerspective.name  org.eclipse.debug.ui.DebugPerspective`.
@@ -2097,6 +2106,15 @@ def _load(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
              "suspends: %s -- auxiliary evidence only, R4 forbids it as a criterion; a perspective "
              "that stayed at the editing one is the documented effect-side symptom)"
              % (out["perspective"] or "<not readable>", _DEBUG_PERSPECTIVE))
+
+    # Then take the Welcome page away.  Measured 2026-10-11: a `PrintWindow` capture of a window whose
+    # `ui.parts` already read `Debug perspective` + `main.c` **still showed the welcome page**, because
+    # Eclipse raises it on the first start of a workspace and every run here is a fresh one -- so the
+    # operator who walks up to the machine sees Welcome instead of the session this case just drove.
+    # Same door the operator's own X uses; a view close, so it can never carry a verdict.
+    out["welcome_closed"] = _ask(ctx, "ui.close " + _WELCOME_VIEW, out)
+    ctx.note("load: closed the Welcome view (%s) so the window the case leaves behind shows the "
+             "workbench, not the welcome page" % _shape(out["welcome_closed"]))
     return out
 
 
