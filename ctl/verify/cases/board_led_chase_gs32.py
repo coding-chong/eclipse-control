@@ -300,6 +300,23 @@ _LAUNCHBAR_MODE_RUN = "run"
 #:
 #: ⚠️ Grading: key name + value domain + "unwritten means prompts" are **readings**; that writing
 #: `never` stops the prompt is an **inference** until an end-to-end run shows the box gone.
+#:
+#: Rerun the readings (scan the install tree for the key and its value literals -- the whole point
+#: is that this is a search, not a memory):
+#:   python - <<'PY'
+#:   import glob, re, zipfile
+#:   root = r"D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2"
+#:   for j in glob.glob(root + "/plugins/org.eclipse.debug.ui_*.jar"):
+#:       z = zipfile.ZipFile(j)
+#:       for n in z.namelist():
+#:           if "DebugUIPreferenceInitializer" in n:
+#:               hits = [s.decode() for s in re.findall(rb"[ -~]{4,}", z.read(n))
+#:                       if b"perspective" in s.lower()]
+#:               print(n, sorted(set(hits)))
+#:   PY
+#:   # expect: org.eclipse.debug.ui.switch_perspective_on_suspend, also always / never / prompt
+#: And check what a workspace that has never written it looks like (no such line => the prompt):
+#:   <run ws>/.metadata/.plugins/org.eclipse.core.runtime/.settings/org.eclipse.debug.ui.prefs
 _PERSPECTIVE_PREFS_REL = os.path.join(
     ".metadata", ".plugins", "org.eclipse.core.runtime", ".settings",
     "org.eclipse.debug.ui.prefs")
