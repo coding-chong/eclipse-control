@@ -627,5 +627,70 @@ class ArtifactReaderTest(unittest.TestCase):
                          (-1, ""))
 
 
+# --------------------------------------------------------------------------- #
+# R2/R3's *executors*, not just their constants (C10/C15).  These drive the two
+# steps against the SDK's own template; a machine without that SDK skips them --
+# the same shape the case itself uses for "no hardware" (R6).
+# --------------------------------------------------------------------------- #
+
+_SDK_TEMPLATE = ("D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2/packages/"
+                 "GS32-DSPWare/gs32_examples/gs32f035/template/gs32f035")
+
+
+class RamConfigAndLaunchSeedTest(unittest.TestCase):
+    """`_ram_config` / `_seed_launch` really do what R2/R3 promise.
+
+    Until now only their *constants* were pinned, so a regression inside them (this
+    case already hit one there -- the CRLF / `FLASH_TARGET`-drop bug) reached the
+    board before anything here noticed.  A directory copy of the vendor's own
+    template is the input they are written against, so these rows use exactly that.
+    """
+
+    def _copy(self):
+        if not os.path.isdir(_SDK_TEMPLATE):
+            self.skipTest("no GS32 SDK template at %s" % _SDK_TEMPLATE)
+        root = tempfile.mkdtemp(prefix="gs32-gate-")
+        self.addCleanup(shutil.rmtree, root, True)
+        project = os.path.join(root, "gs32f035")
+        shutil.copytree(_SDK_TEMPLATE, project)
+        return project
+
+    def test_the_ram_configuration_is_authored_on_a_directory_copy(self):
+        """R2: swap the segment and part scripts, keep the register script, drop
+        `FLASH_TARGET`, repoint `buildPath` -- and leave the flash configuration
+        alone.  Asserted per configuration block, never by whole-file greps."""
+        project = self._copy()
+        out = case._ram_config(_Ctx(), project, "gs32f035")
+        self.assertTrue(out["ok"], out["error"])
+        back = case._read_text(os.path.join(project, ".cproject"))
+        ram = case._config_block(back, case._CONFIG)
+        flash = case._config_block(back, case._FLASH_CONFIG)
+        self.assertTrue(ram and flash)
+        self.assertIn(case._RAM_SCRIPT, ram)
+        self.assertNotIn(case._FLASHILM_SCRIPT, ram)
+        self.assertIn(case._MEM_SCRIPT_P, ram)
+        self.assertNotIn(case._MEM_SCRIPT, ram)
+        self.assertIn(case._REGS_SCRIPT, ram)
+        self.assertNotIn(case._FLASH_DEFINE, ram)
+        self.assertIn(case._FLASHILM_SCRIPT, flash)
+        self.assertIn(case._MEM_SCRIPT, flash)
+        self.assertIn(case._FLASH_DEFINE, flash)
+        self.assertIn("${workspace_loc:/gs32f035}/%s" % case._CONFIG, back)
+
+    def test_the_seeded_launch_carries_the_four_measured_corrections(self):
+        """R3: the two OpenOCD `set` commands, the two reset booleans (the whole
+        difference from the factory flash-shaped launch) and the RAM artifact."""
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        out = case._seed_launch(_Ctx(), plan, "gs32f035")
+        self.assertTrue(out["ok"], out["error"])
+        self.assertEqual(out["program"], "RAM/gs32f035.elf")
+        text = "\n".join(case._read_text(path) for path in out["files"])
+        for needle in ("set gs32_cfg_mode 2", "set gs32_model GS32F035P",
+                       'doDebugInRam" value="true', 'doSecondReset" value="false'):
+            self.assertIn(needle, text)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
