@@ -282,6 +282,30 @@ _LAUNCHBAR_DEBUG = "activeLaunchMode=debug"
 #: `…_retreated_to_run_mode_is_red` caught on 2026-10-11).
 _LAUNCHBAR_MODE_RUN = "run"
 
+#: Eclipse's "Confirm Perspective Switch" prompt is governed by a **preference**, and its own words
+#: say so: *"This kind of launch is configured to open the Debug perspective when it suspends."*
+#:
+#: The key and its value domain are **read out of the install tree**, not recalled --
+#: `plugins/org.eclipse.debug.ui_3.18.200.202501031008.jar` holds
+#: `org/eclipse/debug/internal/ui/DebugUIPreferenceInitializer.class` carrying the key
+#: `org.eclipse.debug.ui.switch_perspective_on_suspend` together with the literals
+#: `always` / `never` / `prompt`, and the dialog's own title `Confirm Perspective Switch` in the
+#: same jar under `org/eclipse/debug/internal/ui/launchConfigurations/`.
+#:
+#: Measured 2026-10-11: a workspace that has never written the key **prompts on every launch** (the
+#: operator's own workspace carries no such line and shows exactly that box), so the effective
+#: default is the prompting one.  Seeded here because this is the only layer that can settle it
+#: deterministically: a modal parked on the SWT event thread is one of the ways a `Resume` frame
+#: comes back carrying `dialog=`, and R3's criterion is that the frame must **not** carry it.
+#:
+#: ⚠️ Grading: key name + value domain + "unwritten means prompts" are **readings**; that writing
+#: `never` stops the prompt is an **inference** until an end-to-end run shows the box gone.
+_PERSPECTIVE_PREFS_REL = os.path.join(
+    ".metadata", ".plugins", "org.eclipse.core.runtime", ".settings",
+    "org.eclipse.debug.ui.prefs")
+_PERSPECTIVE_PREFS = ("org.eclipse.debug.ui.switch_perspective_on_suspend=never\n"
+                      "eclipse.preferences.version=1\n")
+
 #: The seeded `.launch`.  Modelled on the SDK's own
 #: `debugConfigs/gs32f035_openocd.launch` with the four measured corrections:
 #:  * `gdbServerOther` carries `-c "set gs32_cfg_mode 2"` -- with no flash bank created,
@@ -1558,6 +1582,34 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
     return out
 
 
+def _seed_prefs(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Write the workspace preferences that must exist **before** the IDE starts.
+
+    One preference today -- Eclipse's "Confirm Perspective Switch" prompt, see `_PERSPECTIVE_PREFS`
+    for where the key and its value domain were read from.  A modal parked on the SWT event thread
+    is one of the ways a launch frame comes back carrying `dialog=`, and R3's criterion is that the
+    frame must **not** carry it.  The box is preference-governed, so seeding the value is
+    deterministic where answering the box after the fact is a race.
+
+    `os.makedirs` mirrors the sibling case's `setup.prefs` write: a workspace the IDE has never
+    opened has no `.metadata/.../.settings` yet, and this runs while the IDE is **down** -- which is
+    what `_seed_project` exists for.
+    """
+    path = os.path.join(plan["workspace"], _PERSPECTIVE_PREFS_REL)
+    out: Dict[str, Any] = {"ok": False, "error": "", "path": path, "wrote": ""}
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _write_text(path, _PERSPECTIVE_PREFS)
+    except OSError as exc:
+        out["error"] = "could not write %s: %r" % (path, exc)
+        return out
+    out["wrote"] = "; ".join(line for line in _PERSPECTIVE_PREFS.splitlines() if line.strip())
+    out["ok"] = True
+    ctx.note("prefs: wrote %s (%s) -- the prompt is preference-governed, and a modal on the SWT "
+             "thread is one way a launch frame ends up carrying `dialog=`" % (path, out["wrote"]))
+    return out
+
+
 def _seed_project(ctx, plan: Dict[str, Any], name: str,
                   marker: str) -> Dict[str, Any]:
     """Step 1 -- everything that has to exist while the IDE is **down** (fact 2).
@@ -1599,6 +1651,12 @@ def _seed_project(ctx, plan: Dict[str, Any], name: str,
     out["launch"] = launch
     if not launch["ok"]:
         out["error"] = "launch configuration: %s" % launch["error"]
+        return out
+
+    prefs = _seed_prefs(ctx, plan)
+    out["prefs"] = prefs
+    if not prefs["ok"]:
+        out["error"] = "workspace preferences: %s" % prefs["error"]
         return out
 
     out["ok"] = True

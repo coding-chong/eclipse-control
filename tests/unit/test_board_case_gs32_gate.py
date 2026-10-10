@@ -160,6 +160,28 @@ class CaseContractTest(unittest.TestCase):
         self.assertEqual(case._foreign_projects(["gs32f035", "someone_elses"], "gs32f035"),
                          ["someone_elses"])
 
+    def test_the_perspective_prompt_is_settled_by_preference(self):
+        """The "Confirm Perspective Switch" box must be settled **before** the IDE starts.
+
+        A modal parked on the SWT event thread is one of the ways a launch frame comes back carrying
+        `dialog=`, and R3's criterion is that the frame must not carry it.  The box is
+        preference-governed, so the case writes the value while the IDE is down -- the same layer the
+        sibling case writes `setup.prefs` into.
+
+        Key and value domain are readings (`plugins/org.eclipse.debug.ui_*.jar` ->
+        `org/eclipse/debug/internal/ui/DebugUIPreferenceInitializer.class` carries
+        `org.eclipse.debug.ui.switch_perspective_on_suspend` plus `always` / `never` / `prompt`).
+        Pinned against literals here so that dropping the clause, or moving the file out of the
+        workspace's own `.settings`, reddens this row and nothing else (C10/C12).
+        """
+        self.assertEqual(
+            case._PERSPECTIVE_PREFS_REL,
+            os.path.join(".metadata", ".plugins", "org.eclipse.core.runtime", ".settings",
+                         "org.eclipse.debug.ui.prefs"))
+        self.assertIn("org.eclipse.debug.ui.switch_perspective_on_suspend=never",
+                      case._PERSPECTIVE_PREFS)
+        self.assertIn("eclipse.preferences.version=1", case._PERSPECTIVE_PREFS)
+
 
 # --------------------------------------------------------------------------- #
 # The judgement layer: one mutation per predicate (C12)

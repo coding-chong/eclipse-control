@@ -62,6 +62,28 @@
 
 ### Fixed
 
+- **GS32 板级用例漏管「偏好管辖」的模态框（`Confirm Perspective Switch`）**（2026-10-11）：
+  三层实测，先把"谁该管"钉死：① **桥会自动检索并上报** —— `bridge/src/ctl/bridge/LiveBridge.java`
+  的每个写方法前后各取一次可见窗口快照，把**新出现的窗口**回报成 `dialog=appeared …` +
+  `dialog_note=… close it and read back (ui.parts) …`（**这一层是自动的**）；
+  ② 平台**有处置入口** `ctl/verify/runner.py::Runner.answer_modal`（默认 `WM_CLOSE`＝点 X＝取消、
+  不替用户决定；要按某个按钮必须由用例显式声明 `expects_modal={"title","button"}` —— docstring 逐字
+  「pressing a button is an irreversible decision taken on the user's behalf, so it may never happen
+  silently」），共享助手 `ctl/verify/cases/_modal.py`；③ 兄弟用例 `board_led_chase.py`（CCS12）
+  **自己实现了一套** `#32770` 扫框（`_load_dialogs` / `_modal_row` / `_LOAD_MODAL_ANSWER`）。
+  而**本条用例此前零处理** —— `grep -n "answer_modal\|screen\.\|32770\|dismiss"` 只命中一句注释。
+  ⇒ 一个模态停在 SWT 事件线程上，正是「该帧带 `dialog=`」的成因之一，而 R3 的判据是**该帧不得带**。
+  该框**是偏好管辖的**（它自己的话：*"configured to open the Debug perspective when it suspends."*），
+  故修法是**在 IDE 起来之前把偏好写进 run 的工作区**（新增 `_seed_prefs`，与兄弟用例写 `setup.prefs`
+  同层同机制）：`<ws>/.metadata/.plugins/org.eclipse.core.runtime/.settings/org.eclipse.debug.ui.prefs`
+  里写入 `org.eclipse.debug.ui.switch_perspective_on_suspend=never`。
+  ⚠️ **分级**：键名与取值域是**读数**（`plugins/org.eclipse.debug.ui_3.18.200.202501031008.jar` 的
+  `org/eclipse/debug/internal/ui/DebugUIPreferenceInitializer.class` 同持该键与 `always`/`never`/`prompt`），
+  「写 `never` 就不再弹」是**推断**，待端到端复跑确认 —— 未确认前不得当结论用。
+  回归门：`tests/unit/test_board_case_gs32_gate.py::test_the_perspective_prompt_is_settled_by_preference`
+  （C10：被钉的集合是**测试自己的字面量**）。**变异账本**（C12）：把 `never` 改回 `prompt` ⇒
+  恰红该条（`FAILED (failures=1)`）；还原 ⇒ 全套 `Ran 313 tests … OK`。
+
 - **GS32 板级用例的「工作区归属」守卫把 Eclipse 自己的账本工程当成「外来工程」**（2026-10-11）：
   `ctl verify --case board.led.chase.gs32` 在**全新** run 上直接 SKIP，逐字
   `the run's workspace registers '.org.eclipse.egit.core.cmp'`。该标记实测落在
