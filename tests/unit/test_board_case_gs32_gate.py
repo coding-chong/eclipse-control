@@ -182,6 +182,27 @@ class CaseContractTest(unittest.TestCase):
                       case._PERSPECTIVE_PREFS)
         self.assertIn("eclipse.preferences.version=1", case._PERSPECTIVE_PREFS)
 
+    def test_the_debug_perspective_is_named_and_parsed(self):
+        """The case records where the IDE landed, so "did it enter debug mode" is visible at all.
+
+        Two layers of the same defect met here on 2026-10-11: the seeded value was `never`, which
+        silences the "Confirm Perspective Switch" box **by silencing the switch** (the bridge still
+        reported `org.eclipse.cdt.ui.CPerspective` while `gs-openocd` and `gs-riscv-elf-gdb` were
+        both alive), and the case never read the perspective back, so no run could show either state.
+
+        The id is a **reading**: `plugins/org.eclipse.debug.ui_*.jar`'s `plugin.xml` declares
+        `%DebugPerspective.name  org.eclipse.debug.ui.DebugPerspective`.  Auxiliary evidence only --
+        R4's 禁用判据 names "会话起来了 / 视角变了", so this may never carry a verdict.
+        """
+        self.assertEqual(case._DEBUG_PERSPECTIVE, "org.eclipse.debug.ui.DebugPerspective")
+        response = type("R", (), {"payload": [
+            "perspective id=org.eclipse.cdt.ui.CPerspective label=\"C/C++\"",
+            "END"]})
+        self.assertEqual(case._perspective(response()),
+                         "org.eclipse.cdt.ui.CPerspective")
+        self.assertIsNone(case._perspective(type("R", (), {"payload": []})()),
+                          "a frame with no perspective line must read as 'not readable'")
+
 
 # --------------------------------------------------------------------------- #
 # The judgement layer: one mutation per predicate (C12)

@@ -268,6 +268,24 @@ _CMD_RESUME = "org.eclipse.debug.ui.commands.Resume"
 _OK_MARK = "OK executed "
 _DIALOG_MARK = "dialog="
 
+#: Eclipse's **debug** perspective -- where a debug launch lands once a session suspends.  Read out
+#: of the install tree rather than recalled: `plugins/org.eclipse.debug.ui_3.18.200.202501031008.jar`
+#: declares it in `plugin.xml` as `%DebugPerspective.name  org.eclipse.debug.ui.DebugPerspective`.
+#: **Auxiliary evidence only** -- R4's 禁用判据 names "会话起来了 / 视角变了" explicitly, so this may
+#: never carry a verdict.  It is recorded because R3's effect-side symptom list includes "the
+#: perspective stayed at C/C++", and a case that never reads the perspective cannot tell an operator
+#: which mode the IDE actually reached.
+_DEBUG_PERSPECTIVE = "org.eclipse.debug.ui.DebugPerspective"
+
+
+def _perspective(response) -> Optional[str]:
+    """The perspective id the bridge's `ui.parts` reported, or `None` when it said nothing.
+
+    Same parse the CCS12 sibling uses -- `^perspective id=(\\S+)` over the payload.
+    """
+    match = re.search(r"^perspective id=(\S+)", "\n".join(response.payload or ()), re.M)
+    return match.group(1) if match else None
+
 #: The LaunchBar's own state file, under the run workspace's `.metadata`, and the mode
 #: this case requires of it.  GS32 writes this itself; `debug` is what makes
 #: `launchActive` create a debug session (see fact 6 in the module docstring).
@@ -2007,7 +2025,8 @@ def _load(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
     """
     out: Dict[str, Any] = {"launch": None, "resume": None, "resume_before": None,
                            "wait": [], "console": "", "log_tail": "", "loadbar": None,
-                           "transport_error": "", "resume_at": "", "attempts": 0}
+                           "transport_error": "", "resume_at": "", "attempts": 0,
+                           "parts_after": None, "perspective": ""}
     out["loadbar"] = _loadbar_mode(plan["workspace"])
     if out["loadbar"]["error"]:
         ctx.note("load: LaunchBar state not readable -- %s" % out["loadbar"]["error"])
@@ -2065,6 +2084,19 @@ def _load(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
                 ctx.note("ide.log| " + line.strip())
     else:
         ctx.note("load: the IDE wrote no %s -- the launch left no log either way" % log)
+
+    # The IDE's own landing place, read back as **auxiliary** evidence -- never a criterion: R4's
+    # 禁用判据 names "会话起来了 / 视角变了" explicitly, so this may not carry a verdict.  It is
+    # recorded because R3's effect-side symptom list includes "the perspective stayed at C/C++", and
+    # a case that never reads it cannot show the operator which mode the IDE actually reached --
+    # the seeded preference is `…switch_perspective_on_suspend=always`, so with a session that really
+    # suspends the landing place is `_DEBUG_PERSPECTIVE`; anything else is the effect-side gap.
+    out["parts_after"] = _ask(ctx, "ui.parts", out)
+    out["perspective"] = _perspective(out["parts_after"])
+    ctx.note("load: perspective after the launch = %s (expected landing place once a session "
+             "suspends: %s -- auxiliary evidence only, R4 forbids it as a criterion; a perspective "
+             "that stayed at the editing one is the documented effect-side symptom)"
+             % (out["perspective"] or "<not readable>", _DEBUG_PERSPECTIVE))
     return out
 
 
