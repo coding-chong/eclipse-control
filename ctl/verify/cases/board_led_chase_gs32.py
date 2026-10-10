@@ -298,8 +298,13 @@ _LAUNCHBAR_MODE_RUN = "run"
 #: deterministically: a modal parked on the SWT event thread is one of the ways a `Resume` frame
 #: comes back carrying `dialog=`, and R3's criterion is that the frame must **not** carry it.
 #:
-#: ⚠️ Grading: key name + value domain + "unwritten means prompts" are **readings**; that writing
-#: `never` stops the prompt is an **inference** until an end-to-end run shows the box gone.
+#: ⚠️ Grading (2026-10-11, after an end-to-end run): key name + value domain + "unwritten means
+#: prompts" are **readings**; that writing `never` keeps the prompt away is now **confirmed for the
+#: case's own path** -- run `gs32-led-1011b` seeded this preference and its launch frames came back
+#: `OK executed org.eclipse.launchbar.ui.command.launchActive` then
+#: `OK executed org.eclipse.debug.ui.commands.Resume` **with no `dialog=` line**, which is exactly
+#: what R3 asks for.  ⚠️ Still owed (so this is not a strict A/B): one run with the key **removed**
+#: must show the box, otherwise "no dialog" could be a property of this path rather than of the value.
 #:
 #: Rerun the readings (scan the install tree for the key and its value literals -- the whole point
 #: is that this is a search, not a memory):

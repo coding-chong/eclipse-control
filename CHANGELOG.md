@@ -77,9 +77,13 @@
   故修法是**在 IDE 起来之前把偏好写进 run 的工作区**（新增 `_seed_prefs`，与兄弟用例写 `setup.prefs`
   同层同机制）：`<ws>/.metadata/.plugins/org.eclipse.core.runtime/.settings/org.eclipse.debug.ui.prefs`
   里写入 `org.eclipse.debug.ui.switch_perspective_on_suspend=never`。
-  ⚠️ **分级**：键名与取值域是**读数**（`plugins/org.eclipse.debug.ui_3.18.200.202501031008.jar` 的
-  `org/eclipse/debug/internal/ui/DebugUIPreferenceInitializer.class` 同持该键与 `always`/`never`/`prompt`），
-  「写 `never` 就不再弹」是**推断**，待端到端复跑确认 —— 未确认前不得当结论用。
+  ⚠️ **分级（2026-10-11 端到端复跑后更新）**：键名与取值域是**读数**（`plugins/org.eclipse.debug.ui_3.18.200.202501031008.jar`
+  的 `org/eclipse/debug/internal/ui/DebugUIPreferenceInitializer.class` 同持该键与 `always`/`never`/`prompt`）；
+  「写 `never` 就不再弹」**在用例自己的路径上已被证实** —— run `gs32-led-1011b` seed 了这条偏好，
+  它的装载回话逐字是 `OK executed org.eclipse.launchbar.ui.command.launchActive` 与
+  `OK executed org.eclipse.debug.ui.commands.Resume`，**且不带 `dialog=` 行**（正是 R3 要的形状）。
+  ⚠️ **仍欠一条**（所以这不是严格 A/B）：把该键**去掉**再跑一次、必须看见那个框，
+  否则"没有 `dialog=`"也可能只是这条路径的性质、而不是该取值的功劳。
   回归门：`tests/unit/test_board_case_gs32_gate.py::test_the_perspective_prompt_is_settled_by_preference`
   （C10：被钉的集合是**测试自己的字面量**）。**变异账本**（C12）：把 `never` 改回 `prompt` ⇒
   恰红该条（`FAILED (failures=1)`）；还原 ⇒ 全套 `Ran 313 tests … OK`。
