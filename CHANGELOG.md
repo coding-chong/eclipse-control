@@ -62,6 +62,19 @@
 
 ### Fixed
 
+- **GS32 板级用例的「工作区归属」守卫把 Eclipse 自己的账本工程当成「外来工程」**（2026-10-11）：
+  `ctl verify --case board.led.chase.gs32` 在**全新** run 上直接 SKIP，逐字
+  `the run's workspace registers '.org.eclipse.egit.core.cmp'`。该标记实测落在
+  `<ws>/.metadata/.plugins/org.eclipse.egit.core/.org.eclipse.egit.core.cmp` —— 那是 **EGit 插件的
+  隐藏工程**（IDE 一加载就建），**不是**"别的会话的工程"；而 `_registered_projects()` 是**按目录列举**的，
+  两者同形。⇒ 任何装过 EGit 的工作区都被读成"有外来工程"，**AC1 不可达**
+  （实测：全新 run 上 `_registered_projects(ws)` == `['.org.eclipse.egit.core.cmp']`）。
+  现在过滤**点号开头**（Eclipse 保留）的名字，判据收在一个函数里（`_foreign_projects`），
+  守卫与测试共用同一处 —— 不再有第二份抄写。
+  回归门：`tests/unit/test_board_case_gs32_gate.py::test_eclipses_own_bookkeeping_projects_are_not_foreign`
+  （C10：被钉的集合是**测试自己的字面量**）。**变异账本**（C12）：删掉 `not entry.startswith(".")`
+  ⇒ 恰红该条（`FAILED (failures=1)`）；还原 ⇒ 全套 `Ran 312 tests … OK`。
+
 - **板级用例的 C2000Ware 底座改为**解析**，不再写死一台机器的路径**（2026-10-07）：
   `ctl/verify/cases/board_led_chase.py` 的模块头写着「每个值要么是安装相对的、要么是实测事实，
   绝不是机器本地绝对路径」，而 `_DEFAULT_C2000WARE = "D:/ti/c2000/C2000Ware_5_04_00_00"` 破了它 ——
