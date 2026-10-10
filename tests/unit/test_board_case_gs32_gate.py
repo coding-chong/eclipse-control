@@ -146,6 +146,20 @@ class CaseContractTest(unittest.TestCase):
         self.assertEqual(case._FLASH_DEFINE, "FLASH_TARGET")
         self.assertEqual(case._APP, "org.eclipse.cdt.managedbuilder.core.headlessbuild")
 
+    def test_eclipses_own_bookkeeping_projects_are_not_foreign(self):
+        """The workspace-ownership guard must not read Eclipse's own bookkeeping as
+        "another session's project".
+
+        A brand-new `ctl install` workspace already registers `.org.eclipse.egit.core.cmp`
+        (measured 2026-10-11: `_registered_projects(<fresh run ws>)` returned exactly that
+        one name), and the first version counted it as foreign -- so the case SKIPped on
+        *every* run and AC1 became unreachable.  Dot-prefixed names are Eclipse-reserved.
+        """
+        self.assertEqual(case._foreign_projects([".org.eclipse.egit.core.cmp"], "gs32f035"), [])
+        self.assertEqual(case._foreign_projects(["gs32f035"], "gs32f035"), [])
+        self.assertEqual(case._foreign_projects(["gs32f035", "someone_elses"], "gs32f035"),
+                         ["someone_elses"])
+
 
 # --------------------------------------------------------------------------- #
 # The judgement layer: one mutation per predicate (C12)

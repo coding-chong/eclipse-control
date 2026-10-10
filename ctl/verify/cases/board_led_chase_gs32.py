@@ -968,6 +968,20 @@ def _registered_projects(workspace: str) -> List[str]:
                   if os.path.isdir(os.path.join(root, entry)))
 
 
+def _foreign_projects(registered: List[str], name: str) -> List[str]:
+    """The registered entries that are **not** this case's project.
+
+    Eclipse registers projects of its own in any workspace it has ever started on: a
+    brand-new `ctl install` workspace already carries `.org.eclipse.egit.core.cmp` the
+    moment EGit loads -- measured 2026-10-11, `_registered_projects(<fresh run ws>)`
+    returned **exactly** `['.org.eclipse.egit.core.cmp']`.  Dot-prefixed names are
+    Eclipse-reserved, so counting them as "somebody else's" made the ownership guard
+    SKIP on *every* workspace and put AC1 out of reach.
+    """
+    return [entry for entry in registered
+            if entry != name and not entry.startswith(".")]
+
+
 def _studio_root(ctx) -> str:
     override = _override("studio")
     if override:
@@ -1094,9 +1108,16 @@ def _pre(ctx):
     # A workspace that already registers somebody else's project makes the launch
     # configuration ambiguous -- and this case is about to start an IDE on that same
     # workspace.  Nothing is deleted to resolve that: it SKIPs.
+    #
+    # Eclipse's **own** bookkeeping projects are not "somebody else's".  A brand-new
+    # workspace gets `.org.eclipse.egit.core.cmp` the moment EGit loads: measured
+    # 2026-10-11 on a fresh `ctl install`, `_registered_projects(<run ws>)` returned
+    # exactly `['.org.eclipse.egit.core.cmp']` -- counting that as foreign made this
+    # guard SKIP on *every* workspace, which put AC1 out of reach.  Dot-prefixed
+    # names are Eclipse-reserved, so they are not evidence of another session.
     registered = _registered_projects(workspace)
     plan["registered_before"] = registered
-    foreign = [entry for entry in registered if entry != name]
+    foreign = _foreign_projects(registered, name)
     if foreign:
         raise Skip("the run's workspace registers %s -- this case owns its workspace (it "
                    "seeds the project before the IDE starts, so a foreign project would "
