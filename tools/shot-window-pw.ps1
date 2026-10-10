@@ -9,7 +9,7 @@ param(
 # copying screen pixels.  Immune to occlusion and to DPI virtualisation -- the
 # two failure modes that broke the CopyFromScreen variant.
 #
-# Two safeguards, both modelled on `open-computer-use-fixed`
+# Three safeguards, both modelled on `open-computer-use-fixed`
 # (`apps/OpenComputerUseWindows/runtime.ps1`, `Capture-WindowPngBase64`), whose
 # behaviour was measured against ours on 2026-10-01:
 #
@@ -22,6 +22,13 @@ param(
 #   * **one retry with the other flag word.**  `PW_RENDERFULLCONTENT` (2) is what
 #     paints GPU-composited content; `0` is what painted the SWT modal legibly.
 #     Whichever was asked for, the other gets one attempt before failing.
+#   * **ambiguity across processes fails closed** (added 2026-10-11).  Selecting by
+#     area is sound only inside ONE process; a title is not an identity, so when
+#     the candidates span several pids the script refuses and names them instead
+#     of shooting the biggest one.  Measured: `-TitleLike "GS32"` matched the
+#     IDE's SWT shell (3 145 728 px) and a Windows Terminal (5 016 032 px) whose
+#     title merely contained "GS32" -- the terminal won on area, and the script
+#     returned a screenshot of the terminal as `ok=True`.
 #
 # `-ProcId` / `-Class` exist because titles are not unique: two IDE instances can
 # show the same title, and `ui.open` puts a file name into the *shell* title.
@@ -114,9 +121,26 @@ if ($cands.Count -eq 0) {
     Write-Output "no visible window matching '$TitleLike'$extra"
     exit 1
 }
-# Largest wins.  Several distinct top-level windows can contain the same title --
-# e.g. the launcher console shares the workbench's pid -- and the app's main
-# window is by far the biggest of them.
+# A title match is a CANDIDATE SET, never a target.  "Largest wins" is only sound while every
+# candidate belongs to ONE process -- that is the case it was written for: the launcher console
+# shares the workbench's pid and the main window is by far the biggest of them.
+#
+# Measured 2026-10-11, and it is why this guard exists: `-TitleLike "GS32"` matched the IDE's SWT
+# shell (3 145 728 px) *and* a Windows Terminal whose title happened to contain "GS32"
+# (5 016 032 px).  The terminal was the bigger window, so the script shot the terminal, printed
+# `ok=True` and wrote the PNG -- a screenshot of a window nobody asked for, indistinguishable from a
+# real capture of the IDE.  That is exactly the artifact `measurement-hygiene` §13.2 forbids
+# ("落到白名单之外才是禁止的"): a shot that lies costs more than no shot, because nothing downstream
+# can tell it was the wrong window.
+if ($ProcId -eq 0) {
+    $pids = @($cands | ForEach-Object { [PW]::PidOf($_) } | Sort-Object -Unique)
+    if ($pids.Count -gt 1) {
+        $alts = ($cands | ForEach-Object { "pid=$([PW]::PidOf($_)) $([PW]::ClassOf($_)):$([PW]::Area($_))" }) -join ", "
+        [Console]::Error.WriteLine("ambiguous target for '$TitleLike': $($pids.Count) processes match ($alts). Not writing $Out -- pass -ProcId to name the window you mean. Choosing the largest would be a capture of a window you did not ask for.")
+        Write-Output "ambiguous: '$TitleLike' matched $($pids.Count) processes"
+        exit 1
+    }
+}
 $hwnd = $cands[0]
 $best = -1
 foreach ($c in $cands) { $a = [PW]::Area($c); if ($a -gt $best) { $best = $a; $hwnd = $c } }

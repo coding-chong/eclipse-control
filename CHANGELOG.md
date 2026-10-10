@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`tools/shot-window-pw.ps1` 会把**别的进程**的窗口当成目标拍下来**（2026-10-11）：
+  `-ProcId` 缺省时 `FindAll` 只按**标题子串**跨进程全收，随后「面积最大者胜」。
+  实测 `-TitleLike "GS32"` 同时命中 IDE 的 SWT 外壳（`3 145 728 px`）与一个标题里恰好含
+  `GS32` 的 Windows Terminal（`5 016 032 px`）—— 终端更大，于是脚本**拍下了终端**、打印
+  `ok=True`、照常落盘。这张图与「真的是 IDE 的截图」**在下游无法区分**，正是
+  `measurement-hygiene` §13.2 禁止的形状（落到白名单之外）。现在候选集跨**多个 pid** 且未给
+  `-ProcId` 时**拒绝并列出候选**（rc=1、不写产物）；同 pid 内仍取面积最大（启动器控制台与工作台
+  同 pid，那条回落照旧合法）。
+
 ### Added
 
 - **`ctl install --keep-workspace`：保留已有 run 工作区**（2026-10-06）：
