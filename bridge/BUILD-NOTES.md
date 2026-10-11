@@ -1,11 +1,17 @@
 # bridge/BUILD-NOTES.md — build & jar verification
 
-2026-10-02 · bridge `eclipse-ctl.bridge` **0.1.0** (protocol 1)
+2026-10-11 · bridge `eclipse-ctl.bridge` **0.3.0** (protocol 1)
 
 > **版本沿革（2026-10-02）**：桥的 `Bundle-Version` 原为 **3.1.0**（`livebridge 3.0.0` 遗留序列的
 > 默认值），与项目版本不一致 ⇒ 违反 `design-project.md` §15.2「项目版本 == 桥 `Bundle-Version`」。
 > 现统一为项目版本 **0.1.0**（`bridge/build.py:DEFAULT_VERSION`），jar 名随之变为
 > `eclipse-ctl.bridge_0.1.0_{gs32,ccs12}.jar`（两 target 各一份，**不是**单 jar）。
+> **沿革续（2026-10-11 切版）**：`0.1.0 → 0.2.0`（2026-10-06 那批）→ **`0.3.0`**（发布准备：
+> `ctl/__init__.py` 与 `bridge/build.py:DEFAULT_VERSION` **两处同改**，产物名随之变为
+> `eclipse-ctl.bridge_0.3.0_{gs32,ccs12}.jar`）。**文件头那行是"撰写当时"的版本**，现为 0.3.0。
+> ⚠️ **切版后要把 `dist/` 里的旧 jar 删掉**：`find_bridge_jar` 按名字 `sorted()` 取首个、
+> **不比较 `Bundle-Version`**（本仓 `measurement-hygiene.md` §13.9 反例 A 实测过 `0.1.0` 胜 `0.2.0`），
+> 新旧并存时它会让**旧的那份**胜出 —— 静默用旧桥，而版本号看起来是新的。
 > **下文标着 2026-10-01 的原始输出，是当时的实况**（当时确实是 3.1.0，且是**单 jar** 构建、7 classes）——
 > 保留作历史，不再作当前产出；照抄命令时以「输出名随 `--version` 变」为准。
 

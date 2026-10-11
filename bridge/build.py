@@ -31,7 +31,7 @@ import zipfile
 BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(BRIDGE_DIR)
 
-DEFAULT_VERSION = "0.2.0"
+DEFAULT_VERSION = "0.3.0"
 DEFAULT_JAVA_SRC = os.path.join(BRIDGE_DIR, "src", "ctl", "bridge", "LiveBridge.java")
 
 # Frozen bridge identity (design-project.md §15.1): the OSGi symbolic name may contain '-',

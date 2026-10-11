@@ -32,7 +32,7 @@ __all__ = [
 ]
 
 # Project version == bridge `Bundle-Version` (`design-project.md` §15.2).
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # Protocol version is numbered independently of the project version and only
 # moves when the line protocol itself changes (`design-project.md` §15.2).

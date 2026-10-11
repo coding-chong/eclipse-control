@@ -69,7 +69,7 @@
   | JRE 模块数 | **30**（JustJ JRE 23.0.2） | **55**（JRE 11.0.13） |
   | 命令服务 bundle 版本 | `org.eclipse.ui.workbench` **3.131.0** | `org.eclipse.ui.workbench` **3.125.0** |
   | 厂商命令数 | `com.gs` **7**（总 666） | `com.ti` **115**（总 807） |
-  | 必须重编的产物 | `eclipse-ctl.bridge_0.2.0_gs32.jar`（class-file **61** = Java 17） | `eclipse-ctl.bridge_0.2.0_ccs12.jar`（class-file **52** = Java 8） |
+  | 必须重编的产物 | `eclipse-ctl.bridge_<版本>_gs32.jar`（**现 0.3.0**；class-file **61** = Java 17） | `eclipse-ctl.bridge_<版本>_ccs12.jar`（**现 0.3.0**；class-file **52** = Java 8） |
 
   > **同一份源码、两个字节码级别**：gs32 是 17；ccs12 是 **8**（见下）。
   > 两个 jar **按 target 命名并存**（此前同名会互相覆盖），`doctor` 会校验 jar 内 class-file 级别
@@ -685,8 +685,13 @@ python -c "print(act_click_button('&No', title='Reset Perspective', yes=True))" 
 - **2026-10-05 实测（由当前源码构建的实例，身份已按 `measurement-hygiene` §13.10 反例 A 第 2 条对拍）**：
   · 起实例前确认 `8777` **无活监听**；起来后 `sys.env` 回读
     `bundle=eclipse-ctl.bridge version=0.2.0 id=351 state=32`，与
-    `bridge/dist/eclipse-ctl.bridge_0.2.0_gs32.jar` 的 `Bundle-Version: 0.2.0`（及
-    `bridge/build.py:34` `DEFAULT_VERSION = "0.2.0"`）**逐字一致** ⇒ 测的是本轮构出来的产物。
+    `bridge/dist/eclipse-ctl.bridge_0.2.0_gs32.jar` 的 `Bundle-Version`（及
+    `bridge/build.py` 的 `DEFAULT_VERSION`）**逐字一致** ⇒ 测的是本轮构出来的产物。
+    （**那句 `0.2.0` 是 2026-10-05 那一轮的读数**；**判据是"三处逐字相同"，不是"等于某个版本"** ——
+    版本段随发布走：2026-10-11 切 `0.3.0` 后三处同步变为 `0.3.0`（`ctl/__init__.py` / `bridge/build.py` /
+    产物名与 manifest，实测见 §5.2 合计行那一段的邻居：`bridge/BUILD-NOTES.md` 头的沿革条）。
+    **刻意不引 `bridge/build.py` 的行号**：改版本那几行就会位移，行号是本仓
+    `measurement-hygiene` §13.9 反例 C 点过名"会烂"的东西。）
   · `ui.parts` 负载**逐字**含 `services: EModelService=true` ⇒ **可用性成立**。
 - **但"经该层寻址"这件事在本代码库里不存在，且不需要**（两条都实测）：
   · `bridge/src/` 全文搜索 `EModelService|MApplication|MWindow|MPart|EObject`：

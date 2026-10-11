@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-11
+
+### Changed
+
+- **版本 `0.2.0` → `0.3.0`**（2026-10-11）：`ctl/__init__.py` 的 `__version__` 与 `bridge/build.py` 的
+  `DEFAULT_VERSION` **同改**（`design-project.md` §15.2 / `DEVELOPING.md` 的 R11′.2：两处**必须同号**）。
+  两条腿按各自字节码级别重建产物（`eclipse-ctl.bridge_0.3.0_gs32.jar` / `…_ccs12.jar`）。
+  ⚠️ **切版后必须清掉 `bridge/dist/` 里的旧 jar**：`find_bridge_jar` 按名字 `sorted()` 取首个、
+  **不比较 `Bundle-Version`**（`measurement-hygiene` §13.9 反例 A 实测过 `0.1.0` 胜 `0.2.0`），
+  新旧并存时它会**静默选中旧的那份**（版本号看起来是新的）。
+  **判据（本机实测，2026-10-11）**：`find_bridge_jar('gs32')` ⇒ `(…_0.3.0_gs32.jar, '0.3.0')`；
+  真起一个实例，`ctl status` 回读 `bundle=eclipse-ctl.bridge version=0.3.0 id=350 state=32`
+  （**不只是读文件** —— 身份要落在活实例上）；`_changelog_has_version` ⇒ `(True, 'entry for 0.3.0 present')`。
+
 ### Fixed
 
 - **CI 的「文本门」那一步在运行器上根本没跑起来**（2026-10-11，修完下一条后的**第二次**首推抓到）：
