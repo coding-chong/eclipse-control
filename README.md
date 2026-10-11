@@ -239,6 +239,12 @@ gs32     4.30.0     23.0.2 17     com.gs.ui.Studio         8777   D:/ProgramFile
 | [`boundaries.md`](boundaries.md) | 能做 / 不能做 / 未验证，**方法级** |
 | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | **维护者页**：症状 → 处置 |
 | [`DEVELOPING.md`](DEVELOPING.md) | **开发者工具**（不进用户路径）：验收用例、发布前总检、配方库、回收、换代 |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **面向贡献者**：怎么跑测试与闸门、提交纪律、产物对在哪 |
+| [`CHANGELOG.md`](CHANGELOG.md) | 每条改动带**判据与复跑命令**；发版时在这里切版本号 |
+| [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md) | 安全相关改动的**人工复审记录**（评审者 / 发布把关人） |
+
+> 命令表产物（`commands.json` / `COMMANDS.md`）与配方库**不列在上面** ——
+> 它们是 `DEVELOPING.md` 明写的**开发者工具**（R11′.3），按 C5 留在仓里但不进用户面。
 
 ## 卸载与回滚
 
