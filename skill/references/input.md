@@ -21,7 +21,7 @@
 
 载体：`org.eclipse.ui.window.resetPerspective` 的确认框，与 GS32 自带 Preferences 的过滤框。
 **走产品库**（不是裸 `SendMessage`）。原始输出见任务侧
-`.trellis/tasks/09-30-eclipse-ctl-project/research/p67-realide-input-2026-10-04.md`。
+`.trellis/tasks/archive/2026-10/09-30-eclipse-ctl-project/research/p67-realide-input-2026-10-04.md`。
 
 | 原语 | 寻址 | 动作原文 | 可观测回读差 | 结论 |
 |---|---|---|---|---|
