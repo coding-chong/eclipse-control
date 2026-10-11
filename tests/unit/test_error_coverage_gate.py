@@ -36,6 +36,9 @@ _PROBE = os.path.join(_ROOT, "ctl", "verify", "_probe_error_coverage.py")
 _COVERED_LITERAL = "no bridge jar built yet"
 #: A fragment no row carries -- the "must be caught" side.
 _UNCOVERED_LITERAL = "ERR probe never documented"
+#: The candidate threshold, as this test's own literal (`deliverable-shape.md` C10: "任何
+#: 「扫描面 / 白名单 / **阈值**」与「其单测」的配对" -- the same rule, so the same pin).
+_MIN_LEN_LITERAL = 6
 
 
 class ErrorCoverageGateTest(unittest.TestCase):
@@ -75,6 +78,22 @@ class ErrorCoverageGateTest(unittest.TestCase):
         self._probe(_COVERED_LITERAL)
         ok, detail = _error_string_coverage_check()
         self.assertTrue(ok, detail)
+
+    def test_the_threshold_is_pinned_independently(self):
+        from ctl.__main__ import _ERR_TEMPLATE_MIN_LEN
+        self.assertEqual(_ERR_TEMPLATE_MIN_LEN, _MIN_LEN_LITERAL)
+
+    def test_a_probe_below_the_threshold_is_not_counted_as_covered(self):
+        """The **weakening** direction, measured by the independent check 2026-10-11: with
+        the threshold at 1, an `ERR`-sized fragment counts as documentation -- so a template
+        could be "covered" by a word every row already contains, and the surface claim would
+        still read green.  A body shorter than the threshold has no candidates at all, and no
+        candidates means missing (same as the archived script).  Lowering the bar reddens
+        *this* test; raising it reddens the real-tree test."""
+        self._probe("ERR")
+        ok, detail = _error_string_coverage_check()
+        self.assertFalse(ok)
+        self.assertIn("ctl/verify/_probe_error_coverage.py:2", detail)
 
     def test_dropping_a_covering_literal_turns_it_red(self):
         """A3: the judge is not vacuous -- take away the text that covers one template and
