@@ -883,7 +883,7 @@ grep -rn "EModelService\|MApplication\|MWindow\|MPart" bridge/src/
 | `resilience.timeout-applied` | PASS | PASS | — |
 | **`realflow.build_artifact`** | **PASS** | **PASS** | 判据、配方形状、产物名与 `e_machine` 见 §5.4（差异只在值上：构建入口 / 配置名 / 标记的字节编码） |
 | **`board.led_chase`** | **SKIP** | **PASS** | CCS12 侧硬件用例（XDS100v2 `PID_A6D0` + DSP280025 板）；GS32 侧不适用（`targets=("ccs12",)`）⇒ `skipped: not applicable to target gs32` |
-| **`board.led.chase.gs32`** | **PASS** | **SKIP** | GS32 侧硬件用例（板载 FT2232H `PID_6010` + H1017A 板，2026-10-09 新增）；**不走桥**：判据 = 两个 CLI 的 rc + 各自成功标志 + ELF 回读（见 §5.4 与用例 docstring；人眼段不可省） |
+| **`board.led.chase.gs32`** | **PASS** | **SKIP** | GS32 侧硬件用例（板载 FT2232H `PID_6010` + H1017A 板，2026-10-09 新增）；**走桥**（**2026-10-10 改判** —— 初版这格写的「不走桥、判据 = 两个 CLI 的 rc」**已作废**）：构建走 Eclipse 自己的 application 入口（`headlessbuild -data <本次 run 的工作区> -build "<工程>/RAM"`），装载 / 运行由 **GS32_Studio 自己**做（桥发 `…launchbar.ui.command.launchActive` → `…debug.ui.commands.Resume`），判据 = 结果词 + 回话含 `OK executed <命令 id>` **且不带 `dialog=` 行**（见 §5.4 与用例 docstring）；`GS32ProgCommand.exe` 降级为旁证 / 排障，**不作**装载入口；人眼段不可省 |
 | **合计** | **26 PASS + 2 SKIP / 0 FAIL**（rc=0；28 用例，**2026-10-09 实测**） | **25 PASS + 2 SKIP / 1 FAIL**（rc=1；28 用例，**2026-10-09 实测**） | 两列同批重跑（`ctl install` 后 `ECLIPSE_CTL_AUTO_GC=false python -m ctl verify --all --target <名>`，**无并发负载**）。GS32 的 2 条 SKIP = `read.console` + `board.led_chase`；CCS12 的 2 条 = `read.console` + `board.led.chase.gs32`。唯一 FAIL 是 `input.fixture` 的 `key`（§5.3 归因），未结案 **0** 条 |
 
 原始输出片段（`input.fixture` 的差异 + 新增 `realflow` 两侧原文）：

@@ -10,6 +10,28 @@
 
 ### Fixed
 
+- **`board.led.chase.gs32` 的 `.launch` 里 `PROGRAM_NAME` 由「同一个变量」自证**（2026-10-11）：
+  该用例 seed 的 `.launch` 必须让 `PROGRAM_NAME` 指 **RAM 产物**（R3：装载走
+  `-c "set gs32_cfg_mode 2"` ⇒ **不建 flash bank** ⇒ gdb 的 `load` 只能写 RAM；出厂那份
+  `debugConfigs/gs32f035_openocd.launch` 恰恰写着 `Flash_ILM/gs32f035.elf`，是**会烧半新镜像**的值）。
+  原来的回读检查是 `'value="%s"' % program in text` —— **期望与被测是同一个变量**，写成 flash 产物也照绿。
+  现在值抽成具名常量 `_LAUNCH_PROGRAM_NAME = "RAM/<工程>.elf"`（由 `_CONFIG`/`_PROJECT` 组合，
+  不另立命名约定），回读改为**逐份**读出 `PROGRAM_NAME` 的**值**与常量**相等**比较，
+  判词同时点名**期望值 / 实际值**，并在实际值含 `Flash_ILM` 时点明「无 flash bank 可写」。
+  回归门：`tests/unit/test_board_case_gs32_gate.py` 新增/加固两行 —— 常量按**测试自己的字面量**钉住
+  （`test_the_seeded_launch_names_the_ram_artifact_and_never_the_flash_one`），执行器按**磁盘上的值**
+  逐份核对（`test_the_seeded_launch_carries_the_four_measured_corrections`），反例
+  `test_a_launch_that_names_the_flash_artifact_is_a_named_failure` 用 `mock` 只改**落盘的那一步**。
+  **变异账本**（2026-10-11 实测）：把写入口改回 `"%s/%s.elf" % (_FLASH_CONFIG, name)`
+  ⇒ `python -m unittest discover -s tests -t .` = `Ran 317 tests ... FAILED (failures=1)`，
+  **恰是执行器那一行**，判词逐字 `the seeded launch gs32f035\.launches\gs32f035_openocd.launch names
+  PROGRAM_NAME='Flash_ILM/gs32f035.elf'; expected the RAM artifact 'RAM/gs32f035.elf' -- ... no flash bank
+  exists for gdb's \`load\` to write`；恢复 ⇒ `OK`。
+  ⚠️ **另一件实测事实（下一步，不是本条的结论）**：`runs/gs32-gate-smoke`、`runs/gs32-led-1011c` 等工作区里，
+  seed 完成时用例自己的注是 `PROGRAM_NAME=RAM/gs32f035.elf`（回读检查同批通过），而**现在**盘上那三份
+  `.launch` 的该键都是出厂那个 flash 值，且这些文件的**最后写入时间晚于其创建时间**
+  ⇒ seed 之后**有别的写入者改写过它们**；本用例在 seed 之后没有第二个写点，但**改写者未定位**
+  （需要一次上板运行才能对拍，本轮未跑）。
 - **`tools/shot-window-pw.ps1` 会把**别的进程**的窗口当成目标拍下来**（2026-10-11）：
   `-ProcId` 缺省时 `FindAll` 只按**标题子串**跨进程全收，随后「面积最大者胜」。
   实测 `-TitleLike "GS32"` 同时命中 IDE 的 SWT 外壳（`3 145 728 px`）与一个标题里恰好含
@@ -48,11 +70,12 @@
 
 - **GS32 板级灯光用例 `board.led.chase.gs32`**（2026-10-09）：`ctl/verify/cases/board_led_chase_gs32.py`，
   `board_led_chase.py` 的 GS32 版（`targets=("gs32",)`、`group="realflow"`、`requires_bridge=False`）。
-  **形状同、驱动面不同**：它**不走桥** —— 构建是 `GS32.exe -application …headlessbuild`（配置 `Flash_ILM`），
-  烧写是 `GS32ProgCommand.exe -chip GS32F035P -elf <ELF>` ⇒ 机器段判据是**两个 CLI 的 rc + 各自成功标志 +
-  ELF 回读**，不是 CCS12 那种「结果词 + `OK executed <命令 id>`」。
-  覆盖层（LED 引脚定义 + 两灯交替 + 本轮标记）叠在 SDK 模板的**临时副本**上；引脚只引用 `inc/board_cfg.h`
-  的宏，**不手写 mux**。
+  ⚠️ **本条描述的驱动面已作废（2026-10-10 用户口径改判 —— 现行形状见本 `[Unreleased]` 段的 `### Changed` 里那条 2026-10-10 条目）**：
+  初版整段「**不走桥** —— 构建是 `GS32.exe …headlessbuild`（配置 `Flash_ILM`）、烧写是
+  `GS32ProgCommand.exe -chip GS32F035P -elf <ELF>` ⇒ 机器段判据是**两个 CLI 的 rc + 各自成功标志 + ELF 回读**」
+  **不再成立**；同段的「覆盖层叠在 SDK 模板的**临时副本**上」也作废（副本必须落在 **run 实例的工作区**里）。
+  现存的仍是形状那半：覆盖层（LED 引脚定义 + 两灯交替 + 本轮标记）叠在**工程副本**上；引脚只引用
+  `inc/board_cfg.h` 的宏，**不手写 mux**。
   **链路逐环带闸门、断了就停**（syntax → build → marker → flash）：语法预检用工具链自带的
   `gs-riscv-elf-gcc -fsyntax-only`（**不经过 launcher，故失败不会在用户桌面弹错误框**）；构建要 rc=0
   **且** `error:` 行数为 0；产物要 `e_machine=243`、`stale=False`、且**本次运行唯一的标记**
@@ -142,6 +165,26 @@
   `python -m ctl build --target ccs12` ⇒ `rc=0` 且产出 jar。
 
 ### Changed
+
+- **`board.led.chase.gs32` 的驱动面改判：从「调 vendor CLI」改成「走桥让 IDE 自己装载」，
+  构建配置 `Flash_ILM` → `RAM`，构建落在 run 实例的工作区**（2026-10-10，用户口径）：
+  2026-10-09 那条把这条板级用例写成**不走桥**（构建与烧写都调 vendor CLI）—— **那是错的**。
+  这类板级用例的价值**恰恰是操控性**：证明我们的工具真能把这套 IDE 用起来；只调 CLI 不证明这一点，
+  于是它对本产品的意义丢掉一大半。**现在的形状**（用例模块头与 `_LAUNCHER` / `_APP` 两个常量）：
+  ① **构建**走 Eclipse 自己的 application 入口 ——
+  `GS32.exe -nosplash -application org.eclipse.cdt.managedbuilder.core.headlessbuild
+  -data <本次 run 的工作区> -import <工程> -build "<工程>/RAM"`；
+  `-data` **必须**指向本次 run 那个活实例的工作区（**不是**另开的临时目录）—— 否则产物落在实例工作区之外，
+  随后的 `launchActive` **看不见它**；② **装载 + 运行**由 **GS32_Studio 自己**完成 ——
+  用例自己 seed 的 `.launch` 经桥的既有 `cmd.run` 发
+  `org.eclipse.launchbar.ui.command.launchActive`（= 人的 F11）再发
+  `org.eclipse.debug.ui.commands.Resume`（= 人的 F8）；判据仍是「结果词 + 回话含 `OK executed <命令 id>`
+  且**同帧不带 `dialog=` 行**」；③ **配置换成 `RAM`** —— 装载走 `-c "set gs32_cfg_mode 2"`
+  ⇒ **不建 flash bank** ⇒ gdb 的 `load` 只能写 RAM（③ 与 ② 是同一个决定的两面）。
+  ⚠️ `GS32ProgCommand.exe` **降级为旁证 / 排障**（`_prog_root` 靠它定位同装安装树里的 OpenOCD），
+  **不再是**装载入口；它烧的是 **flash**，与 RAM 用例**不是同一目标**。
+  ⚠️ 本条**只记形状**，**效果侧仍未成立**（人眼段未确认；`GPADAT` 实测出四态走法）——
+  见流程仓任务 `10-09-gs32-board-led-chase` 的 PRD AC2/AC3，**不得**读成"已跑通"。
 
 - **板级用例：把「等实例 JobManager 静默」换成一次只读探针**（2026-10-07）：
   `ctl/verify/cases/board_led_chase.py` 的第一次 `launchActive` 之前曾用 `_JOBS_QUIET_WAIT_S

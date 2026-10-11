@@ -8,7 +8,10 @@ Two shapes this file exists for (`deliverable-shape.md`):
   **equal** to them.  Reading them back (`self.assertEqual(case.MUX, case.MUX)`) would
   certify nothing: a typo in the constant would keep both sides of the comparison wrong
   together.  The command ids and the confirmation marker are pinned the same way, because
-  R4's criterion is exactly "a line `OK executed <command id>` and no `dialog=` line".
+  R4's criterion is exactly "a line `OK executed <command id>` and no `dialog=` line" --
+  and so is the artifact the seeded `.launch` has to name (`RAM/…` here, the factory's
+  `Flash_ILM/…` in that exact key), because `gs32_cfg_mode 2` leaves no flash bank for
+  gdb's `load` to write.
 * **C12** -- one mutation per predicate.  `ExpectLedgerTest` reddens exactly the
   predicate it weakens (never a neighbour's), `OverlayGateTest` does the same for the
   payload gates, `RanCriterionTest` pins the three shapes of a driven command's frame,
@@ -24,6 +27,7 @@ override seam (which by construction never spawns anything).
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import struct
 import tempfile
@@ -49,6 +53,22 @@ _CHASE = ("GpioDataRegs.GPACLEAR.bit.BOARD_LED1 = 0x1;",
 _FORBIDDEN = "GPATOGGLE.bit.BOARD_LED"
 _LAUNCH_ACTIVE = "org.eclipse.launchbar.ui.command.launchActive"
 _RESUME = "org.eclipse.debug.ui.commands.Resume"
+#: The artifact the seeded `.launch` must name -- **this file's own literal** (C10).  It
+#: is the RAM configuration's artifact: with `gs32_cfg_mode 2` no flash bank is created,
+#: so gdb's `load` can only write RAM, and the factory's launch ships the flash value
+#: right below instead.  Spelled out here rather than imported so that a weakened case
+#: constant cannot move both sides together.
+_PROGRAM_NAME = "RAM/gs32f035.elf"
+_FLASH_PROGRAM_NAME = "Flash_ILM/gs32f035.elf"
+#: The `.launch` key, parsed with this file's own regex: the predicate is about the value
+#: **on disk**, so the test reads the file itself instead of calling the case's reader.
+_PROGRAM_NAME_RE = re.compile(
+    r'key="org\.eclipse\.cdt\.launch\.PROGRAM_NAME" value="([^"]*)"')
+
+
+def _program_name(text: str) -> str:
+    found = _PROGRAM_NAME_RE.search(text)
+    return found.group(1) if found else ""
 
 
 class _Ctx(object):
@@ -145,6 +165,16 @@ class CaseContractTest(unittest.TestCase):
         self.assertEqual(case._REGS_SCRIPT, "gs32f00xx_dsp_3.0_regs.ld")
         self.assertEqual(case._FLASH_DEFINE, "FLASH_TARGET")
         self.assertEqual(case._APP, "org.eclipse.cdt.managedbuilder.core.headlessbuild")
+
+    def test_the_seeded_launch_names_the_ram_artifact_and_never_the_flash_one(self):
+        """R3's `.launch` requirement, as this file's own literal: the value the seed
+        writes must be the **RAM** artifact's relative path.  `gs32_cfg_mode 2` creates no
+        flash bank, so gdb's `load` can only write RAM -- a `Flash_ILM` image keeps its
+        `.init`/vectors at `0x08000000` and that segment cannot be written, which leaves
+        the target holding a half-new image."""
+        self.assertEqual(case._LAUNCH_PROGRAM_NAME, _PROGRAM_NAME)
+        self.assertNotIn("Flash_ILM", case._LAUNCH_PROGRAM_NAME)
+        self.assertNotEqual(case._LAUNCH_PROGRAM_NAME, _FLASH_PROGRAM_NAME)
 
     def test_eclipses_own_bookkeeping_projects_are_not_foreign(self):
         """The workspace-ownership guard must not read Eclipse's own bookkeeping as
@@ -749,17 +779,43 @@ class RamConfigAndLaunchSeedTest(unittest.TestCase):
 
     def test_the_seeded_launch_carries_the_four_measured_corrections(self):
         """R3: the two OpenOCD `set` commands, the two reset booleans (the whole
-        difference from the factory flash-shaped launch) and the RAM artifact."""
+        difference from the factory flash-shaped launch) and the RAM artifact.  The
+        artifact is asserted **by value on disk**, out of every copy: the factory's own
+        launch carries `Flash_ILM/gs32f035.elf` in this exact key, so a substring check
+        written from the same variable that wrote the file would certify nothing."""
         project = self._copy()
         plan = {"project": project, "workspace": os.path.dirname(project),
                 "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
         out = case._seed_launch(_Ctx(), plan, "gs32f035")
         self.assertTrue(out["ok"], out["error"])
-        self.assertEqual(out["program"], "RAM/gs32f035.elf")
+        self.assertEqual(out["program"], _PROGRAM_NAME)
         text = "\n".join(case._read_text(path) for path in out["files"])
         for needle in ("set gs32_cfg_mode 2", "set gs32_model GS32F035P",
                        'doDebugInRam" value="true', 'doSecondReset" value="false'):
             self.assertIn(needle, text)
+        for path in out["files"]:
+            self.assertEqual(_program_name(case._read_text(path)), _PROGRAM_NAME, path)
+
+    def test_a_launch_that_names_the_flash_artifact_is_a_named_failure(self):
+        """The counter-example for the launch itself (AC6's shape, C12): a seed that puts
+        the factory's flash value into `PROGRAM_NAME` must redden, naming the artifact it
+        found and the one R3 needs -- every other predicate here stays green, which is
+        exactly the "clean `OK`, wrong image" specimen this pin exists for.  The mutation
+        is injected at the only place that can produce it: what lands on disk."""
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        real_write = case._write_text
+
+        def write_the_flash_artifact(path, text):
+            return real_write(path, text.replace('value="%s"' % _PROGRAM_NAME,
+                                                 'value="%s"' % _FLASH_PROGRAM_NAME))
+
+        with mock.patch.object(case, "_write_text", write_the_flash_artifact):
+            out = case._seed_launch(_Ctx(), plan, "gs32f035")
+        self.assertFalse(out["ok"], out)
+        self.assertIn("PROGRAM_NAME=%r" % _FLASH_PROGRAM_NAME, out["error"])
+        self.assertIn("%r" % _PROGRAM_NAME, out["error"])
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -257,6 +257,23 @@ _APP = "org.eclipse.cdt.managedbuilder.core.headlessbuild"
 #: The launch file is named after the project (as the SDK's own is), so whichever
 #: descriptor the LaunchBar claims, it is a copy of an identical file.
 _LAUNCH_SUFFIX = "_openocd"
+
+#: The value the seeded `.launch` must carry under `org.eclipse.cdt.launch.PROGRAM_NAME`:
+#: **the RAM configuration's artifact**, spelled the way the factory's own launch spells
+#: `Flash_ILM/gs32f035.elf` -- relative to the project, because **nothing on GS32
+#: resolves `${build_artifact:…}`** (fact 5: 0 occurrences tree-wide).  Composed from
+#: `_CONFIG` / `_PROJECT` on purpose: those two already name the configuration this case
+#: builds and the project it builds it in, so the path has one source of truth instead of
+#: a second naming convention.
+#:
+#: **Why it must not be the flash artifact (R2/R3 are one decision seen from two sides)**:
+#: the load path here passes `-c "set gs32_cfg_mode 2"`, which creates **no flash bank at
+#: all** -- so gdb's `load` can only write RAM.  A `Flash_ILM` build keeps `.init` and the
+#: vector table in flash (`0x08000000`) and that segment cannot be written, so the target
+#: would keep a half-new image; and the factory's launch ships exactly that value
+#: (`Flash_ILM/gs32f035.elf`), which is why this case seeds its own file.
+_LAUNCH_PROGRAM_NAME = "%s/%s.elf" % (_CONFIG, _PROJECT)
+
 _CMD_LAUNCH_ACTIVE = "org.eclipse.launchbar.ui.command.launchActive"
 _CMD_RESUME = "org.eclipse.debug.ui.commands.Resume"
 
@@ -364,7 +381,8 @@ _PERSPECTIVE_PREFS_REL = os.path.join(
 #:    gdb's `load` can only write RAM (that is why the build must be RAM too);
 #:  * the model is `GS32F035P`, not the factory's `GS32F035`;
 #:  * `PROGRAM_NAME` names **this** configuration's artifact (nothing on GS32 resolves
-#:    `${build_artifact:…}`, measured: 0 occurrences tree-wide);
+#:    `${build_artifact:…}`, measured: 0 occurrences tree-wide) -- the value itself is
+#:    `_LAUNCH_PROGRAM_NAME`, whose comment carries why it cannot be the flash one;
 #:  * `doDebugInRam=true` and `doSecondReset=false`.  These two are the whole difference
 #:    between the factory's flash口径 launch and the vendor's own **RAM** launch
 #:    (`libraries/bootloader/…/ram_ex3_dsp_ramload_3.0/debugConfigs/
@@ -1565,6 +1583,18 @@ def _ram_config(ctx, project: str, name: str) -> Dict[str, Any]:
     return out
 
 
+def _launch_program_name(text: str) -> str:
+    """The `PROGRAM_NAME` value a `.launch` file carries, `""` when it carries none.
+
+    Read as a **value**, never as a substring: the defect this seeding exists for is a
+    launch that names the wrong artifact, and `'value="X"' in text` says nothing about
+    which value `X` is unless the expectation comes from somewhere other than `X`.
+    """
+    found = re.search(r'key="org\.eclipse\.cdt\.launch\.PROGRAM_NAME" value="([^"]*)"',
+                      text)
+    return found.group(1) if found else ""
+
+
 def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
     """Seed this case's own launch configuration, in the project **and** over the SDK's.
 
@@ -1580,13 +1610,14 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
       `flash init failed`).  Both copies identical removes the coin flip.
 
     The `gdbServerOther` is built from the measured working argv of the IDE's own
-    OpenOCD, and `PROGRAM_NAME` names this configuration's artifact -- nothing on GS32
-    resolves `${build_artifact:…}` (fact 5).
+    OpenOCD, and `PROGRAM_NAME` is `_LAUNCH_PROGRAM_NAME` -- the **RAM** artifact, for the
+    reason spelled out on that constant -- written into every copy (nothing on GS32
+    resolves `${build_artifact:…}`, fact 5).
     """
     out: Dict[str, Any] = {"ok": False, "error": "", "files": [], "program": "",
                            "gdb_server_other": "", "name": name + _LAUNCH_SUFFIX}
     project = plan["project"]
-    program = "%s/%s.elf" % (plan["config"], name)
+    program = _LAUNCH_PROGRAM_NAME
     gdb_other = ("-c &quot;set dsp_gport 3355&quot; -c &quot;set gs32_telnet_port 4444&quot; "
                  "-c &quot;set gs32_tcl_port 6666&quot; -c &quot;set cJTAG 0&quot; "
                  "-c &quot;set gs32_adapter_serial %s&quot; -c &quot;set gs32_model %s&quot; "
@@ -1614,7 +1645,6 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
     back = _read_text(targets[0])
     for needle, label in (("gs32_cfg_mode 2", "the RAM cfg mode"),
                           ("set gs32_model %s" % plan["chip"], "the part number"),
-                          ('value="%s"' % program, "PROGRAM_NAME"),
                           ('key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doDebugInRam" '
                            'value="true"', "doDebugInRam=true"),
                           ('key="ilg.gnumcueclipse.debug.gdbjtag.openocd.doSecondReset" '
@@ -1622,6 +1652,26 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
         if needle not in back:
             out["error"] = "the seeded launch does not carry %s (%r)" % (label, needle)
             return out
+
+    # `PROGRAM_NAME`, by **value**, out of **every** written copy -- the one key R3 cannot
+    # afford to get wrong, and the one a check derived from the writing expression cannot
+    # catch: `'value="%s"' % program present in the file` is satisfied by whatever
+    # `program` happens to hold, so a seed that wrote the flash artifact would read green.
+    # The expectation is therefore the independent constant, and the judgement names both
+    # sides (C15: the toolchain being green says nothing about what was loaded).
+    for path in targets:
+        written = _launch_program_name(_read_text(path))
+        if written != _LAUNCH_PROGRAM_NAME:
+            out["error"] = (
+                "the seeded launch %s names PROGRAM_NAME=%r; expected the RAM artifact "
+                "%r%s"
+                % (os.path.relpath(path, plan["workspace"]), written,
+                   _LAUNCH_PROGRAM_NAME,
+                   (" -- %r is the factory's flash-shaped value, and with "
+                    "`gs32_cfg_mode 2` no flash bank exists for gdb's `load` to write"
+                    % written) if _FLASH_CONFIG in written else ""))
+            return out
+
     if re.search(r'set gs32_model GS32F03[0-9]+"', back):
         out["error"] = ("the seeded launch still carries a model without the P suffix "
                         "(%r)" % re.search(r'set gs32_model ([A-Z0-9]+)', back).group(1))
