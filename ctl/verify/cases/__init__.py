@@ -84,8 +84,16 @@ ALL_CASES = [
     # starts; it therefore runs last and skips on a run that already has a project.
     BOARD_LED_CHASE,
     # The GS32 sibling of the hardware case: it drives the *other* toolchain (GS32_Studio
-    # 1.2.5.2 + the H1017A board) entirely through CLIs -- no bridge, no Eclipse command
-    # id -- and it too builds and flashes a scratch copy, so it runs last as well.
+    # 1.2.5.2 + the H1017A board) through the **same shape** as its CCS12 sibling --
+    # build via that IDE's own Eclipse application entry (`-data` onto THIS run's live
+    # workspace), then let the IDE itself load and run the image through the bridge
+    # (`cmd.run` of `launchActive` -> `Resume`).  That manipulability is the whole point
+    # of a board case; only the ids differ from the CCS12 one.  It builds into and loads
+    # a scratch copy (project copied out of the SDK package, RAM configuration, no
+    # flash), so it runs last as well.
+    # (Corrected 2026-10-11: this comment read "entirely through CLIs -- no bridge, no
+    # Eclipse command id", which R3 superseded on 2026-10-10 -- a CLI-only board case
+    # would not prove the IDE can be driven at all.)
     BOARD_LED_CHASE_GS32,
 ]
 
