@@ -78,8 +78,19 @@ class _InstallHarness:
     def run(self, **kwargs):
         client = mock.MagicMock()
         client.env.return_value = _EnvResponse()
+        # `find_bridge_jar` is stubbed for the same reason `install_bundle` is: a built
+        # jar is a *build artifact*, and a fresh clone has none.  Without this stub these
+        # three tests do not test the flag at all -- they error out at
+        # `ctl/lifecycle.py:728` (measured on the repo's first CI run, 2026-10-11:
+        # `FAILED (errors=3)`, `PrereqNotReady: ERR internal no bridge jar built yet`).
+        # The stub path deliberately does not exist: `jar_java_level` returns None on
+        # OSError, so install's bytecode-level check stays skipped rather than silently
+        # passing on a fabricated jar.
         with mock.patch.object(lifecycle, "list_port_listeners", return_value=[]), \
                 mock.patch.object(lifecycle, "launch", return_value=_fake_console()), \
+                mock.patch.object(lifecycle, "find_bridge_jar",
+                                  return_value=(os.path.join(self.root, "stub-bridge.jar"),
+                                                "0.2.0")), \
                 mock.patch.object(lifecycle, "install_bundle", return_value=581), \
                 mock.patch.object(lifecycle, "wait_for_bridge", return_value=True), \
                 mock.patch.object(lifecycle, "wait_for_workbench",

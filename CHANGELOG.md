@@ -10,6 +10,16 @@
 
 ### Fixed
 
+- **回归套件在干净 clone 上不再因"缺构建产物"报错**（2026-10-11，**首推 CI 当场抓到**）：
+  `tests/unit/test_keep_workspace.py` 的三条 layer-2 测试直接调 `lifecycle.install`，而 `install` 在
+  `ctl/lifecycle.py:728` 要 `find_bridge_jar()` —— 那是一份**构建产物**。开发机上 `bridge/dist/` 有 jar
+  （本地 345 全绿），干净 clone 没有 ⇒ CI `FAILED (errors=3, skipped=11)`，而 workflow 的注释正写着
+  "it is green on a fresh clone"（那句话因此**被实测证伪**，已由本修复重新成立）。
+  修法：给那三条的 harness 补上 `find_bridge_jar` 这个缝 —— 与它**已经 mock 掉的** `install_bundle` 同族
+  （一个消费 jar、一个发现 jar，都是构建期产物，不是测试输入）。三条测试因此在 CI 上**真跑**（不是 skip）。
+  判据：把 `bridge/dist` 挪开复跑 ⇒ `Ran 345 tests … OK`（修前同一条命令 `errors=3`）；
+  变异 M3c（删 `ctl/lifecycle.py:742` 的 `not`）⇒ 那三条**仍全红**，恢复 ⇒ `OK`（修完仍有牙，C10/C12）。
+
 - **`verify --all` 的读数收口到 §5.2 一处，并带上硬件条件**（2026-10-11）：`boundaries.md` 的 §A5 门禁表与
   §5.2 两列对照表**在同一个文件里各写了一份合计**；复核发现两份**已经不一致**（§A5 写「CCS12 列待重跑」，
   §5.2 早已有一组同日读数）—— 正是 `measurement-hygiene` §13.8 反例 B 的形状。
