@@ -10,6 +10,14 @@
 
 ### Fixed
 
+- **CI 的「文本门」那一步在运行器上根本没跑起来**（2026-10-11，修完下一条后的**第二次**首推抓到）：
+  该步用 `shell: python`（GitHub 把脚本写到**临时文件**再跑），于是 `sys.path[0]` 是临时目录而
+  **不是仓库根** ⇒ `import ctl` 直接 `ModuleNotFoundError: No module named 'ctl'`。
+  上一步 `unit suite` 不受影响，因为 `-m` 会把 CWD 放进 `sys.path`（同一份 workflow 里两种跑法不一样，
+  这正是它在本地怎么试都绿的原因）。修法：给该步加 `PYTHONPATH: ${{ github.workspace }}`。
+  判据（本机按同一跑法复现）：跑临时文件 ⇒ `ModuleNotFoundError`（`rc=1`）；
+  加上 `PYTHONPATH` ⇒ 5 道门全 `PASS`、`rc=0`。
+
 - **回归套件在干净 clone 上不再因"缺构建产物"报错**（2026-10-11，**首推 CI 当场抓到**）：
   `tests/unit/test_keep_workspace.py` 的三条 layer-2 测试直接调 `lifecycle.install`，而 `install` 在
   `ctl/lifecycle.py:728` 要 `find_bridge_jar()` —— 那是一份**构建产物**。开发机上 `bridge/dist/` 有 jar

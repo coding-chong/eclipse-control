@@ -26,6 +26,12 @@ jobs:
       # what was read, not just "ok".
       - name: text gates (no IDE needed)
         shell: python
+        env:
+          # The `python` shell runs this script from a **temp file**, so the repo root is
+          # not `sys.path[0]` and `import ctl` fails (measured 2026-10-11, the first CI
+          # run of this workflow: `ModuleNotFoundError: No module named 'ctl'`).  The unit
+          # step above is unaffected because `-m` puts CWD on the path.
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           import sys
           from ctl.__main__ import (
