@@ -86,16 +86,22 @@ python -m ctl verify  --group realflow --target gs32 --run-id dev
 python -m ctl preflight --target gs32,ccs12
 ```
 
-= `doctor` + `verify` + 「文档 ↔ CLI 一致性」+ 「开发者门不进用户路径」+ 「skill 名 ↔ `ctl run`
-命名空间」+ 「标准库-only import」+ 「CHANGELOG 条目」（**7 项**，与
-`python -m ctl preflight --help` 的简介逐项一致）。
+= `doctor` + `verify` + 若干**纯文本闸门**。**项表与项数的唯一出处是
+`python -m ctl preflight --help` 的简介**（逐项并列、**顺序即执行序**；那份简介由
+`tests/unit/test_dev_door_gate.py` 的 `_PREFLIGHT_ITEMS` 逐字钉住，改一处就红）。
+
+⚠️ **这里刻意不再抄一份**：2026-10-11 实测，这处抄写**漏了「no machine-local paths」那道**，
+却还写着"与 `--help` 的简介逐项一致"—— 于是它**同时**漏项**又**与简介矛盾（当时简介自己也漏了
+同一道：同一次漏项在简介与这份抄写里各错一次）。抄写是漂移的**源头**，不是保险
+（`deliverable-shape.md` C8 / C19：守卫要**看得见**、**够得着**它守的那段文本 ——
+够不着的守卫永不触发，而绿跑看不见它 ⇒ 够不着时**别把那句话写下来**）。
 
 **退出码**（与 §一 对 `verify` 的约定同一套；两类失败**不合并**）：
 
 | 码 | 含义 |
 |---|---|
 | `0` | 全过 |
-| `1` | **仓库卫生**闸门有 FAIL 结论（文档 ↔ CLI 一致性 / 开发者门泄漏 / skill 名 / 标准库-only / CHANGELOG 条目） |
+| `1` | 任一**仓库卫生**闸门 FAIL（= 那些不需要活实例的） |
 | `2` | 只有**前置未就绪**红 —— `doctor` 与 `verify --all` 都要活实例 / 安装树，**空闲态就落在这一档** |
 
 判据：`python -m ctl preflight; echo $?`。
