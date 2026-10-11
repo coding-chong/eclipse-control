@@ -61,7 +61,12 @@ reading with a rerun recipe in `research/`, not an inference)
    gs32f00xx_dsp_flashilm.ld`), and the SDK ships **no** RAM configuration for
    `gs32f035`.  The shape copied here is the vendor's own
    (`…/gs32_examples/gs32f379/adc/adc_ex01_soc_software/.cproject`, the only `.cproject`
-   in the tree with a real `name="RAM"`): same `parent`, **own element ids**,
+   in the tree with a real `name="RAM"`): same `parent`, ~~**own element ids**~~ (⚠️ 2026-10-11:
+   the element / toolChain / builder ids are **KEPT from the template**, not authored — see the
+   in-place note below.  And that example is the **wrong** reference for a RAM case: it is a
+   three-configuration **flash** project; the vendor's own RAM loader
+   `…/libraries/bootloader/03_chip_0039A_0025H/03_ramload/ram_ex3_dsp_ramload_3.0/.cproject`
+   declares exactly **one** configuration (`BootRAM`) — `research/launch-failure-2026-10-11.md` §9.2),
    `buildPath=${workspace_loc:/<proj>}/RAM`, `-T gs32f00xx_dsp_ram.ld` + the `_mem.ld` +
    the `_regs.ld`, **no `FLASH_TARGET`**.
    🔴 the memory map must match the **P** variant: this board is a `GS32F035P` (512K
@@ -69,6 +74,13 @@ reading with a rerun recipe in `research/`, not an inference)
    back the part number `GS32F035PPN`), and the two `_mem.ld` files differ by exactly
    that (`GS32F035_mem.ld` = 256K/64K/16K).  The vendor's own 38 `gs32f035` examples all
    use the non-P script; that is their default for the non-P part, not this board.
+   That single configuration is rewritten **in place**: named `RAM`, RAM linkage, RAM
+   output directory.  One configuration, not two -- because the IDE derives the artifact it
+   loads from the project's **active** build configuration, and with only one there is
+   nothing for that rule to pick (measured 2026-10-11; the vendor's own RAM loader ships the
+   same shape -- one configuration, `BootRAM`, with `PROGRAM_NAME=BootRAM/<proj>.elf`).
+   `_ram_config` carries the measurement and the code chain; `Flash_ILM` is what the
+   template declares, not what survives.
 5. **The launch must be ours, not the SDK's** -- the shipped
    `debugConfigs/gs32f035_openocd.launch` is a **flash** configuration: no
    `gs32_cfg_mode`, `gs32_model GS32F035` (no `P`),
@@ -180,14 +192,18 @@ from ._util import verdict
 ENV_PREFIX = "ECLIPSE_CTL_"
 _BOARD_ENV = ENV_PREFIX + "GS32_BOARD_"
 
-#: The build configuration this case **authors itself** (see `_ram_config`) and the name
-#: the headless build is asked for: `-build "<project>/RAM"`.  The SDK template declares
-#: only `Flash_ILM`; the vendor's own `name="RAM"` configuration (gs32f379's adc example)
-#: is the shape copied, and the two edits that matter are both named constants below.
+#: The configuration this case produces (see `_ram_config`, which rewrites the template's
+#: single one in place) and the name the headless build is asked for:
+#: `-build "<project>/RAM"`.  The SDK template declares only `Flash_ILM`; `RAM` is the name
+#: the vendor's own RAM-loader projects use (`…/03_chip_0039A_0025H/03_ramload/
+#: ram_ex3_dsp_ramload_3.0/.cproject` ships one configuration, `BootRAM`, and a launch whose
+#: `PROGRAM_NAME` is `BootRAM/<proj>.elf` -- the same shape as ours, one configuration and
+#: the IDE deriving the artifact from its name).
 _CONFIG = "RAM"
 
-#: The configuration the RAM one is cloned from.  Spelled out rather than assumed, so an
-#: SDK that renames it is a named failure instead of a silent no-op.
+#: The configuration the SDK template ships for this part -- the one `_ram_config`
+#: rewrites into `RAM`.  Spelled out rather than assumed, so an SDK that renames it (or
+#: ships a second one) is a named failure instead of a silent no-op.
 _FLASH_CONFIG = "Flash_ILM"
 
 #: The linker-script triple.  Against the template's `Flash_ILM` list, exactly **two**
@@ -376,13 +392,29 @@ _PERSPECTIVE_PREFS_REL = os.path.join(
     "org.eclipse.debug.ui.prefs")
 
 #: The seeded `.launch`.  Modelled on the SDK's own
-#: `debugConfigs/gs32f035_openocd.launch` with the four measured corrections:
+#: `debugConfigs/gs32f035_openocd.launch` with the measured corrections:
 #:  * `gdbServerOther` carries `-c "set gs32_cfg_mode 2"` -- with no flash bank created,
 #:    gdb's `load` can only write RAM (that is why the build must be RAM too);
 #:  * the model is `GS32F035P`, not the factory's `GS32F035`;
 #:  * `PROGRAM_NAME` names **this** configuration's artifact (nothing on GS32 resolves
 #:    `${build_artifact:…}`, measured: 0 occurrences tree-wide) -- the value itself is
 #:    `_LAUNCH_PROGRAM_NAME`, whose comment carries why it cannot be the flash one;
+#:  * `PROJECT_BUILD_CONFIG_ID_ATTR` names the **RAM** configuration's own element id
+#:    (`@BUILDCONFIG@`, filled from what `_ram_config` actually wrote into the
+#:    `.cproject`), with `PROJECT_BUILD_CONFIG_AUTO_ATTR` left `false`.  **Belt and
+#:    braces, not the fix**: measured on run `gs32-gate-smoke`, while `launchActive` ran
+#:    the IDE rewrote `PROGRAM_NAME` to `Flash_ILM/gs32f035.elf` in **every** seeded copy
+#:    (seed ctime 09:55:48 -> mtimes 09:56:05 / 09:56:48, the instance having come up at
+#:    09:56:00), while `doDebugInRam=true` / `doSecondReset=false` stayed at this case's
+#:    values -- and the run's own seed log says the key it was handed was
+#:    `PROGRAM_NAME=RAM/gs32f035.elf`, so the write is not the seed's.  The key was
+#:    pinned on that run too: `Flash_ILM/gs32f035.elf` and
+#:    `PROJECT_BUILD_CONFIG_ID_ATTR="…490272334.ram"` sit in the same file.  What the
+#:    value is derived from is the project's **active** configuration -- `_ram_config`
+#:    leaves `RAM` as the project's only configuration for exactly that reason, and
+#:    `_load_readback` re-reads
+#:    `PROGRAM_NAME` after the load, so any other writer is named instead of silently
+#:    loading a flash image.
 #:  * `doDebugInRam=true` and `doSecondReset=false`.  These two are the whole difference
 #:    between the factory's flash口径 launch and the vendor's own **RAM** launch
 #:    (`libraries/bootloader/…/ram_ex3_dsp_ramload_3.0/debugConfigs/
@@ -443,7 +475,7 @@ _LAUNCH_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" value="@PROGRAM@"/>
     <stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="@PROJECT@"/>
     <booleanAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_AUTO_ATTR" value="false"/>
-    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_ID_ATTR" value=""/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_ID_ATTR" value="@BUILDCONFIG@"/>
     <booleanAttribute key="org.eclipse.debug.core.ATTR_FORCE_SYSTEM_CONSOLE_ENCODING" value="false"/>
     <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
         <listEntry value="/@PROJECT@"/>
@@ -1457,12 +1489,24 @@ def _wipe_workspace(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _ram_config(ctx, project: str, name: str) -> Dict[str, Any]:
-    """Author the RAM build configuration the SDK does not ship for this part (fact 4).
+def _cconfig_id(block: str) -> str:
+    """The `<cconfiguration>` element id a `.cproject` block carries, `""` when it has none.
 
-    Clones the template's `Flash_ILM` `<cconfiguration>` -- both halves of CDT's pair,
-    which share one id -- under a fresh id, and applies exactly the edits the vendor's own
-    RAM configuration (`gs32f379/adc/adc_ex01_soc_software/.cproject`) shows are needed:
+    Read off the **file**, so a comparison against it is about what is on disk rather than
+    about the expression that produced it (C17).
+    """
+    found = re.search(r'<cconfiguration [^>]*id="([^"]+)"', block)
+    return found.group(1) if found else ""
+
+
+def _ram_config(ctx, project: str, name: str) -> Dict[str, Any]:
+    """Turn the template's single build configuration into the RAM one (fact 4).
+
+    The SDK ships one configuration for `gs32f035` -- `Flash_ILM`, `-D FLASH_TARGET`,
+    `-T gs32f00xx_dsp_flashilm.ld` -- and no RAM one, so this rewrites **that**
+    configuration in place: the project ends up declaring exactly one, named `RAM`.  Both
+    halves of CDT's pair carry the element's one id, so the replacements below cover the
+    whole `<cconfiguration>`:
 
         name          Flash_ILM -> RAM      (2 places: the cconfiguration's storageModule
                                              and the embedded <configuration>)
@@ -1471,36 +1515,73 @@ def _ram_config(ctx, project: str, name: str) -> Dict[str, Any]:
         part .ld      GS32F035_mem.ld -> GS32F035P_mem.ld    (this board is the **P** part)
         -D            FLASH_TARGET dropped   (2 list entries: assembler and C compiler)
 
-    The register script is deliberately untouched.  The toolChain and builder ids get
-    fresh values too: two configurations sharing one element id is what the vendor's own
-    file avoids, and an id collision is the kind of thing that shows up as "the build ran
-    the *other* configuration".
+    **Why one configuration rather than a second one beside `Flash_ILM`** (measured
+    2026-10-11, run `gs32-gate-smoke`; the shape is the vendor's own RAM loader's): the IDE
+    derives `PROGRAM_NAME` from the project's **active** configuration --
+    `<configuration name>/<artifact>` -- and it did so *with* the launch's
+    `PROJECT_BUILD_CONFIG_ID_ATTR` pinned, rewriting every seeded copy from the
+    `RAM/gs32f035.elf` the seed had written to `Flash_ILM/gs32f035.elf`.  That run's
+    `-build <project>/RAM` had produced only `<project>/RAM/gs32f035.elf`, so
+    `LaunchUtils.verifyProgramPath` threw `FileNotFoundException` and no session started at
+    all.  Which configuration counts as active comes from CDT's own code --
+    `CProjectDescription.getActiveConfiguration()` -> `CfgIdPair.getConfiguration()` ->
+    `CfgIdPair.getId()` -> `CProjectDescription.getFirstCfgId()`: the first
+    `<cconfiguration>` in document order, the
+    project's persistent property `org.eclipse.cdt.core`/`activeConfiguration` never being
+    written here (the run workspace records neither of the two ids anywhere that means
+    "active", and `_wipe_workspace` empties `.metadata` before every run).  So the rule is
+    order, and with **one** configuration there is nothing to order: whatever CDT does, it
+    lands on `RAM`, and the artifact path it derives is exactly the one this case builds
+    and seeds.  The vendor runs its own RAM loader the same way --
+    `libraries/bootloader/03_chip_0039A_0025H/03_ramload/ram_ex3_dsp_ramload_3.0/.cproject`
+    declares **one** configuration (`BootRAM`), and its launch ships
+    `PROGRAM_NAME=BootRAM/ram_ex3_dsp_ramload_3.0.elf`.
 
-    Nothing is assumed: the clone source must be present exactly once, every replacement
-    is counted, and the written file is read back and re-checked.  A `.cproject` that
-    still names the flash segment script, still defines `FLASH_TARGET`, or has lost the
-    `_mem.ld` swap is a **named failure** rather than a build that silently links flash.
+    The element ids -- the `<cconfiguration>`'s, its `toolChain`'s and its `builder`'s --
+    are **left exactly as the template has them**: the vendor's own RAM-shaped
+    configurations keep the `…config.elf.debug.flash.<n>` ids, and this project's
+    `scannerConfiguration` storageModule names this configuration's id and its tools, so
+    re-iding would leave that reference stale while buying nothing once the project holds a
+    single configuration.  The register script is untouched too.
+
+    Nothing is assumed: the file must declare **exactly one** `<cconfiguration>` and it
+    must be the `_FLASH_CONFIG` one, every replacement is counted, and the written file is
+    read back and re-checked.  A `.cproject` that still names the flash segment script,
+    still defines `FLASH_TARGET`, has lost the `_mem.ld` swap, or still holds a second
+    configuration is a **named failure** rather than a build that silently links flash.
+
+    `out["ram_id"]` is the **element id the configuration carries on disk** (the source of
+    the `.launch`'s `PROJECT_BUILD_CONFIG_ID_ATTR`), and the read-back proves the written
+    file really declares it -- a launch pinning an id no configuration carries is the same
+    failure the fallback produces, only louder.  That check compares the id handed out with
+    the id read back, i.e. both sides share one derivation (C17); the *independent*
+    cross-check -- the value in the seeded `.launch` against the id the `.cproject` on disk
+    carries -- lives in `tests/unit/test_board_case_gs32_gate.py`.  `out["id"]` is the id
+    the *template* had, so a future change that re-ids shows up in `_detail`.
     """
     path = os.path.join(project, ".cproject")
     out: Dict[str, Any] = {"ok": False, "error": "", "path": path, "id": "",
-                           "configs": [], "dropped": 0, "checks": []}
+                           "ram_id": "", "configs": [], "dropped": 0, "checks": []}
     if not os.path.isfile(path):
         out["error"] = "no .cproject at %s" % path
         return out
     text = _read_text(path)
+    declared = re.findall(r'<cconfiguration [^>]*id="([^"]+)"', text)
+    if len(declared) != 1:
+        out["error"] = ("the .cproject declares %d <cconfiguration> element(s), expected "
+                        "exactly 1 -- this case rewrites the template's *single* "
+                        "configuration into the RAM one and will not guess which of "
+                        "several to keep" % len(declared))
+        return out
     block = _config_block(text, _FLASH_CONFIG)
     if not block:
-        out["error"] = ("the .cproject declares no %r configuration -- the clone source "
-                        "moved, so this case will not guess what to clone" % _FLASH_CONFIG)
+        out["error"] = ("the .cproject's one configuration is not %r -- the template "
+                        "moved, so this case will not guess what to rewrite"
+                        % _FLASH_CONFIG)
         return out
-    end = text.find(block) + len(block)
-
-    found = re.search(r'<cconfiguration [^>]*id="([^"]+)"', block)
-    flash_id = found.group(1) if found else ""
-    if not flash_id:
-        out["error"] = "the <cconfiguration> declares no id"
-        return out
-    out["id"] = flash_id
+    start = text.find(block)
+    end = start + len(block)
+    out["id"] = declared[0]
     for script, label in ((_FLASHILM_SCRIPT, "segment"), (_MEM_SCRIPT, "part"),
                           (_REGS_SCRIPT, "registers")):
         if script not in block:
@@ -1512,73 +1593,68 @@ def _ram_config(ctx, project: str, name: str) -> Dict[str, Any]:
                         "nothing to drop" % (_FLASH_DEFINE, _FLASH_CONFIG))
         return out
 
+    out["ram_id"] = declared[0]       # the ids are kept as they are: see the docstring
+    ram = block.replace('name="%s"' % _FLASH_CONFIG, 'name="%s"' % _CONFIG)
+    ram = ram.replace(_FLASHILM_SCRIPT, _RAM_SCRIPT)
+    ram = ram.replace(_MEM_SCRIPT, _MEM_SCRIPT_P)
     # The template's `.cproject` is **CRLF** (measured: 189 CRLF, 0 bare LF), so the
-    # line-drop below tolerates it and the clone is separated with the file's own
-    # newline -- `.cproject` is XML and does not care, but a file that mixes the two
-    # makes every later diff fight the reader.
-    newline = "\r\n" if "\r\n" in text else "\n"
-    ram_id = flash_id + ".ram"
-    clone = block.replace(flash_id, ram_id)
-    clone = clone.replace('name="%s"' % _FLASH_CONFIG, 'name="%s"' % _CONFIG)
-    clone = clone.replace(_FLASHILM_SCRIPT, _RAM_SCRIPT)
-    clone = clone.replace(_MEM_SCRIPT, _MEM_SCRIPT_P)
-    clone, dropped = re.subn(
+    # line-drop tolerates that rather than assuming one ending.
+    ram, dropped = re.subn(
         r'[ \t]*<listOptionValue builtIn="false" value="%s"/>\r?\n' % _FLASH_DEFINE, "",
-        clone)
+        ram)
     out["dropped"] = dropped
     if dropped != 2:
         out["error"] = ("dropping %r hit %d list entr(y/ies), expected 2 (assembler + C "
                         "compiler)" % (_FLASH_DEFINE, dropped))
         return out
 
-    # -- fresh element ids for the tool chain and the builder --------------------
-    for tag, key in (("toolChain", "toolchain"), ("builder", "builder")):
-        found = re.search(r'<%s [^>]*id="([^"]+)"' % tag, clone)
-        if not found:
-            out["error"] = "the cloned configuration carries no <%s> id" % tag
-            return out
-        clone = clone.replace(found.group(1), found.group(1) + ".ram")
-        out["checks"].append("%s id -> %s.ram" % (key, found.group(1)))
-
     # -- the builder's output directory ------------------------------------------
-    clone, patched = re.subn(r'(<builder buildPath=")[^"]*(")',
-                             lambda found: found.group(1) + "${workspace_loc:/%s}/%s"
-                             % (name, _CONFIG) + found.group(2), clone, count=1)
+    ram, patched = re.subn(r'(<builder buildPath=")[^"]*(")',
+                           lambda found: found.group(1) + "${workspace_loc:/%s}/%s"
+                           % (name, _CONFIG) + found.group(2), ram, count=1)
     if patched != 1:
-        out["error"] = ("the cloned configuration's builder buildPath was patched %d "
-                        "time(s), expected 1" % patched)
+        out["error"] = ("the configuration's builder buildPath was patched %d time(s), "
+                        "expected 1" % patched)
         return out
     out["checks"].append("buildPath -> ${workspace_loc:/%s}/%s" % (name, _CONFIG))
 
-    _write_text(path, text[:end] + newline + "\t\t" + clone + text[end:])
+    _write_text(path, text[:start] + ram + text[end:])
 
     # -- read the written file back, and check it --------------------------------
     back = _read_text(path)
     out["configs"] = re.findall(r'<configuration [^>]*name="([^"]+)"', back)
     ram_block = _config_block(back, _CONFIG)
-    flash_block = _config_block(back, _FLASH_CONFIG)
-    checks = (("%r is a configuration of its own" % _CONFIG, bool(ram_block)),
-              ("the RAM configuration carries %r" % _RAM_SCRIPT,
-               _RAM_SCRIPT in ram_block and _FLASHILM_SCRIPT not in ram_block),
-              ("the RAM configuration carries the P part script %r" % _MEM_SCRIPT_P,
-               _MEM_SCRIPT_P in ram_block and _MEM_SCRIPT not in ram_block),
-              ("the RAM configuration keeps %r" % _REGS_SCRIPT, _REGS_SCRIPT in ram_block),
-              ("the RAM configuration defines no %r" % _FLASH_DEFINE,
-               _FLASH_DEFINE not in ram_block),
-              ("the flash configuration is untouched (still %r, %r, %r)"
-               % (_FLASHILM_SCRIPT, _MEM_SCRIPT, _FLASH_DEFINE),
-               bool(flash_block) and _FLASHILM_SCRIPT in flash_block
-               and _MEM_SCRIPT in flash_block and _FLASH_DEFINE in flash_block),
-              ("%r is declared twice (storageModule + configuration)" % _CONFIG,
-               back.count('name="%s"' % _CONFIG) == 2))
+    disk_id = _cconfig_id(ram_block)
+    checks = (
+        # The predicate the 2026-10-11 failure turned on.  With one configuration CDT's
+        # active-configuration rule has nothing to pick between, so `PROGRAM_NAME` can only
+        # be derived from this one (the docstring carries the chain and the measurement).
+        # Read off the file and compared against the constant (C17).
+        ("%r is the file's only <configuration>" % _CONFIG, out["configs"] == [_CONFIG]),
+        ("the file declares exactly one <cconfiguration>",
+         back.count("<cconfiguration ") == 1),
+        ("the file no longer declares a %r configuration" % _FLASH_CONFIG,
+         ('name="%s"' % _FLASH_CONFIG) not in back),
+        ("the configuration carries %r" % _RAM_SCRIPT,
+         _RAM_SCRIPT in ram_block and _FLASHILM_SCRIPT not in ram_block),
+        ("the configuration carries the P part script %r" % _MEM_SCRIPT_P,
+         _MEM_SCRIPT_P in ram_block and _MEM_SCRIPT not in ram_block),
+        ("the configuration keeps %r" % _REGS_SCRIPT, _REGS_SCRIPT in ram_block),
+        ("the configuration defines no %r" % _FLASH_DEFINE, _FLASH_DEFINE not in ram_block),
+        ("%r is declared twice (storageModule + configuration)" % _CONFIG,
+         back.count('name="%s"' % _CONFIG) == 2),
+        ("the id the launch will pin is the one on disk (%r)" % disk_id,
+         bool(disk_id) and disk_id == out["ram_id"]))
     for label, ok in checks:
         out["checks"].append("%s: %s" % (label, "ok" if ok else "NO"))
         if not ok:
             out["error"] = "read-back: %s" % label
             return out
     out["ok"] = True
-    ctx.note("ram: %s -> %s (id %s.ram); configs now %s; dropped %d %r entr(y/ies)"
-             % (_FLASH_CONFIG, _CONFIG, flash_id, out["configs"], dropped, _FLASH_DEFINE))
+    ctx.note("ram: %s -> %s in place (id %s kept); the file now declares %s; dropped %d %r "
+             "entr(y/ies)"
+             % (_FLASH_CONFIG, _CONFIG, out["ram_id"], out["configs"], dropped,
+                _FLASH_DEFINE))
     ctx.note("ram: %s" % "; ".join(out["checks"]))
     return out
 
@@ -1595,7 +1671,23 @@ def _launch_program_name(text: str) -> str:
     return found.group(1) if found else ""
 
 
-def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
+def _launch_build_config_id(text: str) -> str:
+    """The `PROJECT_BUILD_CONFIG_ID_ATTR` value a `.launch` carries, `""` when there is none.
+
+    Same rule as `_launch_program_name`, and for the same reason: the **value**, read out
+    of the key -- never "is this string somewhere in the file".  The empty answer is still
+    refused (`_seed_launch`), because a launch that names no build configuration is a
+    defect of its own -- though it is **not** what moved `PROGRAM_NAME` on 2026-10-11:
+    that write happened with this key already pinned, so the key does not control it.
+    """
+    found = re.search(
+        r'key="org\.eclipse\.cdt\.launch\.PROJECT_BUILD_CONFIG_ID_ATTR" value="([^"]*)"',
+        text)
+    return found.group(1) if found else ""
+
+
+def _seed_launch(ctx, plan: Dict[str, Any], name: str,
+                 build_config_id: str) -> Dict[str, Any]:
     """Seed this case's own launch configuration, in the project **and** over the SDK's.
 
     Two things are written, with identical content, on purpose:
@@ -1613,11 +1705,37 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
     OpenOCD, and `PROGRAM_NAME` is `_LAUNCH_PROGRAM_NAME` -- the **RAM** artifact, for the
     reason spelled out on that constant -- written into every copy (nothing on GS32
     resolves `${build_artifact:…}`, fact 5).
+
+    `build_config_id` is the id `_ram_config` put on the RAM `<cconfiguration>` in this
+    project's `.cproject`, and it lands in `PROJECT_BUILD_CONFIG_ID_ATTR`.  **Belt and
+    braces, not the fix**: measured 2026-10-11, every seeded copy came back naming
+    `Flash_ILM/gs32f035.elf` *with* this key pinned -- this key does not control
+    `PROGRAM_NAME`.  What does is the project's **active** configuration, and
+    `_ram_config` leaves the project exactly one configuration, named `RAM`.  The seeded
+    value is still checked back **by value** out of
+    every copy, and an empty one is still a **named failure** -- a launch that names no
+    build configuration is a defect of its own.
     """
     out: Dict[str, Any] = {"ok": False, "error": "", "files": [], "program": "",
-                           "gdb_server_other": "", "name": name + _LAUNCH_SUFFIX}
+                           "gdb_server_other": "", "at": 0.0,
+                           "name": name + _LAUNCH_SUFFIX}
     project = plan["project"]
     program = _LAUNCH_PROGRAM_NAME
+
+    # Fail closed **before anything is written and before the template is substituted**.
+    # Both empty shapes are refused, and refused *here*: with the guard below the
+    # substitution, `None` raised `TypeError: replace() argument 2 must be str, not None`
+    # out of the `@BUILDCONFIG@` fill and reported a crash where this refusal belongs.
+    if not build_config_id:
+        out["error"] = (
+            "PROJECT_BUILD_CONFIG_ID_ATTR would be seeded empty: no %r configuration id "
+            "was given -- the launch must name the configuration it was built for; what "
+            "moves PROGRAM_NAME while `launchActive` runs is the project's *active* "
+            "configuration (measured 2026-10-11), which %r now is because `_ram_config` "
+            "leaves the project exactly one configuration, not because of this key"
+            % (_CONFIG, _CONFIG))
+        return out
+
     gdb_other = ("-c &quot;set dsp_gport 3355&quot; -c &quot;set gs32_telnet_port 4444&quot; "
                  "-c &quot;set gs32_tcl_port 6666&quot; -c &quot;set cJTAG 0&quot; "
                  "-c &quot;set gs32_adapter_serial %s&quot; -c &quot;set gs32_model %s&quot; "
@@ -1625,7 +1743,8 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
                  % (plan["serial"], plan["chip"], _OCD_CFG))
     text = (_LAUNCH_TEMPLATE.replace("@GDBOTHER@", gdb_other)
             .replace("@PROGRAM@", program)
-            .replace("@PROJECT@", name))
+            .replace("@PROJECT@", name)
+            .replace("@BUILDCONFIG@", build_config_id))
     out["program"] = program
     out["gdb_server_other"] = gdb_other
 
@@ -1639,6 +1758,10 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         _write_text(path, text)
         out["files"].append(path)
+    # The seed's own wall clock, taken once every copy is on disk: this is what the
+    # post-load read-back reads "was this file written after the seed?" against.  The
+    # file's `st_ctime` is not usable for that -- see `_load_readback`.
+    out["at"] = time.time()
 
     # Read one written file back: a launch that lost its model or its cfg mode is the
     # exact defect this seeding exists for.
@@ -1659,6 +1782,12 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
     # `program` happens to hold, so a seed that wrote the flash artifact would read green.
     # The expectation is therefore the independent constant, and the judgement names both
     # sides (C15: the toolchain being green says nothing about what was loaded).
+    #
+    # ⚠️ This is the **seed-time half only**, and it cannot be the whole check: measured
+    # 2026-10-11, the running IDE rewrites this exact key *after* the seed (seed ctime
+    # 09:55:48 -> mtimes 09:56:05 / 09:56:48, the instance having come up at 09:56:00).
+    # The half that sees what the launch actually used is `_load_readback`, and it runs
+    # once the load stage is over.
     for path in targets:
         written = _launch_program_name(_read_text(path))
         if written != _LAUNCH_PROGRAM_NAME:
@@ -1672,15 +1801,37 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str) -> Dict[str, Any]:
                     % written) if _FLASH_CONFIG in written else ""))
             return out
 
+    # The build-configuration id, by **value**, out of **every** written copy: the launch
+    # has to name a configuration, and the id it names has to be the one that is on disk.
+    # This is **not** the key that would stop the rewrite measured on 2026-10-11 -- every
+    # copy came back naming `Flash_ILM/gs32f035.elf` *with* this key pinned -- so what this
+    # read-back guards is the contract with `_ram_config`, while `_load_readback` is the
+    # one that notices whatever writes the key after the seed.
+    for path in targets:
+        written = _launch_build_config_id(_read_text(path))
+        if written != build_config_id:
+            out["error"] = (
+                "the seeded launch %s names PROJECT_BUILD_CONFIG_ID_ATTR=%r; expected the "
+                "%r configuration's id %r%s"
+                % (os.path.relpath(path, plan["workspace"]), written, _CONFIG,
+                   build_config_id,
+                   " -- the key is empty on disk, so the launch names no build "
+                   "configuration at all (what moves PROGRAM_NAME while `launchActive` "
+                   "runs is the project's *active* configuration, measured 2026-10-11, "
+                   "and `_ram_config` leaves that one as the project's only "
+                   "configuration)"
+                   if not written else ""))
+            return out
+
     if re.search(r'set gs32_model GS32F03[0-9]+"', back):
         out["error"] = ("the seeded launch still carries a model without the P suffix "
                         "(%r)" % re.search(r'set gs32_model ([A-Z0-9]+)', back).group(1))
         return out
     out["ok"] = True
-    ctx.note("launch: seeded %d file(s): %s; PROGRAM_NAME=%s"
+    ctx.note("launch: seeded %d file(s): %s; PROGRAM_NAME=%s; build config id=%s"
              % (len(out["files"]),
                 ", ".join(os.path.relpath(path, plan["workspace"])
-                          for path in out["files"]), program))
+                          for path in out["files"]), program, build_config_id))
     return out
 
 
@@ -1749,7 +1900,7 @@ def _seed_project(ctx, plan: Dict[str, Any], name: str,
         out["error"] = "RAM configuration: %s" % ram["error"]
         return out
 
-    launch = _seed_launch(ctx, plan, name)
+    launch = _seed_launch(ctx, plan, name, ram["ram_id"])
     out["launch"] = launch
     if not launch["ok"]:
         out["error"] = "launch configuration: %s" % launch["error"]
@@ -1768,9 +1919,9 @@ def _seed_project(ctx, plan: Dict[str, Any], name: str,
 def _config_block(text: str, config: str) -> str:
     """The `<cconfiguration>` element whose embedded `<configuration>` is `config`.
 
-    CDT writes one such element per configuration, and after `_ram_config` the file
-    declares two: the callers below must not mix their `-D`/`-I` sets, nor clone the
-    wrong one.  `""` means no element declares that configuration.
+    CDT writes one such element per configuration.  `_ram_config` renames the template's
+    single one to `RAM`, so every reader locates it **by name** rather than by position or
+    by id.  `""` means no element declares that configuration.
     """
     for found in re.finditer(r'<cconfiguration [^>]*id="([^"]+)"', text):
         end = text.find("</cconfiguration>", found.start())
@@ -1791,11 +1942,11 @@ def _cproject_flags(project: str, studio: str, config: str) -> Dict[str, Any]:
     carry Eclipse macros (`${GS32_DRIVER_PATH}`, `${ProjDirPath}`, `${eclipse_home}`),
     expanded here against the `.cproject`'s own `stringMacro` table.
 
-    Scoped to the configuration that will be built, not to the whole file: after
-    `_ram_config` the file declares **two** configurations, and reading both would hand
-    the pre-check a superset -- including the flash configuration's `-D FLASH_TARGET`,
-    which the RAM build does not define.  A pre-check that compiles the wrong `#ifdef`
-    branch is worse than no pre-check.
+    Scoped to the configuration that will be built, not to the whole file: the `.cproject`
+    carries the project-level `refreshScope` and `scannerConfiguration` storageModules too,
+    and reading the file whole would hand the pre-check a superset -- including a
+    `-D FLASH_TARGET` if one were ever left behind, which the RAM build does not define.  A
+    pre-check that compiles the wrong `#ifdef` branch is worse than no pre-check.
     """
     path = os.path.join(project, ".cproject")
     out: Dict[str, Any] = {"includes": [], "defs": [], "error": "", "scope": config}
@@ -2168,6 +2319,129 @@ def _load(ctx, plan: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _clock(stamp: float) -> str:
+    """A filesystem timestamp as `HH:MM:SS` local time, or `<unknown>` when there is none.
+
+    The readback's whole point rests on **when** a file was written, so the verdict names
+    the timestamps as clock readings rather than as epoch floats.
+    """
+    return time.strftime("%H:%M:%S", time.localtime(stamp)) if stamp else "<unknown>"
+
+
+def _load_readback(ctx, plan: Dict[str, Any], seed: Dict[str, Any]) -> Dict[str, Any]:
+    r"""Step 7 -- re-read every seeded `.launch` **after** the load, by `PROGRAM_NAME` value.
+
+    Why this exists at all (measured 2026-10-11, run `gs32-gate-smoke`; the seed's own
+    read-back lives in `_seed_launch`): `_seed_launch` checks `PROGRAM_NAME` **when it
+    writes** the files and that check passes -- the run's own log line is
+    `launch: seeded 3 file(s): …; PROGRAM_NAME=RAM/gs32f035.elf` -- but the running IDE
+    rewrites the key afterwards, so the seed-time check cannot see what the launch actually
+    used.  The reading that fixed the order was the filesystem's own timestamps, on the one
+    run that was measured end to end:
+
+      * the seed's ctime for `debugConfigs/*.launch` -- 09:55:48;
+      * `debugConfigs/gs32f035_jlink.launch`   mtime -- 09:56:05;
+      * `debugConfigs/gs32f035_openocd.launch` mtime -- 09:56:48;
+      * the GS32 instance that did the rewriting started at 09:56:00 -- i.e. **after** the
+        seed and **before both mtimes**.
+
+    Every seeded copy read `PROGRAM_NAME=Flash_ILM/gs32f035.elf` afterwards (the factory's
+    flash-shaped value; the seed had written all three as `RAM/gs32f035.elf`), while this
+    case's constant is `RAM/gs32f035.elf`; `doDebugInRam=true` / `doSecondReset=false` were
+    still the case's own values, so `PROGRAM_NAME` is the one key that moved -- and what it
+    moved to is derived from the project's **active** configuration (`_ram_config` leaves
+    `RAM` as the project's only configuration, for that reason).  With `-c "set
+    gs32_cfg_mode 2"` no flash bank is created
+    at all, so gdb's `load` cannot write a flash-shaped image's `.init`/vector segment --
+    the target keeps a half-new image.  This is therefore the **effect side of AC2**: the
+    one machine predicate that separates "the IDE accepted the command" from "the image it
+    loaded is this run's RAM artifact".  It is judged by **value on disk after the launch**
+    -- never by "the session exists", "the process came up" or "how long it took" (R4's
+    禁用判据).
+
+    The "was it written after the seed?" sentence the verdict can add is read against the
+    **seed's own recorded wall clock** (`_seed_launch`'s `at`), not against the file's
+    `st_ctime`: on Windows `st_ctime` is the *creation* time, and a rewrite that deletes and
+    recreates the file refreshes it -- the value would still (correctly) redden, but the
+    attribution would silently vanish.
+
+    The expectation is `_LAUNCH_PROGRAM_NAME`, the same independent constant `_seed_launch`
+    compares against (never the value that was just written, C17), and the value is read
+    out of **every** seeded copy, because the case seeds all of `debugConfigs/*.launch`
+    precisely so that whichever descriptor the LaunchBar claims, the key is ours.
+
+    On any finished run's workspace the same read is (paths under the run root, which is
+    **not** in this repo):
+
+        run ws = <run root>/ws/gs32f035, run root = the run's own directory
+        python - <<'PY'
+        import os, re, time
+        root = os.environ["RUNWS"]
+        rx = re.compile(r'key="org\.eclipse\.cdt\.launch\.PROGRAM_NAME" value="([^"]*)"')
+        for dirpath, _dirs, names in os.walk(root):
+            for name in sorted(n for n in names if n.endswith(".launch")):
+                p = os.path.join(dirpath, name)
+                text = open(p, "r", encoding="utf-8", newline="").read()
+                hit = rx.search(text)
+                print(time.strftime("%H:%M:%S", time.localtime(os.path.getmtime(p))),
+                      time.strftime("%H:%M:%S", time.localtime(os.path.getctime(p))),
+                      hit.group(1) if hit else "<none>", p)
+        PY
+
+    A file that cannot be read back is its **own** answer (C14: "could not tell" is not
+    "the file is fine" and not "the value is wrong"), so it is recorded separately and
+    still reddens -- the case cannot certify what it could not read.  "Could not read" is
+    read broadly on purpose: `OSError` *and* `ValueError`, because the window this step
+    watches is the one in which the IDE may be rewriting the file, and a half-written UTF-8
+    file raises `UnicodeDecodeError` (a `ValueError`).
+    """
+    files = list(((seed or {}).get("launch") or {}).get("files") or [])
+    # The seed's own wall clock -- recorded when the copies landed (`_seed_launch`) -- is
+    # what "written after the seed" is read against.  Not the file's `st_ctime`: on Windows
+    # that is the *creation* time, and a rewrite that deletes and recreates the file
+    # refreshes it, which would drop that one sentence from the verdict while still
+    # (correctly) reddening on the value.
+    seed_at = float(((seed or {}).get("launch") or {}).get("at") or 0.0)
+    out: Dict[str, Any] = {"ok": True, "expected": _LAUNCH_PROGRAM_NAME, "files": [],
+                           "seed_at": seed_at, "offenders": [], "unreadable": []}
+    for path in files:
+        rel = os.path.relpath(path, plan["workspace"])
+        entry: Dict[str, Any] = {"path": path, "rel": rel, "program": "",
+                                 "mtime": 0.0, "seed_at": seed_at}
+        try:
+            # `ValueError` as well as `OSError`: this read exists for the window in which
+            # the IDE may be rewriting the file, and a `UnicodeDecodeError` (a `ValueError`)
+            # off a half-written UTF-8 file is that race showing up -- it belongs in the
+            # "could not tell" answer below, not in a traceback.
+            text = _read_text(path)
+            stat = os.stat(path)
+        except (OSError, ValueError) as exc:
+            out["unreadable"].append({"rel": rel, "error": "%r" % (exc,)})
+            out["files"].append(entry)
+            continue
+        entry.update({"program": _launch_program_name(text), "mtime": stat.st_mtime})
+        out["files"].append(entry)
+        if entry["program"] != _LAUNCH_PROGRAM_NAME:
+            out["offenders"].append(entry)
+    out["ok"] = not out["offenders"] and not out["unreadable"]
+
+    if out["files"]:
+        ctx.note("readback: re-read %d seeded .launch file(s) after the load -- %s"
+                 % (len(out["files"]),
+                    "; ".join("%s PROGRAM_NAME=%r (mtime %s vs the seed's own clock %s)"
+                              % (entry["rel"], entry["program"] or "<none>",
+                                 _clock(entry["mtime"]), _clock(seed_at))
+                              for entry in out["files"])))
+    else:
+        ctx.note("readback: no seeded .launch file to re-read (the seed recorded none)")
+    if not out["ok"]:
+        ctx.note("readback: %d file(s) no longer name %s and %d could not be read -- the "
+                 "image this run loaded is NOT this run's RAM artifact (see the verdict)"
+                 % (len(out["offenders"]), _LAUNCH_PROGRAM_NAME,
+                    len(out["unreadable"])))
+    return out
+
+
 def _stop(result: Dict[str, Any], ctx, link: str, why: str) -> Dict[str, Any]:
     """Record that `link` is red and that everything after it was deliberately not run.
 
@@ -2269,14 +2543,35 @@ def _action(ctx):
                      "the Resume did not carry the confirmation line %r after %d "
                      "attempt(s)" % (_OK_MARK + _CMD_RESUME, load["attempts"]))
 
+    # The load answered every shape R4 asks for -- but that answer is about the *command*,
+    # never about *what got loaded*.  Measured 2026-10-11: the running IDE rewrites
+    # `PROGRAM_NAME` in the very launch configurations this case seeded (seed ctime
+    # 09:55:48 -> mtimes 09:56:05 / 09:56:48, the instance having come up at 09:56:00), so
+    # the seed-time check in `_seed_launch` cannot see what the launch used.  This re-read
+    # is AC2's effect side, and it is the one machine predicate that separates "the IDE
+    # accepted the command" from "the image it loaded is this run's RAM artifact".
+    #
+    # No `_stop` here: nothing after this step is a machine step (the note below is the
+    # human segment), so the chain bookkeeping `_stop` records would be wrong -- `_expect`
+    # words this failure itself, out of the facts `_load_readback` recorded.
+    result["readback"] = _load_readback(ctx, plan, result["seed"])
+    if not result["readback"]["ok"]:
+        ctx.note("chain: the post-load read-back is red -- the launch configurations on "
+                 "disk no longer name this run's RAM artifact %r, so the image this run "
+                 "loaded is NOT the image it built; the human segment is NOT requested "
+                 "(see the verdict)" % _LAUNCH_PROGRAM_NAME)
+        return result
+
     # The one link no tool here can read back.  It is a REQUEST, not a criterion: it is
     # emitted only once every machine-checkable link is green, and it is never allowed to
     # stand in for one.  The measured caveat is stated in the note itself, because the
     # "clean OK, zero effect" specimen had every machine link green.
     ctx.note("ASK THE HUMAN: every machine-checkable link is green -- the run's project "
              "(LED1=GPIO24/U4 pin 80, LED2=GPIO21/U4 pin 79) was built as %s with 0 "
-             "errors, %s carries this run's marker %s, and GS32_Studio's own launch "
-             "answered %r then %r with no dialog -- now look at the board: LED1 (RUN1) "
+             "errors, %s carries this run's marker %s, GS32_Studio's own launch "
+             "answered %r then %r with no dialog, and the %d seeded .launch file(s) were "
+             "re-read **after** the load and still name PROGRAM_NAME=%s -- now look at "
+             "the board: LED1 (RUN1) "
              "and LED2 (ERR1) must ALTERNATE -- exactly ONE lit at a time, switching "
              "every ~250 ms -- and they are ACTIVE LOW (lit = driven low).  Both lit at "
              "once, or neither, means the payload is wrong (not the board).  The bridge "
@@ -2286,7 +2581,8 @@ def _action(ctx):
              "human segment is the only thing that closes it.  This case cannot read back "
              "whether the LEDs are chasing."
              % (plan["config"], os.path.basename(art["path"]), marker,
-                _OK_MARK + _CMD_LAUNCH_ACTIVE, _OK_MARK + _CMD_RESUME))
+                _OK_MARK + _CMD_LAUNCH_ACTIVE, _OK_MARK + _CMD_RESUME,
+                len(result["readback"]["files"]), _LAUNCH_PROGRAM_NAME))
     return result
 
 
@@ -2325,7 +2621,7 @@ def _expect(ctx, result) -> Tuple[bool, str]:
     def reached(link: str) -> bool:
         """Was `link` run at all?  The chain stops at the first red link, so a step is
         reached only when nothing before it is in `blocked` (or was never run)."""
-        order = ("seed", "syntax", "build", "artifact", "start", "load")
+        order = ("seed", "syntax", "build", "artifact", "start", "load", "readback")
         return not any(step in blocked for step in order[:order.index(link)])
 
     if not reached("build"):
@@ -2430,6 +2726,58 @@ def _expect(ctx, result) -> Tuple[bool, str]:
                 "active mode could not be pinned to %r (fact 6) -- the file is %s"
                 % (_LAUNCHBAR_DEBUG, (load.get("loadbar") or {}).get("path")))
 
+    # AC2's effect side.  The load link above judges the *answer*; this judges **what was
+    # on disk when the launch used it**, which is the half the seed-time check cannot see
+    # (the running IDE rewrites it -- see `_load_readback`).  Red here means exactly one
+    # thing, said in full: the image this run loaded is not the RAM artifact it built.
+    readback = result.get("readback")
+    if not reached("readback"):
+        problems.append("load readback: not reached -- the chain stopped at %s"
+                        % (result.get("stopped_at") or "<no chain stop recorded>"))
+    elif not readback:
+        problems.append(
+            "load readback: the seeded `.launch` file(s) were not read back after the "
+            "launch, so nothing here says the image the IDE loaded is still this run's "
+            "RAM artifact (%r)" % _LAUNCH_PROGRAM_NAME)
+    else:
+        for entry in readback.get("unreadable") or []:
+            # "Could not tell" is its own sentence (C14), and it still reddens: the case
+            # may not certify a file it could not read.
+            problems.append(
+                "load readback: %s could not be re-read after the launch (%s), so it "
+                "cannot certify that this run's RAM artifact (%r) was what got loaded"
+                % (entry["rel"], entry["error"], _LAUNCH_PROGRAM_NAME))
+        for offender in readback.get("offenders") or []:
+            # Both readings are always named, and the "written after the seed" reading is
+            # only claimed when the file's mtime really is later than the seed's own
+            # recorded clock (C14's shape at the timestamp layer: an equal mtime is a
+            # different fact and says the seed wrote the wrong value, which `_seed_launch`
+            # should have caught).  The clock is the seed's, not the file's `st_ctime` --
+            # see `_load_readback`.
+            seed_at = offender.get("seed_at") or 0.0
+            when = "its mtime %s vs this case's seed wall clock %s%s" % (
+                _clock(offender["mtime"]), _clock(seed_at),
+                " (later, i.e. this file was written after the seed)"
+                if seed_at and offender["mtime"] > seed_at else "")
+            if not offender["program"]:
+                # C11: "the key is not there" must not read like "it names the wrong
+                # artifact" -- the two need different repairs.
+                problems.append(
+                    "load readback: %s carries no PROGRAM_NAME value at all after the "
+                    "launch (the key is absent or empty), expected the RAM artifact %r "
+                    "-- %s; the image this run loaded is NOT this run's RAM artifact"
+                    % (offender["rel"], _LAUNCH_PROGRAM_NAME, when))
+                continue
+            problems.append(
+                "load readback: %s names PROGRAM_NAME=%r after the launch, expected the "
+                "RAM artifact %r -- %s%s; the image this run loaded is NOT this run's "
+                "RAM artifact"
+                % (offender["rel"], offender["program"], _LAUNCH_PROGRAM_NAME, when,
+                   (" -- %r is the factory's flash-shaped value, and with `gs32_cfg_mode "
+                    "2` no flash bank is created so gdb's `load` cannot write a flash "
+                    "segment" % offender["program"])
+                   if _FLASH_CONFIG in offender["program"] else ""))
+
     return verdict(problems, _detail(result))
 
 
@@ -2444,14 +2792,23 @@ def _detail(result) -> str:
     plan = result.get("plan") or {}
     hardware = plan.get("hardware") or {}
     modes = (load.get("loadbar") or {}).get("modes") or {}
+    readback = result.get("readback") or {}
+    back_total = len(readback.get("files") or [])
+    back_bad = len(readback.get("offenders") or []) + len(readback.get("unreadable") or [])
+    if not back_total:
+        back = "<not reached>"
+    elif back_bad:
+        back = "%d/%d no longer name %s" % (back_bad, back_total, _LAUNCH_PROGRAM_NAME)
+    else:
+        back = "%d/%d still name %s" % (back_total, back_total, _LAUNCH_PROGRAM_NAME)
     return ("target=gs32 project=%s config=%s chip=%s run=%s | machine: ram_config=%s "
             "launch=%s build=%r rc=%s readelf=%s/%s elf=%s size=%s e_machine=%s "
-            "marker=%s launchActive=%s resume=%s loadbar_mode=%s | auxiliary: "
+            "marker=%s launchActive=%s resume=%s loadbar_mode=%s readback=%s | auxiliary: "
             "channels=A:%s/B:%s | human=awaiting-operator (LED1/LED2 alternating is NOT "
             "machine-checkable here and is not part of this verdict)"
             % (result["name"], result["config"], result["chip"],
                result.get("run") or "<unknown>",
-               ("%s cfgs=%s" % (ram.get("id") or "<not cloned>",
+               ("%s cfgs=%s" % (ram.get("id") or "<no configuration>",
                                 ",".join(ram.get("configs") or []) or "-"))
                if ram else "<not reached>",
                ("%s" % ", ".join(os.path.basename(path)
@@ -2467,6 +2824,7 @@ def _detail(result) -> str:
                _ran(load["resume"], _CMD_RESUME) if load.get("resume") else "n/a",
                ",".join("%s=%s" % (name.split(":")[-1], mode)
                         for name, mode in sorted(modes.items())) or "<unread>",
+               back,
                (hardware.get("attach") or {}).get("state"),
                (hardware.get("pnp") or {}).get("state")))
 

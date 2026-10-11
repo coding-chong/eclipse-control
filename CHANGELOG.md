@@ -10,6 +10,64 @@
 
 ### Fixed
 
+- **`board.led.chase.gs32` 装载的是 flash 产物：`.cproject` 里那份配置**就地改成 RAM，并成为工程唯一的一份**（2026-10-11）：
+  实测（run `gs32-gate-smoke`）：`launchActive` 期间**运行中的 IDE 会把 seed 写下的 `PROGRAM_NAME`
+  改成 `Flash_ILM/gs32f035.elf`**（三份副本全被改；而 seed 自己的日志逐字是
+  `launch: seeded 3 file(s): …; PROGRAM_NAME=RAM/gs32f035.elf` ⇒ **不是 seed 干的**；
+  `ctime 09:55:48 → mtime 09:56:05 / 09:56:48`，都在 GS32 实例 09:56:00 起来之后；同一份文件里
+  `doDebugInRam=true` / `doSecondReset=false` **仍是用例的值** ⇒ 只改了这一个键）。该轮用例**只构建
+  `RAM/`**（`-build gs32f035/RAM`，产物 `<工程>/RAM/gs32f035.elf` 存在），`Flash_ILM/` 那份不存在 ⇒
+  `LaunchUtils.verifyProgramPath` 抛 `FileNotFoundException` ⇒ **零会话** ⇒ 不走 `Resume` ⇒ 灯不亮。
+  - **改写的来源**：`PROGRAM_NAME` 由工程的**活动构建配置**推导，形如 `<工程>/<配置名>/<产物名>`。
+    CDT 侧链路（类文件逐条从 `plugins/org.eclipse.cdt.core_8.4.0.202501031008.jar` 读出）：
+    `CProjectDescription.getActiveConfiguration()` → `CfgIdPair.getConfiguration()` → `getId()` →
+    `getFirstCfgId()` —— **未持久化时取 `.cproject` 文档顺序里的第一份**；此机上确实没有持久化
+    （`.project` 无标记、那个 13 MB `.pdom` 里两份 id **与**两个配置名出现次数都是 0、工作区每次跑前
+    被 `_wipe_workspace` 清空）。
+  - ⚠️ **钉 `PROJECT_BUILD_CONFIG_ID_ATTR` 挡不住这次改写**：该轮三份 `.launch` 盘上同时是
+    `PROGRAM_NAME="Flash_ILM/gs32f035.elf"` 与
+    `PROJECT_BUILD_CONFIG_ID_ATTR="…flash.980314703.490272334.ram"` ⇒ 该键**不控制** `PROGRAM_NAME`。
+    （本条上一版把「空 id」当根因、把「钉住即停改」当收益 —— **按实测撤回**。）
+  - **修法 = 厂商自己的形状**：`_ram_config` **不再克隆**第二份配置，而是把模板那份**唯一**的
+    `Flash_ILM` `<cconfiguration>` **就地**改成 RAM —— 改名（两处成对声明）、`-T` 换
+    `gs32f00xx_dsp_ram.ld` + **`GS32F035P_mem.ld`**（P 件 512K/128K/32K）、去掉 `-D FLASH_TARGET`、
+    `buildPath` → `${workspace_loc:/<工程>}/RAM`；元素 id / toolChain id / builder id **保持原样**
+    （厂商自己的 RAM 配置 id 也带 `.flash.`，且工程级 `scannerConfiguration` 按 id 引用它）。
+    ⇒ 工程里只剩一份配置，IDE 无从上挑，推导出的路径必然是 `<工程>/RAM/gs32f035.elf`，正是我们构建、
+    也是 seed 写进 `.launch` 的那条。厂商自己的 RAM 装载例子同形：
+    `…/libraries/bootloader/03_chip_0039A_0025H/03_ramload/ram_ex3_dsp_ramload_3.0/.cproject`
+    只声明一份配置（`BootRAM`），其 launch 的 `PROGRAM_NAME=BootRAM/ram_ex3_dsp_ramload_3.0.elf`。
+  - **`PROJECT_BUILD_CONFIG_ID_ATTR` 保留非空**（那份配置**盘上**的元素 id）：它让 `.launch` 显式
+    声明「为哪份配置而构建」，并给 seed 端一条**按值**回读；单配置下代价为零。空 id 仍在**写盘前、
+    模板替换之前**被具名拒绝（`""` 与 `None` 同一句判词 —— `None` 在旧实现里会先抛
+    `TypeError: replace() argument 2 must be str, not None`，守则未达）；该判词口径已从「这是根因」
+    改成「launch 必须点名它构建的那份配置」。
+  - **装载后回读（第 7 步 `_load_readback`）**：`launchActive` / `Resume` 之后把 seed 的**每一份**
+    `.launch` 再**按键取值**读一次；值 ≠ `_LAUNCH_PROGRAM_NAME` ⇒ 判红，判词点名期望值 / 实际值 /
+    是否含 `Flash_ILM`（含则点明「`gs32_cfg_mode 2` 不建 flash bank ⇒ gdb 写不进 flash 段」）/
+    该文件 mtime 与 **seed 自己记下的时钟**（`_seed_launch` 的 `at`）—— 不用 Windows `st_ctime`：
+    它是**创建**时间，删+建式改写会刷新它，把「seed 之后被写」这句归因悄悄吃掉。
+    「键不存在」是另一句（C11），「读不回来」是第三句且照样判红（C14）；`except` 面由 `OSError`
+    放宽为 `(OSError, ValueError)` —— 否则读写竞态下的半个 UTF-8 文件会以 `UnicodeDecodeError` 打穿。
+    **不作判据**：耗时 / 进程起来了 / 会话存在（PRD R4 禁用清单）。
+  - 回归门（`tests/unit/test_board_case_gs32_gate.py`，**真实目录副本**驱动）：
+    `test_the_ram_configuration_is_authored_on_a_directory_copy` 按新形状改写（**只准一份**配置、
+    那份名叫 `RAM`、RAM 链接脚本 + P 件 mem、无 `FLASH_TARGET`、`buildPath` 指向 `…/RAM`、
+    文件里不再有名为 `Flash_ILM` 的配置）；反例
+    `test_a_copy_that_keeps_the_template_configuration_name_is_a_named_failure`（把名字改回去 ⇒ 判红）；
+    `test_the_seeded_launch_pins_the_ram_build_configuration_id` 的「两份 id 必须不同」改为「工程恰有
+    一份配置，且盘上那份的 id 就是 `.launch` 里那个」；空 id 两条反例（`""` / `None`）同一句判词；
+    `LoadReadbackTest` 新增「半个 UTF-8 文件 ⇒ could not tell，不是 traceback」。
+  - **变异账本**（2026-10-11 实测：在内存里替换用例源码后跑同一份测试模块，工作树零改动）：
+    `M1` 不做改名（副本留着 `Flash_ILM` 这个名字）⇒ `Ran 72 tests`，红 3 条 = 本条自己的那行 +
+    两条**先驱动 `_ram_config` 再断言 `ram["ok"]`** 的行（setup 传播，不是谓词串味）；
+    `M2` 又写出两份配置 ⇒ 同为那 3 条；`M3` 空 id 守卫只覆盖 `""`（放过 `None`）⇒ **恰 1 条**
+    （`…_none_is_refused_on_the_same_words`）；`M4` 回读 `except` 收窄回 `OSError` ⇒ **恰 1 条**
+    （半个 UTF-8 那条）；`M5` 把 seed 端期望换成「刚写下的那个变量」⇒ **0 条红**，且它是**语义空变异**
+    （该变量就等于 `_LAUNCH_PROGRAM_NAME`）；换成真变异（`program` 直接取 flash 路径）⇒ 3 条红，
+    含按值核对那条 ⇒ 期望确实是那个独立常量（C17）；`M6` 把「只准一份配置」那条读回谓词改成恒真 ⇒
+    **恰 1 条**（改名的反例行）；`Z` 同一句替换回它自己（源码逐字节不变）⇒ 0 条红，按**空变异**记账
+    （不是用例有洞）。
 - **`board.led.chase.gs32` 的 `.launch` 里 `PROGRAM_NAME` 由「同一个变量」自证**（2026-10-11）：
   该用例 seed 的 `.launch` 必须让 `PROGRAM_NAME` 指 **RAM 产物**（R3：装载走
   `-c "set gs32_cfg_mode 2"` ⇒ **不建 flash bank** ⇒ gdb 的 `load` 只能写 RAM；出厂那份
@@ -20,18 +78,17 @@
   判词同时点名**期望值 / 实际值**，并在实际值含 `Flash_ILM` 时点明「无 flash bank 可写」。
   回归门：`tests/unit/test_board_case_gs32_gate.py` 新增/加固两行 —— 常量按**测试自己的字面量**钉住
   （`test_the_seeded_launch_names_the_ram_artifact_and_never_the_flash_one`），执行器按**磁盘上的值**
-  逐份核对（`test_the_seeded_launch_carries_the_four_measured_corrections`），反例
+  逐份核对（`test_the_seeded_launch_carries_the_measured_corrections`），反例
   `test_a_launch_that_names_the_flash_artifact_is_a_named_failure` 用 `mock` 只改**落盘的那一步**。
   **变异账本**（2026-10-11 实测）：把写入口改回 `"%s/%s.elf" % (_FLASH_CONFIG, name)`
   ⇒ `python -m unittest discover -s tests -t .` = `Ran 317 tests ... FAILED (failures=1)`，
   **恰是执行器那一行**，判词逐字 `the seeded launch gs32f035\.launches\gs32f035_openocd.launch names
   PROGRAM_NAME='Flash_ILM/gs32f035.elf'; expected the RAM artifact 'RAM/gs32f035.elf' -- ... no flash bank
   exists for gdb's \`load\` to write`；恢复 ⇒ `OK`。
-  ⚠️ **另一件实测事实（下一步，不是本条的结论）**：`runs/gs32-gate-smoke`、`runs/gs32-led-1011c` 等工作区里，
-  seed 完成时用例自己的注是 `PROGRAM_NAME=RAM/gs32f035.elf`（回读检查同批通过），而**现在**盘上那三份
-  `.launch` 的该键都是出厂那个 flash 值，且这些文件的**最后写入时间晚于其创建时间**
-  ⇒ seed 之后**有别的写入者改写过它们**；本用例在 seed 之后没有第二个写点，但**改写者未定位**
-  （需要一次上板运行才能对拍，本轮未跑）。
+  ⚠️ **那条「改写者未定位」的悬案已收口，见本文件同日上一条**：那条只把 seed 的按值核对做对，
+  **看不见装载时用的是哪一份**；上一条查明改写的来源是工程的**活动构建配置**
+  （`PROJECT_BUILD_CONFIG_ID_ATTR` **管不住**它 —— 钉着也照改），修法是让工程只剩一份 RAM 形状的
+  配置，并保留装载后回读。此处不再另记那组数字（`deliverable-shape.md`：旧结论不留第二份）。
 - **`tools/shot-window-pw.ps1` 会把**别的进程**的窗口当成目标拍下来**（2026-10-11）：
   `-ProcId` 缺省时 `FindAll` 只按**标题子串**跨进程全收，随后「面积最大者胜」。
   实测 `-TitleLike "GS32"` 同时命中 IDE 的 SWT 外壳（`3 145 728 px`）与一个标题里恰好含

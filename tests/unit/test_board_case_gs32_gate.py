@@ -31,6 +31,7 @@ import re
 import shutil
 import struct
 import tempfile
+import time
 import unittest
 import unittest.mock as mock
 
@@ -68,6 +69,30 @@ _PROGRAM_NAME_RE = re.compile(
 
 def _program_name(text: str) -> str:
     found = _PROGRAM_NAME_RE.search(text)
+    return found.group(1) if found else ""
+
+
+def _clock(stamp: float) -> str:
+    """A timestamp printed by **this file's own** formatter (C10): if the case's `_clock`
+    changed shape, the verdict would stop matching this expectation."""
+    return time.strftime("%H:%M:%S", time.localtime(stamp))
+
+
+#: The `.launch` key that selects a build configuration, and the `.cproject` element id --
+#: both parsed with **this file's own** regexes: the two pins below are about the values
+#: **on disk**, so the test reads the files itself instead of calling the case's readers.
+_BUILD_CONFIG_RE = re.compile(
+    r'key="org\.eclipse\.cdt\.launch\.PROJECT_BUILD_CONFIG_ID_ATTR" value="([^"]*)"')
+_CCONFIG_ID_RE = re.compile(r'<cconfiguration [^>]*id="([^"]+)"')
+
+#: The id used by the rows that do not author a `.cproject` themselves -- this file's own
+#: value.  The end-to-end row derives the real one by driving `_ram_config` and reading the
+#: written `.cproject`.
+_BUILD_CONFIG_ID = "com.hpec.swt.gnu.riscv.shared.toolchain.980314703.ram"
+
+
+def _build_config_id(text: str) -> str:
+    found = _BUILD_CONFIG_RE.search(text)
     return found.group(1) if found else ""
 
 
@@ -153,9 +178,10 @@ class CaseContractTest(unittest.TestCase):
         self.assertEqual(case._E_MACHINE_RISCV, 243)
 
     def test_the_ram_configuration_recipe_is_pinned(self):
-        """R2's recipe, as literals: the clone source, the segment script it swaps in,
-        the **P** part script (512K/128K/32K -- the non-P file is 256K/64K/16K), the
-        register script that must not move, and the `-D` that must be dropped."""
+        """R2's recipe, as literals: the configuration the template ships (which this case
+        rewrites in place), the segment script it swaps in, the **P** part script
+        (512K/128K/32K -- the non-P file is 256K/64K/16K), the register script that must
+        not move, and the `-D` that must be dropped."""
         self.assertEqual(case._CONFIG, "RAM")
         self.assertEqual(case._FLASH_CONFIG, "Flash_ILM")
         self.assertEqual(case._FLASHILM_SCRIPT, "gs32f00xx_dsp_flashilm.ld")
@@ -274,7 +300,7 @@ def _green():
         "seed": {"ok": True, "error": "",
                  "overlay": {"ok": True, "error": "", "applied": [], "missing": []},
                  "ram": {"ok": True, "id": "com.hpec…flash.980314703.490272334",
-                         "configs": ["Flash_ILM", "RAM"], "dropped": 2, "checks": []},
+                         "configs": ["RAM"], "dropped": 2, "checks": []},
                  "launch": {"ok": True, "name": "gs32f035_openocd",
                             "files": ["<p>/.launches/gs32f035_openocd.launch"],
                             "program": "RAM/gs32f035.elf", "gdb_server_other": ""}},
@@ -300,6 +326,11 @@ def _green():
                              "modes": {"org.eclipse.launchbar.core.descriptorType"
                                        ".default\\:gs32f035_openocd": "debug"},
                              "error": ""}},
+        "readback": {"ok": True, "expected": _PROGRAM_NAME,
+                     "files": [{"path": "<p>/.launches/gs32f035_openocd.launch",
+                                "rel": "gs32f035\\.launches\\gs32f035_openocd.launch",
+                                "program": _PROGRAM_NAME, "mtime": 4.0, "ctime": 4.0}],
+                     "offenders": [], "unreadable": []},
         "plan": {"hardware": {"attach": {"state": "present"},
                               "pnp": {"state": "present"}, "state": "present",
                               "reason": ""},
@@ -436,6 +467,68 @@ class ExpectLedgerTest(unittest.TestCase):
         red = self._red(lambda r: r["seed"].update(ok=False, error="main.c: x"))
         self.assertEqual(red, ["seed: main.c: x"])
 
+    # -- AC2's effect side: what the launch **used**, read off disk after the load ------
+
+    def test_a_launch_that_lost_the_ram_artifact_after_the_load_is_red(self):
+        """The seed-time check passes and something rewrites the key afterwards -- the
+        run's own log says the seed wrote `RAM/gs32f035.elf` into all three copies -- so
+        this predicate is the only machine one that sees the image the launch used.  The
+        verdict must name the expected value, the actual one, the flash cause, and the
+        file's own mtime against the seed's clock (a write *after* the seed, not a bad
+        seed)."""
+        red = self._red(lambda r: r["readback"].update(offenders=[{
+            "path": "<p>/debugConfigs/gs32f035_openocd.launch",
+            "rel": "gs32f035\\debugConfigs\\gs32f035_openocd.launch",
+            "program": _FLASH_PROGRAM_NAME, "mtime": 9.0, "seed_at": 4.0}]))
+        self.assertEqual(len(red), 1)
+        self.assertIn("gs32f035\\debugConfigs\\gs32f035_openocd.launch", red[0])
+        self.assertIn("PROGRAM_NAME='%s'" % _FLASH_PROGRAM_NAME, red[0])
+        self.assertIn("'%s'" % _PROGRAM_NAME, red[0])
+        self.assertIn("Flash_ILM", red[0])
+        self.assertIn("no flash bank is created", red[0])
+        self.assertIn("mtime %s vs this case's seed wall clock %s"
+                      % (_clock(9.0), _clock(4.0)), red[0])
+        self.assertIn("written after the seed", red[0])
+        self.assertIn("NOT this run's RAM artifact", red[0])
+
+    def test_a_readback_key_that_is_gone_is_not_worded_as_the_wrong_artifact(self):
+        """C11 at this predicate: "the key is not there" and "it names the factory's flash
+        value" need different repairs, so they must not share a sentence.  The missing-key
+        shape carries no flash cause and no flash value."""
+        wrong = self._red(lambda r: r["readback"].update(offenders=[{
+            "path": "<p>/x.launch", "rel": "x.launch",
+            "program": _FLASH_PROGRAM_NAME, "mtime": 4.0, "seed_at": 4.0}]))
+        gone = self._red(lambda r: r["readback"].update(offenders=[{
+            "path": "<p>/x.launch", "rel": "x.launch",
+            "program": "", "mtime": 4.0, "seed_at": 4.0}]))
+        self.assertEqual(len(gone), 1)
+        self.assertIn("carries no PROGRAM_NAME value at all", gone[0])
+        self.assertNotIn(_FLASH_PROGRAM_NAME, gone[0])
+        self.assertNotIn("no flash bank is created", gone[0])
+        # An equal mtime is a *different* fact, and it is worded as one.
+        self.assertIn("vs this case's seed wall clock", gone[0])
+        self.assertNotIn("written after the seed", gone[0])
+        self.assertNotEqual(wrong[0], gone[0])
+
+    def test_a_seeded_launch_that_could_not_be_read_back_is_its_own_sentence(self):
+        """C14: "could not tell" is not "the value is wrong" and not "the file is fine".
+        It still reddens -- the case may not certify what it could not read."""
+        red = self._red(lambda r: r["readback"].update(
+            unreadable=[{"rel": "gs32f035\\.launches\\x.launch",
+                         "error": "FileNotFoundError(2, 'no such file')"}]))
+        self.assertEqual(len(red), 1)
+        self.assertIn("could not be re-read", red[0])
+        self.assertIn("FileNotFoundError", red[0])
+        self.assertIn(_PROGRAM_NAME, red[0])
+        self.assertNotIn("names PROGRAM_NAME=", red[0])
+
+    def test_a_readback_that_never_ran_is_red(self):
+        """The step is the effect side of AC2: with it absent, nothing on this machine says
+        which image the launch used, and "the command was accepted" may not stand in."""
+        red = self._red(lambda r: r.update(readback=None))
+        self.assertEqual(len(red), 1)
+        self.assertIn("were not read back after the launch", red[0])
+
     def test_a_chain_stop_names_every_step_it_did_not_reach(self):
         def mutate(r):
             r["blocked"] = ["build"]
@@ -445,7 +538,8 @@ class ExpectLedgerTest(unittest.TestCase):
 
         red = self._red(mutate)
         self.assertEqual(red, ["artifact: not reached -- the chain stopped at build",
-                               "load: not reached -- the chain stopped at build"])
+                               "load: not reached -- the chain stopped at build",
+                               "load readback: not reached -- the chain stopped at build"])
 
 
 # --------------------------------------------------------------------------- #
@@ -728,6 +822,123 @@ class ArtifactReaderTest(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# AC2's effect side: the post-load read-back, driven against real files
+# --------------------------------------------------------------------------- #
+
+def _launch_file_text(program=None, extra=""):
+    """A `.launch` shaped like the seeded one, built here rather than imported (C10)."""
+    key = ""
+    if program is not None:
+        key = ('    <stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" '
+               'value="%s"/>\n' % program)
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
+            '<launchConfiguration type="'
+            'ilg.gnumcueclipse.debug.gdbjtag.openocd.launchConfigurationType">\n'
+            + key + extra + "</launchConfiguration>\n")
+
+
+class LoadReadbackTest(unittest.TestCase):
+    """`_load_readback` really reads the files, by **value**, after the load.
+
+    `_seed_launch` checks the key when it writes it and that passes -- the running IDE
+    rewrites it afterwards (seed ctime 09:55:48 -> mtimes 09:56:05 / 09:56:48), so this is
+    the half that sees what the launch used.  Both sides of the expectation here are this
+    file's own literals, and the files are real files on disk.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="gs32-gate-readback-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.project = os.path.join(self.root, "gs32f035")
+        self.files = [os.path.join(self.project, ".launches",
+                                   "gs32f035_openocd.launch"),
+                      os.path.join(self.project, "debugConfigs",
+                                   "gs32f035_openocd.launch")]
+
+    def _write(self, path, text, stamp=3.0):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+        os.utime(path, (stamp, stamp))
+
+    def _run(self, pairs):
+        """Write the named copies, then read back the **seeded** list (both of them)."""
+        for index, text in pairs:
+            self._write(self.files[index], text)
+        seed = {"launch": {"files": list(self.files)}}
+        return case._load_readback(_Ctx(), {"workspace": self.root}, seed)
+
+    def test_every_seeded_copy_still_naming_the_ram_artifact_is_green(self):
+        out = self._run([(0, _launch_file_text(_PROGRAM_NAME)),
+                         (1, _launch_file_text(_PROGRAM_NAME))])
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["offenders"], [])
+        self.assertEqual(out["unreadable"], [])
+        self.assertEqual(out["expected"], _PROGRAM_NAME)
+        self.assertEqual(len(out["files"]), 2)
+
+    def test_the_artifact_the_launch_actually_used_is_read_by_value(self):
+        """The measured shape: one copy came back as the factory's flash value while the
+        seed had written the RAM one, so the case must see it and say which file."""
+        out = self._run([(0, _launch_file_text(_PROGRAM_NAME)),
+                         (1, _launch_file_text(_FLASH_PROGRAM_NAME))])
+        self.assertFalse(out["ok"], out)
+        self.assertEqual([entry["program"] for entry in out["offenders"]],
+                         [_FLASH_PROGRAM_NAME])
+        self.assertEqual(out["offenders"][0]["rel"],
+                         os.path.relpath(self.files[1], self.root))
+        self.assertTrue(out["offenders"][0]["mtime"])
+
+    def test_the_readback_is_by_key_value_not_by_substring_presence(self):
+        """C11/C17 at the reader: this file carries the RAM path **somewhere else** -- as
+        another key's value, which is a legal thing for a `.launch` to do -- while its
+        `PROGRAM_NAME` is the flash one.  A substring check (`'value="RAM/…"' in text`)
+        reads that as green, which is exactly the defect this pin exists for; reading the
+        key's value reads it as what it is."""
+        text = _launch_file_text(
+            _FLASH_PROGRAM_NAME,
+            extra='    <stringAttribute key="org.eclipse.cdt.launch.WORKING_DIRECTORY" '
+                  'value="%s"/>\n' % _PROGRAM_NAME)
+        self.assertIn('value="%s"' % _PROGRAM_NAME, text)     # the substring form's bait
+        out = self._run([(0, text), (1, text)])
+        self.assertFalse(out["ok"], out)
+        self.assertEqual([entry["program"] for entry in out["offenders"]],
+                         [_FLASH_PROGRAM_NAME, _FLASH_PROGRAM_NAME])
+
+    def test_a_copy_whose_key_is_gone_is_a_wrong_value_not_a_pass(self):
+        out = self._run([(0, _launch_file_text(_PROGRAM_NAME)),
+                         (1, _launch_file_text(None))])
+        self.assertFalse(out["ok"], out)
+        self.assertEqual([entry["program"] for entry in out["offenders"]], [""])
+
+    def test_a_copy_that_cannot_be_read_is_its_own_answer(self):
+        """C14: "could not tell" is neither "the value is wrong" nor "the file is fine" --
+        and it still reddens, because the case may not certify what it could not read."""
+        out = self._run([(0, _launch_file_text(_PROGRAM_NAME))])
+        self.assertFalse(out["ok"], out)
+        self.assertEqual(out["offenders"], [])
+        self.assertEqual(len(out["unreadable"]), 1)
+        self.assertIn("FileNotFoundError", out["unreadable"][0]["error"])
+
+    def test_a_half_written_copy_is_could_not_tell_and_not_a_traceback(self):
+        """The race this step exists for: the IDE may be rewriting the file while this read
+        runs.  A half-written UTF-8 file raises `UnicodeDecodeError`, which is a
+        `ValueError` and **not** an `OSError` -- it belongs in the same "could not tell"
+        answer as a missing file, and it may not escape as a traceback."""
+        os.makedirs(os.path.dirname(self.files[0]), exist_ok=True)
+        whole = ('<?xml version="1.0" encoding="UTF-8" standalone="no"?>'
+                 '<launchConfiguration>RAM/gs32f035.elf \u2014').encode("utf-8")
+        with open(self.files[0], "wb") as handle:
+            handle.write(whole[:-1])              # the last 3-byte char, cut mid-sequence
+        out = case._load_readback(_Ctx(), {"workspace": self.root},
+                                  {"launch": {"files": [self.files[0]]}})
+        self.assertFalse(out["ok"], out)
+        self.assertEqual(out["offenders"], [])
+        self.assertEqual(len(out["unreadable"]), 1)
+        self.assertIn("UnicodeDecodeError", out["unreadable"][0]["error"])
+
+
+# --------------------------------------------------------------------------- #
 # R2/R3's *executors*, not just their constants (C10/C15).  These drive the two
 # steps against the SDK's own template; a machine without that SDK skips them --
 # the same shape the case itself uses for "no hardware" (R6).
@@ -756,28 +967,64 @@ class RamConfigAndLaunchSeedTest(unittest.TestCase):
         return project
 
     def test_the_ram_configuration_is_authored_on_a_directory_copy(self):
-        """R2: swap the segment and part scripts, keep the register script, drop
-        `FLASH_TARGET`, repoint `buildPath` -- and leave the flash configuration
-        alone.  Asserted per configuration block, never by whole-file greps."""
+        """R2: the template's **one** configuration becomes the RAM one in place -- segment
+        and part scripts swapped, register script kept, `FLASH_TARGET` dropped, `buildPath`
+        repointed, renamed -- and the project is left with exactly one configuration.
+        Asserted per element, never by whole-file greps.
+
+        Why one configuration rather than a second one beside `Flash_ILM` (measured
+        2026-10-11, run `gs32-gate-smoke`): the IDE derives `PROGRAM_NAME` from the
+        project's **active** configuration -- `<configuration name>/<artifact>` -- and with
+        `Flash_ILM` present as well it rewrote every seeded copy from the `RAM/gs32f035.elf`
+        the seed had written to `Flash_ILM/gs32f035.elf`, *with* the build config id pinned,
+        while the run had built only `<project>/RAM/gs32f035.elf`; `verifyProgramPath` then
+        threw `FileNotFoundException` and no session was created at all.  With a single
+        configuration there is nothing to pick -- the shape the vendor's own RAM loader
+        ships (`…/03_ramload/ram_ex3_dsp_ramload_3.0/.cproject`: one configuration,
+        `BootRAM`, and a launch whose `PROGRAM_NAME` is `BootRAM/ram_ex3_dsp_ramload_3.0.elf`).
+        """
         project = self._copy()
         out = case._ram_config(_Ctx(), project, "gs32f035")
         self.assertTrue(out["ok"], out["error"])
         back = case._read_text(os.path.join(project, ".cproject"))
-        ram = case._config_block(back, case._CONFIG)
-        flash = case._config_block(back, case._FLASH_CONFIG)
-        self.assertTrue(ram and flash)
-        self.assertIn(case._RAM_SCRIPT, ram)
-        self.assertNotIn(case._FLASHILM_SCRIPT, ram)
-        self.assertIn(case._MEM_SCRIPT_P, ram)
-        self.assertNotIn(case._MEM_SCRIPT, ram)
-        self.assertIn(case._REGS_SCRIPT, ram)
-        self.assertNotIn(case._FLASH_DEFINE, ram)
-        self.assertIn(case._FLASHILM_SCRIPT, flash)
-        self.assertIn(case._MEM_SCRIPT, flash)
-        self.assertIn(case._FLASH_DEFINE, flash)
-        self.assertIn("${workspace_loc:/gs32f035}/%s" % case._CONFIG, back)
+        spans = [(m.start(), back.index("</cconfiguration>", m.start()))
+                 for m in _CCONFIG_ID_RE.finditer(back)]
+        self.assertEqual(len(spans), 1, "the copy must hold exactly one configuration")
+        (s0, e0), = spans
+        ram = back[s0:e0]
+        self.assertIn('name="RAM"', ram)
+        self.assertNotIn('name="Flash_ILM"', ram)
+        self.assertIn("gs32f00xx_dsp_ram.ld", ram)
+        self.assertNotIn("gs32f00xx_dsp_flashilm.ld", ram)
+        self.assertIn("GS32F035P_mem.ld", ram)
+        self.assertNotIn("GS32F035_mem.ld", ram)
+        self.assertIn("gs32f00xx_dsp_3.0_regs.ld", ram)
+        self.assertNotIn("FLASH_TARGET", ram)
+        self.assertIn("${workspace_loc:/gs32f035}/RAM", ram)
+        # ...and nowhere in the file is the template's configuration name still a
+        # configuration name.
+        self.assertNotIn('name="Flash_ILM"', back)
+        self.assertEqual(out["configs"], ["RAM"])
 
-    def test_the_seeded_launch_carries_the_four_measured_corrections(self):
+    def test_a_copy_that_keeps_the_template_configuration_name_is_a_named_failure(self):
+        """C12's counter-example for the rename: the file keeps the configuration named
+        `Flash_ILM` -- the name the IDE derives `PROGRAM_NAME` from -- while everything else
+        about it is the RAM shape.  Nothing but the name is wrong, so nothing but this row's
+        predicate may redden, and the failure must name the missing `RAM` configuration
+        rather than certify a copy whose only configuration is still the flash one."""
+        project = self._copy()
+        real_write = case._write_text
+
+        def keep_the_template_name(path, text):
+            return real_write(path, text.replace('name="RAM"', 'name="Flash_ILM"'))
+
+        with mock.patch.object(case, "_write_text", keep_the_template_name):
+            out = case._ram_config(_Ctx(), project, "gs32f035")
+        self.assertFalse(out["ok"], out)
+        self.assertIn("only <configuration>", out["error"])
+        self.assertIn("RAM", out["error"])
+
+    def test_the_seeded_launch_carries_the_measured_corrections(self):
         """R3: the two OpenOCD `set` commands, the two reset booleans (the whole
         difference from the factory flash-shaped launch) and the RAM artifact.  The
         artifact is asserted **by value on disk**, out of every copy: the factory's own
@@ -786,7 +1033,9 @@ class RamConfigAndLaunchSeedTest(unittest.TestCase):
         project = self._copy()
         plan = {"project": project, "workspace": os.path.dirname(project),
                 "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
-        out = case._seed_launch(_Ctx(), plan, "gs32f035")
+        ram = case._ram_config(_Ctx(), project, "gs32f035")
+        self.assertTrue(ram["ok"], ram["error"])
+        out = case._seed_launch(_Ctx(), plan, "gs32f035", ram["ram_id"])
         self.assertTrue(out["ok"], out["error"])
         self.assertEqual(out["program"], _PROGRAM_NAME)
         text = "\n".join(case._read_text(path) for path in out["files"])
@@ -795,6 +1044,89 @@ class RamConfigAndLaunchSeedTest(unittest.TestCase):
             self.assertIn(needle, text)
         for path in out["files"]:
             self.assertEqual(_program_name(case._read_text(path)), _PROGRAM_NAME, path)
+
+    def test_the_seeded_launch_pins_the_ram_build_configuration_id(self):
+        """The launch has to name the configuration it was built for, and **not** because
+        that key controls the rewrite: measured 2026-10-11, the running IDE rewrote
+        `PROGRAM_NAME` to the *active* configuration's artifact with this key already
+        pinned, so what stops that write is `_ram_config` leaving `RAM` as the project's
+        only configuration.
+
+        The pin is two independent readings compared to each other, both with this file's
+        own parsers: the value in the seeded `.launch` **on disk** must equal the element id
+        the `.cproject`'s RAM `<cconfiguration>` **on disk** carries, which is non-empty.
+        Neither side is a copy of the variable the seeder was handed.
+        """
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        ram = case._ram_config(_Ctx(), project, "gs32f035")
+        self.assertTrue(ram["ok"], ram["error"])
+        self.assertNotEqual(ram["ram_id"], "")
+        out = case._seed_launch(_Ctx(), plan, "gs32f035", ram["ram_id"])
+        self.assertTrue(out["ok"], out["error"])
+
+        cproject = case._read_text(os.path.join(project, ".cproject"))
+        declared = _CCONFIG_ID_RE.search(case._config_block(cproject, case._CONFIG))
+        self.assertIsNotNone(declared, "the .cproject declares no RAM cconfiguration id")
+        # One configuration is the premise of the whole shape -- there is no second id
+        # left for this one to be confused with.
+        self.assertEqual(len(_CCONFIG_ID_RE.findall(cproject)), 1)
+        for path in out["files"]:
+            self.assertEqual(_build_config_id(case._read_text(path)),
+                             declared.group(1), path)
+
+    def test_a_launch_that_leaves_the_build_config_id_empty_is_a_named_failure(self):
+        """C12's counter-example for that guard: with the key empty every other launch
+        predicate still holds, and it must still be a **named** failure, refused before
+        anything is written -- a launch that names no build configuration is a defect of its
+        own, whether or not it is the key that moves `PROGRAM_NAME`."""
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        out = case._seed_launch(_Ctx(), plan, "gs32f035", "")
+        self.assertFalse(out["ok"], out)
+        self.assertIn("PROJECT_BUILD_CONFIG_ID_ATTR would be seeded empty", out["error"])
+        self.assertIn("must name the configuration it was built for", out["error"])
+        self.assertNotIn("Traceback", out["error"])
+        # Refused before writing: no half-seeded launch is left on disk.
+        self.assertEqual(out["files"], [])
+        self.assertFalse(os.path.isdir(os.path.join(project, ".launches")))
+
+    def test_a_launch_whose_build_config_id_is_none_is_refused_on_the_same_words(self):
+        """The guard runs **before** the `@BUILDCONFIG@` substitution, so a `None` id -- not
+        a string -- gets the same named refusal instead of escaping as
+        `TypeError: replace() argument 2 must be str, not None`.  Same words, same
+        refusal-before-anything-is-written."""
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        out = case._seed_launch(_Ctx(), plan, "gs32f035", None)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("PROJECT_BUILD_CONFIG_ID_ATTR would be seeded empty", out["error"])
+        self.assertIn("must name the configuration it was built for", out["error"])
+        self.assertEqual(out["files"], [])
+        self.assertFalse(os.path.isdir(os.path.join(project, ".launches")))
+
+    def test_a_copy_that_lost_the_build_config_id_is_a_named_failure(self):
+        """The per-copy read-back's own counter-example (C12): an id *was* given and the
+        disk has it blank, injected at the only place that can produce it (`_write_text`),
+        so exactly this row reddens and the other launch rows stay green."""
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        real_write = case._write_text
+
+        def blank_the_id(path, text):
+            return real_write(path, text.replace('value="%s"' % _BUILD_CONFIG_ID,
+                                                'value=""'))
+
+        with mock.patch.object(case, "_write_text", blank_the_id):
+            out = case._seed_launch(_Ctx(), plan, "gs32f035", _BUILD_CONFIG_ID)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("PROJECT_BUILD_CONFIG_ID_ATTR=''", out["error"])
+        self.assertIn("names no build configuration at all", out["error"])
+        self.assertNotIn("names PROGRAM_NAME=", out["error"])
 
     def test_a_launch_that_names_the_flash_artifact_is_a_named_failure(self):
         """The counter-example for the launch itself (AC6's shape, C12): a seed that puts
@@ -812,7 +1144,7 @@ class RamConfigAndLaunchSeedTest(unittest.TestCase):
                                                  'value="%s"' % _FLASH_PROGRAM_NAME))
 
         with mock.patch.object(case, "_write_text", write_the_flash_artifact):
-            out = case._seed_launch(_Ctx(), plan, "gs32f035")
+            out = case._seed_launch(_Ctx(), plan, "gs32f035", _BUILD_CONFIG_ID)
         self.assertFalse(out["ok"], out)
         self.assertIn("PROGRAM_NAME=%r" % _FLASH_PROGRAM_NAME, out["error"])
         self.assertIn("%r" % _PROGRAM_NAME, out["error"])
