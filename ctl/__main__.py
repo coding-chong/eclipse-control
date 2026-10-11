@@ -1801,6 +1801,16 @@ def _dev_door_leak_check() -> Tuple[bool, str]:
     run them); ``docs/`` and ``bridge/`` are not the user face
     either.  Problems are reported as ``file:line: word``.
 
+    **Not attributed (2026-10-11) -- recorded, not guessed**: the surface is an
+    allowlist, so ``TROUBLESHOOTING.md`` is outside it, and that page names every
+    door in its recovery rows (``install`` / ``uninstall`` / ``upgrade`` /
+    ``verify`` / ``recipes``) while ``README.md`` links it twice.  Whether that page
+    is user face (rows get re-worded) or an operator page (the link gets a
+    qualifier) is a **shape decision** -- the same kind as the `act` door -- so it is
+    recorded with its evidence as §G1 of the ``10-11-eclipse-ctl-error-coverage-gate``
+    PRD (workflow repo; the name survives archiving, a path would not).  Until it is
+    made, this gate does not read that page **by allowlist, not by judgement**.
+
     Matching is word-boundary and case-sensitive (``_DEV_DOOR_RE`` says why the
     substring form was wrong).  The whole file is read -- fenced code blocks
     included.
