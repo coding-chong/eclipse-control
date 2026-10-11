@@ -1,0 +1,45 @@
+name: tests
+
+# The suite is standard-library only and touches no IDE and no board -- it is green on a
+# fresh clone (the few tests that need the GS32 SDK template skip when it is absent).  The
+# repo is run on Windows because the product side drives Eclipse/SWT through PowerShell and
+# PnP helpers (`tools/*.ps1`), so the runner matches where it is supported.
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: unit suite
+        run: python -m unittest discover -s tests -t .
+
+      # The same text gates `ctl preflight` runs, minus the two that need an IDE
+      # (`doctor`, `verify`).  Each one prints its own scan surface, so a green run says
+      # what was read, not just "ok".
+      - name: text gates (no IDE needed)
+        shell: python
+        run: |
+          import sys
+          from ctl.__main__ import (
+              _dev_door_leak_check,
+              _doc_command_consistency,
+              _machine_path_check,
+              _skill_namespace_consistency,
+              _stdlib_only_check,
+          )
+          failed = 0
+          for check in (_doc_command_consistency, _dev_door_leak_check,
+                        _skill_namespace_consistency, _stdlib_only_check,
+                        _machine_path_check):
+              ok, detail = check()
+              print(("PASS " if ok else "FAIL ") + check.__name__ + ": " + detail)
+              failed += 0 if ok else 1
+          sys.exit(1 if failed else 0)

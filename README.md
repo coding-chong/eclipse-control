@@ -55,6 +55,16 @@
 
 **截图不单独成层** —— 它是贯穿三层的**观测装置**（`PrintWindow` 主通道 + 备用通道）。
 
+## 前置条件
+
+| 项 | 要求 | 为什么 |
+|---|---|---|
+| 平台 | **Windows**（本机实测 win32 10.0.26200 / x64） | 桥跑在目标 IDE 的 **SWT** 上；界面观测与输入走 `tools/*.ps1`（`PrintWindow`、`Get-PnpDevice`、窗口标题） |
+| Python | **≥ 3.8**（本机实测 3.13.15） | 只用标准库（**硬约束**，CI 会拦非标准库 import）；闸门读 `ast.Constant`，该节点自 **3.8** 起才由解析器产出 |
+| JDK | **不用单独装** | 桥用**目标树自带的** ECJ 与 JRE 编（`python -m ctl build`）；JDK 版本由 target 的 `java_target` 属性决定 |
+| 目标 IDE | 一棵 Eclipse 家族安装树（GS32_Studio / CCS…） | 内置两个 target 的安装根是**参考机标定**，换机三步见 §换一台机器 |
+| 板子 | **可选** | 板级用例无硬件即 `SKIP`；其余用例不需要板子 |
+
 ## 五分钟上手
 
 > **先编桥**：`python -m ctl build --target gs32`。`bridge/dist/` 不入库，空克隆没编就撞

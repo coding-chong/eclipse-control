@@ -10,6 +10,31 @@
 
 ### Fixed
 
+- **`_find_bash` 不再写死某台机器的 Git 路径**（2026-10-11）：候选表里原是
+  `C:/Program Files/Git/bin/bash.exe` 与它的 x86 版 —— 在一台 Git 装在别处的克隆上，
+  `ctl recipes run` 会报「no bash found」**而 bash 就在那里**（假阴性，不是缺前置）。
+  现在按 `which git` 的安装根（Git for Windows 的 `git.exe` 在根下一层）与环境变量
+  `ProgramFiles` / `ProgramFiles(x86)` / `ProgramW6432` **推导**候选。实测：
+  `python -c "from ctl.__main__ import _find_bash; print(_find_bash())"` ⇒
+  `C:\Program Files\Git\bin\bash.exe`。
+- **`_machine_path_check` 自身三处失守，一并修**（2026-10-11）：
+  ① **扫描面**从用例层扩到 **shipped 代码**（`ctl` / `bridge` / `tools`；`ctl` 含
+  `ctl/verify/cases`，旧覆盖不丢）—— 用例层是那句承诺的**出处**，但机器路径放在 shipped 代码里
+  危害最大（**克隆没法靠配置修**）；
+  ② **精度**：原写法是 `[^"'\s]*`，**含空格的路径看不见** —— 而 `C:/Program Files/…` 恰恰是
+  Windows 上最常见的安装根（跨不过空格 ⇒ 永远找不到第二个分隔符）。实测放宽后在被扫树里**零误报**，
+  而正是它抓住了 ① 要防的那两个 `_find_bash` 字面量；
+  ③ **根改为对着 `REPO_ROOT` 解析**（与 `_stdlib_only_check` 同形）—— 相对根会去守**调用者当时
+  所站的那棵树**：实测从仓外调用时它扫的是**另一个** `tools/`，并报出三条本仓根本没有的机器路径。
+  例外按**值**给（`_MACHINE_PATH_EXEMPT`）：内置 target 矩阵里那两条「参考机标定」，值**从矩阵本身
+  读**（写成字面量会被这张表自己抓到），并由 `tests/unit/test_machine_path_gate.py` 的**自有字面量**
+  钉住（加一个 target 或改一条路径都会让那条测试红 ⇒ 必须是有意为之）。绿行现在把豁免数打印出来：
+  `46 module(s) scanned in ctl/bridge/tools; 2 documented reference default(s) exempt`。
+- **`ctl preflight --help` 漏了一道闸门**（2026-10-11）：说辞写着「(7 items)」而实跑 **8** 项 ——
+  机器路径那道一直没被列进去（`tests/unit/test_dev_door_gate.py` 的 `_PREFLIGHT_ITEMS` 也漏了，
+  于是**被钉住的期望本身就是错的**）。两处一起补成 8 项；实跑的标签
+  `no machine-local paths in cases` 也随扫描面改成 `no machine-local paths`。
+
 - **`board.led.chase.gs32` 装载的是 flash 产物：`.cproject` 里那份配置**就地改成 RAM，并成为工程唯一的一份**（2026-10-11）：
   实测（run `gs32-gate-smoke`）：`launchActive` 期间**运行中的 IDE 会把 seed 写下的 `PROGRAM_NAME`
   改成 `Flash_ILM/gs32f035.elf`**（三份副本全被改；而 seed 自己的日志逐字是

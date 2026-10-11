@@ -23,11 +23,22 @@ import os
 import shutil
 import tempfile
 import unittest
+import unittest.mock as mock
 
-from ctl.__main__ import _MACHINE_PATH_DIRS, _machine_path_check
+from ctl import __main__ as ctl_main
+from ctl.__main__ import _MACHINE_PATH_DIRS, _MACHINE_PATH_EXEMPT, _machine_path_check
 
-#: The scanned set, as this test's own literal (`deliverable-shape.md` C10).
-_REQUIRED_DIRS = ("ctl/verify/cases",)
+#: The scanned set, as this test's own literal (`deliverable-shape.md` C10).  Widened
+#: 2026-10-11 from the case layer to the shipped trees: `ctl` covers `ctl/verify/cases`
+#: as well, so the earlier set is a subset of this one.
+_REQUIRED_DIRS = ("ctl", "bridge", "tools")
+
+#: The exemption table, as this test's own literal (C10 again): a value added or changed
+#: there must be a deliberate edit here too, or the exemption would be free to grow.
+_EXEMPT_LITERAL = (
+    ("ctl/targets.py", "D:/ProgramFiles/GS32_Studio_v1.2.5.2/GS32_Studio_v1.2.5.2"),
+    ("ctl/targets.py", "D:/ti/ccs1281/ccs/eclipse"),
+)
 
 
 class MachinePathGateTest(unittest.TestCase):
@@ -105,6 +116,36 @@ class MachinePathGateTest(unittest.TestCase):
         root = self._package('REL = "c2000/C2000Ware_5_04_00_00"\n')
         ok, detail = _machine_path_check((root,))
         self.assertTrue(ok, detail)
+
+    def test_a_path_containing_a_space_is_caught(self):
+        """C11's "must be caught" side, measured 2026-10-11: `C:/Program Files/…` is the
+        commonest Windows install root there is, and the pattern could not see it -- the
+        path segment could not cross the space, so no second separator was ever found.
+        Two such literals had shipped in `_find_bash` (`C:/Program Files/Git/bin/bash.exe`)
+        while this gate reported the tree green."""
+        root = self._package('BIN = "C:/Program Files/Git/bin/bash.exe"\n')
+        ok, detail = _machine_path_check((root,))
+        self.assertFalse(ok)
+        self.assertIn("c.py:1", detail)
+        self.assertIn("C:/Program Files/Git/", detail)
+
+    def test_the_exemptions_are_pinned_independently(self):
+        self.assertEqual(tuple(_MACHINE_PATH_EXEMPT), _EXEMPT_LITERAL)
+
+    def test_the_reference_defaults_are_exempted_by_value(self):
+        """C10/C12 on the exemption itself, both sides in one test: with the table as
+        shipped, the shipped tree is green on exactly those two literals; with the table
+        emptied, the same tree reddens *on those two* -- so the exemption is what carries
+        them, and it is carrying only them."""
+        ok, detail = _machine_path_check(("ctl",))
+        self.assertTrue(ok, detail)
+        self.assertIn("exempt", detail)
+        with mock.patch.object(ctl_main, "_MACHINE_PATH_EXEMPT", ()):
+            ok, detail = _machine_path_check(("ctl",))
+        self.assertFalse(ok, detail)
+        self.assertIn("D:/ProgramFiles/GS32_Studio_v1.2.5.2/", detail)
+        self.assertIn("D:/ti/ccs1281/ccs/", detail)
+        self.assertNotIn("C:/Program Files", detail)
 
 
 if __name__ == "__main__":

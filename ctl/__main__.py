@@ -62,6 +62,7 @@ from .run import cmd_run as cmd_run_door
 from .targets import (
     ECJ_ANCESTOR_GLOBS,
     ECJ_TREE_GLOBS,
+    _BUILTIN,
     Config,
     Target,
     add_target,
@@ -234,11 +235,12 @@ def build_parser() -> CtlParser:
     add("build", "compile and package the bridge jar")
     # N1: the blurb must name the checks that actually run, **in the order they
     # run** (it had silently omitted `stdlib-only`, `skill/library-name` and the
-    # new dev-door gate).  The same string feeds the subcommand list and the
-    # subcommand's own `--help`.
+    # new dev-door gate -- and until 2026-10-11 the machine-path gate as well: it
+    # had been live in every run while this blurb still said "7 items").
+    # The same string feeds the subcommand list and the subcommand's own `--help`.
     preflight_help = ("doctor + verify + doc/CLI command consistency + developer-door "
                       "leak check + skill/library-name consistency + stdlib-only "
-                      "imports + CHANGELOG (7 items)")
+                      "imports + no machine-local paths + CHANGELOG (8 items)")
     add("preflight", preflight_help, description=preflight_help)
     p_shadow = add("shadow", "shadow shots: what the screen looked like after each write")
     p_run = add("run", "one door: run a Python script from stdin against the bridge")
@@ -1228,13 +1230,37 @@ def _cmd_recipes(args) -> int:
 
 
 def _find_bash() -> Optional[str]:
+    """A bash to run a recipe with -- **derived**, never one machine's literal path.
+
+    Order: ``bash`` on PATH (``SHELL_BIN`` beats both, see the caller), then -- for a
+    Windows host whose PATH has no bash -- ``<git>/bin/bash.exe``, where ``<git>`` comes
+    from the ``git`` that *is* on PATH (Git for Windows keeps its ``git.exe`` one level
+    under the root) or from the ``ProgramFiles`` variables.
+
+    Until 2026-10-11 this spelled two absolute paths, ``C:/Program Files/Git/bin/bash.exe``
+    and its x86 twin.  They named one machine's Git install: on a clone whose Git lives
+    anywhere else a recipe reported "no bash found" while bash was right there -- a false
+    negative, not a missing prerequisite.  And a machine-local absolute path in shipped
+    code is the one contract a clone cannot repair by configuration, which is exactly why
+    `_machine_path_check` exists and why these two are now inside its scan surface.
+    """
     import shutil as _shutil
-    for candidate in ("bash", "C:/Program Files/Git/bin/bash.exe",
-                      "C:/Program Files (x86)/Git/bin/bash.exe"):
-        found = _shutil.which(candidate) if not os.path.isabs(candidate) else (
-            candidate if os.path.isfile(candidate) else None)
-        if found:
-            return found
+    found = _shutil.which("bash")
+    if found:
+        return found
+    roots: List[str] = []
+    git = _shutil.which("git")
+    if git:
+        roots.append(os.path.dirname(os.path.dirname(os.path.abspath(git))))
+    for variable in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        base = os.environ.get(variable)
+        if base:
+            roots.append(os.path.join(base, "Git"))
+    for root in roots:
+        for relative in (("bin", "bash.exe"), ("usr", "bin", "bash.exe")):
+            candidate = os.path.join(root, *relative)
+            if os.path.isfile(candidate):
+                return candidate
     return None
 
 
@@ -1769,7 +1795,9 @@ def _dev_door_leak_check() -> Tuple[bool, str]:
     recursively** (``skill/SKILL.md`` + ``skill/references/*.md``).  Deliberately
     **outside** the surface -- and why: ``recipes/`` *is* the C5 developer tool
     rather than user path; ``DEVELOPING.md`` is the developer home these words
-    are *supposed* to live in; ``docs/`` and ``bridge/`` are not the user face
+    are *supposed* to live in; ``CONTRIBUTING.md`` is the same kind of home (it
+    names every door on purpose, to tell a contributor where they are and when to
+    run them); ``docs/`` and ``bridge/`` are not the user face
     either.  Problems are reported as ``file:line: word``.
 
     Matching is word-boundary and case-sensitive (``_DEV_DOOR_RE`` says why the
@@ -1909,11 +1937,30 @@ def _import_roots(source: str) -> List[Tuple[str, int]]:
     return sorted(roots, key=lambda row: row[1])
 
 
-#: Case-layer directories whose `.py` files may not carry a machine-local absolute
-#: path.  Pinned by `tests/unit/test_machine_path_gate.py` against its own literal
-#: (`deliverable-shape.md` C10: a gate's test must not be certified by the gate's own
-#: constant).
-_MACHINE_PATH_DIRS = ("ctl/verify/cases",)
+#: Directories whose `.py` files may not carry a machine-local absolute path.  Pinned by
+#: `tests/unit/test_machine_path_gate.py` against its own literal (`deliverable-shape.md`
+#: C10: a gate's test must not be certified by the gate's own constant).
+#:
+#: Scope widened 2026-10-11 from the case layer to the **shipped** trees: the case layer
+#: was where the promise was written down, but shipped code is where a machine-local path
+#: does the most damage -- a clone cannot repair it by configuration.  `ctl` covers
+#: `ctl/verify/cases` too, so nothing left the gate's sight.
+_MACHINE_PATH_DIRS = ("ctl", "bridge", "tools")
+
+#: The **documented** exceptions, matched by **value** (file, the constant's whole text):
+#: the built-in target matrix's install roots, read **from the matrix** so this table
+#: cannot drift from it -- and pinned as a literal by
+#: `tests/unit/test_machine_path_gate.py`'s own ``_EXEMPT_LITERAL``, so a third target or
+#: a changed path fails that test and has to be a deliberate edit.  (Spelled out as
+#: literals *here* would also be self-flagging: this module is inside the scan surface,
+#: and the two paths would be reported by the very table that exempts them.)
+#:
+#: These two are machine-local **on purpose**: `README.md`'s target table calls them "not
+#: product constants, the reference calibration", and each carries its own guard and fix
+#: command (`python -m ctl targets add <name> --source-dir <the IDE root>`).
+_MACHINE_PATH_EXEMPT = tuple(
+    ("ctl/targets.py", str(entry["install_dir"])) for entry in _BUILTIN.values()
+)
 
 #: A drive-qualified path with at least one more separator -- i.e. something that names
 #: a *directory* on some machine (`D:/ti/ccs1281/ccs`).  A bare `C:/` root spelling
@@ -1928,11 +1975,19 @@ _MACHINE_PATH_DIRS = ("ctl/verify/cases",)
 #: literal (`https://…`).  The fix is here, in the pattern, not in the case's spelling:
 #: `tests/unit/test_machine_path_gate.py` pins both directions (a real path must be
 #: caught, those legal spellings must be let through).
-_MACHINE_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\"'\s]*[\\/]")
+#:
+#: ⚠️ `[^"'\r\n\t]*` -- **spaces are allowed inside** -- and that is not a loosening for
+#: convenience: the class was written `[^"'\s]*` until 2026-10-11, which made the
+#: commonest Windows install root of all, `C:/Program Files/…`, invisible to the gate
+#: (the segment cannot cross the space, so no second separator is ever found).  Measured
+#: that day: widening adds **no** false positive anywhere in the scanned trees, and it is
+#: what catches the two literals `_find_bash` had shipped.  Quotes, CR, LF and TAB still
+#: bound the path: they end a token in every spelling this repo carries.
+_MACHINE_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\"'\r\n\t]*[\\/]")
 
 
 def _machine_path_check(roots: Sequence[str] = _MACHINE_PATH_DIRS) -> Tuple[bool, str]:
-    """No case may embed a machine-local absolute path.
+    """No shipped module may embed a machine-local absolute path.
 
     The case layer's own header promises "every value is an install-relative or a
     measured fact, never a machine-local absolute path".  That is the one contract a
@@ -1940,30 +1995,52 @@ def _machine_path_check(roots: Sequence[str] = _MACHINE_PATH_DIRS) -> Tuple[bool
     -- so it gets a gate.  Until 2026-10-07 nothing checked it, and
     ``_DEFAULT_C2000WARE = "D:/ti/c2000/C2000Ware_5_04_00_00"`` shipped as a silent
     fallback that made every other machine fail with a directory it never chose.
+    Widened 2026-10-11 from the case layer to ``ctl``/``bridge``/``tools``, because the
+    same promise applies to shipped code and the pattern could not even see the
+    commonest Windows root (`C:/Program Files/…`, see `_MACHINE_PATH_RE`).
 
     Scan surface (C8, "the gate must see what it guards"): every ``*.py`` under
     ``roots``, parsed with :mod:`ast`; the unit is the **string constant**, and
     docstrings are excluded -- a docstring is where a *measured fact* and a rerun
     recipe legitimately live, and `measurement-hygiene` §13.10 requires those to stay
-    verbatim.  The scanned set is pinned by ``tests/unit/test_machine_path_gate.py``
+    verbatim.  The scanned set is pinned by `tests/unit/test_machine_path_gate.py`
     against that file's **own** literal (``_REQUIRED_DIRS``), never by this module's
     ``_MACHINE_PATH_DIRS`` -- C10: a gate's test must not be certified by the gate's
     own constant, or weakening the set would silently free the tree it covers.
 
+    The reference calibration in ``ctl/targets.py`` is exempted **by value**, through
+    ``_MACHINE_PATH_EXEMPT`` -- two named constants with their own guard and fix
+    command, not a hole in the file.  The green detail counts them, so an exemption that
+    grows is visible in `ctl preflight` output rather than silent.
+
     Known blind spots -- green here is not "no machine path anywhere": only string
-    literals are read, so a path assembled from parts (``"D:" + "/ti/" + name``) or
-    read from a config file at runtime is invisible; and only ``roots`` is scanned, so
-    the built-in target matrix in ``ctl/targets.py`` (a documented *reference*
-    calibration with its own guard and fix command, `README.md` target table) is
-    deliberately outside this gate.
+    literals are read, so a path assembled from parts (``"D:" + "/ti/" + name``) or read
+    from a config file at runtime is invisible; only ``*.py`` is read (nothing checks
+    ``bridge/src/*.java``, ``tools/*.ps1`` or the docs); and only ``roots`` is scanned.
     """
     problems: List[str] = []
     checked = 0
+    exempt = 0
     for root_dir in roots:
-        for path in sorted(glob.glob(os.path.join(root_dir, "**", "*.py"), recursive=True)):
+        # Resolved against REPO_ROOT, never the cwd: a relative default would otherwise
+        # guard whatever tree the caller happened to stand in (measured 2026-10-11 --
+        # called from outside the repo it scanned a *different* `tools/` and reported
+        # three machine paths that are not in this repository at all).  Absolute roots
+        # (the tests' temp packages) win over the join, as usual.
+        base = os.path.join(REPO_ROOT, root_dir)
+        if not os.path.isdir(base):
+            continue
+        for path in sorted(glob.glob(os.path.join(base, "**", "*.py"), recursive=True)):
             if "__pycache__" in path:
                 continue
             checked += 1
+            try:
+                rel = os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
+            except ValueError:
+                # A root on another drive (the tests hand this function a temp package):
+                # `relpath` cannot spell that, and no repo-relative exemption can match,
+                # so the absolute spelling is the honest answer here.
+                rel = path.replace(os.sep, "/")
             try:
                 with open(path, "r", encoding="utf-8") as fh:
                     tree = ast.parse(fh.read(), filename=path)
@@ -1987,12 +2064,20 @@ def _machine_path_check(roots: Sequence[str] = _MACHINE_PATH_DIRS) -> Tuple[bool
                 if id(node) in docstrings:
                     continue
                 match = _MACHINE_PATH_RE.search(node.value)
-                if match:
-                    problems.append("%s:%d: machine-local path %r"
-                                    % (path, node.lineno, match.group(0)))
+                if not match:
+                    continue
+                # Exempt **by value**, so the two documented reference defaults stay
+                # visible here as the only ones -- and a change to either of them
+                # reddens rather than inheriting the exemption (see _MACHINE_PATH_EXEMPT).
+                if (rel, node.value) in _MACHINE_PATH_EXEMPT:
+                    exempt += 1
+                    continue
+                problems.append("%s:%d: machine-local path %r"
+                                % (path, node.lineno, match.group(0)))
     if problems:
         return False, "; ".join(problems)
-    return True, "%d module(s) scanned in %s" % (checked, "/".join(roots))
+    return (True, "%d module(s) scanned in %s; %d documented reference default(s) exempt"
+                  % (checked, "/".join(roots), exempt))
 
 
 def _stdlib_only_check() -> Tuple[bool, str]:
@@ -2112,7 +2197,7 @@ def _cmd_preflight(args) -> int:
         problems += 1
 
     ok, detail = _machine_path_check()
-    print("[%s] no machine-local paths in cases: %s" % ("PASS" if ok else "FAIL", detail))
+    print("[%s] no machine-local paths: %s" % ("PASS" if ok else "FAIL", detail))
     if not ok:
         problems += 1
 
