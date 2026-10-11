@@ -163,7 +163,7 @@ python -m ctl build --target ccs12
 ### 起不来时看什么
 
 - `python -m ctl doctor --target gs32` —— 逐项体检：安装根在不在、桥 jar 的字节码级别对不对、端口通不通。
-- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) —— 症状 → 处置，含 `no bridge jar built yet`、`launcher not found` 两条。
+- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) —— **维护者页**（症状 → 处置：恢复要动维修仪器，故不算用户面）；含 `no bridge jar built yet`、`launcher not found` 两条。
 
 ## 配置文件
 
@@ -237,7 +237,7 @@ gs32     4.30.0     23.0.2 17     com.gs.ui.Studio         8777   D:/ProgramFile
 | [`skill/`](skill/) | 约束层（给 AI 会话） |
 | [`protocol.md`](protocol.md) | 行协议（请求/响应形状、错误码闭集、超时语义） |
 | [`boundaries.md`](boundaries.md) | 能做 / 不能做 / 未验证，**方法级** |
-| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | 症状 → 处置 |
+| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | **维护者页**：症状 → 处置 |
 | [`DEVELOPING.md`](DEVELOPING.md) | **开发者工具**（不进用户路径）：验收用例、发布前总检、配方库、回收、换代 |
 
 ## 卸载与回滚

@@ -10,6 +10,16 @@
 
 ### Fixed
 
+- **README 把《故障排查》标成维护者页；用户面的边界写进 C5**（2026-10-11，**用户裁定**）：
+  该页的恢复行成排写着维修仪器（`install` / `uninstall` / `upgrade` / `verify` / `recipes`），
+  而开发者门的扫描面只有 `README.md` + `skill/**` —— 这是"有意排除"还是"漏了"以前没人说得清。
+  裁定：**用户面 = `README.md` + `skill/**`；《故障排查》不算用户面**（它那一页的主题就是"恢复桥"，
+  恢复要动维修仪器）⇒ 它是**维护者/运维页**。README 里两处链接行现在**明说它是维护者页**；
+  闸门 docstring 由"未归因"改成"已裁定"，并记下**未采用的另一种形状**（把它算用户面、逐行改写 →
+  那页就失去存在理由）与"为何不能含糊"（`deliverable-shape.md` C13：改动面要搜出来，不能靠回忆 —— 本轮正是靠这句才没漏掉相邻段落）。
+  判据：`python -c "from ctl.__main__ import _dev_door_leak_check as f; print(f())"`
+  ⇒ `(True, '6 user-face file(s) scanned')`；表面由 `tests/unit/test_dev_door_gate.py` 的自有字面量钉住。
+
 - **`DEVELOPING.md` 里那份抄来的 preflight 项表删掉了**（2026-10-11）：它写着 **7 项**并声称
   「与 `--help` 的简介逐项一致」，而它**漏了「no machine-local paths」那道** —— 同一次漏项在
   **简介**与这份**抄写**里各发生一次（简介那次已修，见上）。抄写是漂移的**源头**，不是保险：
