@@ -1193,6 +1193,50 @@ class RamConfigAndLaunchSeedTest(unittest.TestCase):
                                                "set gs32_model GS32F035")),
             "GS32F035")
 
+    def test_a_copy_that_lost_the_ram_cfg_mode_is_a_named_failure(self):
+        """The counter-example for the needle loop (C12): the text on disk no longer
+        carries `gs32_cfg_mode 2`, and the refusal must name **that** needle.
+
+        Until 2026-10-11 this loop had only its positive side pinned (the four needles are
+        asserted present in a real seed, one row up), and a needle that quietly stops
+        matching is the shape this very case was bitten by -- one row down: a guard that
+        cannot match its text looks green forever, and every run stays green with it.
+        """
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        real_write = case._write_text
+
+        def change_the_cfg_mode(path, text):
+            return real_write(path, text.replace("set gs32_cfg_mode 2",
+                                                 "set gs32_cfg_mode 1"))
+
+        with mock.patch.object(case, "_write_text", change_the_cfg_mode):
+            out = case._seed_launch(_Ctx(), plan, "gs32f035", _BUILD_CONFIG_ID)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("does not carry the RAM cfg mode", out["error"])
+        self.assertNotIn("PROGRAM_NAME=", out["error"])
+
+    def test_the_needle_loop_checks_every_entry_not_only_the_first(self):
+        """C12, on the loop's **last** entry: mutating only `doSecondReset` must redden,
+        naming `doSecondReset=false` -- which is what proves the loop walks all four
+        needles instead of stopping at the first one that matches.  A check that reads
+        only its first entry looks green on every later one."""
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": case._CHIP}
+        real_write = case._write_text
+
+        def flip_the_second_reset(path, text):
+            return real_write(path, text.replace('doSecondReset" value="false"',
+                                                 'doSecondReset" value="true"'))
+
+        with mock.patch.object(case, "_write_text", flip_the_second_reset):
+            out = case._seed_launch(_Ctx(), plan, "gs32f035", _BUILD_CONFIG_ID)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("does not carry doSecondReset=false", out["error"])
+        self.assertNotIn("does not carry the RAM cfg mode", out["error"])
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
