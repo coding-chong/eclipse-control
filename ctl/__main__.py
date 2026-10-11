@@ -240,7 +240,8 @@ def build_parser() -> CtlParser:
     # The same string feeds the subcommand list and the subcommand's own `--help`.
     preflight_help = ("doctor + verify + doc/CLI command consistency + developer-door "
                       "leak check + skill/library-name consistency + stdlib-only "
-                      "imports + no machine-local paths + CHANGELOG (8 items)")
+                      "imports + no machine-local paths + CLI error-string coverage + "
+                      "CHANGELOG (9 items)")
     add("preflight", preflight_help, description=preflight_help)
     p_shadow = add("shadow", "shadow shots: what the screen looked like after each write")
     p_run = add("run", "one door: run a Python script from stdin against the bridge")
@@ -2080,6 +2081,110 @@ def _machine_path_check(roots: Sequence[str] = _MACHINE_PATH_DIRS) -> Tuple[bool
                   % (checked, "/".join(roots), exempt))
 
 
+#: A12: every CLI error string must be greppable in `TROUBLESHOOTING.md`.  The marker is
+#: the retry suffix `protocol.md` §11 pins on every failure line, so "an error string"
+#: means exactly "a string constant carrying that suffix" -- the **parser** is asked, not
+#: a regex over the source: error text is built by implicit concatenation across lines,
+#: which no regex sees whole.
+_ERR_TEMPLATE_MARK = "retry: python -m ctl"
+#: Shorter fragments (`ERR`, `!=`, `under`) carry no signal -- matching one of those would
+#: count a template as documented without documenting anything.
+_ERR_TEMPLATE_MIN_LEN = 6
+#: The argparse `error()` override is a generic fallback whose body has no stable literal
+#: by design, so it is exempt -- measured: exactly one template today.
+_ERR_TEMPLATE_EXEMPT: Tuple[str, ...] = ("ERR %s %s",)
+
+
+def _error_templates() -> List[Tuple[str, str]]:
+    """``(template, "relative/path.py:line")`` for every error string under ``ctl``.
+
+    Cross-line implicit concatenation is merged by the parser, so each template is the
+    value the runtime produces -- not a guess at how the source spells it.
+    """
+    out: List[Tuple[str, str]] = []
+    for path in sorted(glob.glob(os.path.join(REPO_ROOT, "ctl", "**", "*.py"),
+                                 recursive=True)):
+        rel = os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                tree = ast.parse(fh.read())
+        except SyntaxError:  # unparseable is `_stdlib_only_check`'s business, not this one
+            continue
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and _ERR_TEMPLATE_MARK in node.value):
+                tpl = " ".join(node.value.split())
+                # `_ERR_TEMPLATE_MARK`'s own definition carries the marker, so the scan
+                # would count it as an error string -- measured 2026-10-11: adding that
+                # constant moved the count 62 -> 63 with nothing new to document.  No
+                # error string has the marker as its whole body (that is an empty
+                # message), so filtering by equality is exact, not a heuristic.
+                if tpl == _ERR_TEMPLATE_MARK:
+                    continue
+                out.append((tpl, "%s:%d" % (rel, node.lineno)))
+    return out
+
+
+def _error_template_candidates(template: str) -> List[str]:
+    """Fragments of ``template`` a reader could grep for (>= ``_ERR_TEMPLATE_MIN_LEN``).
+
+    The variable parts of a real line (ids / paths / durations / window handles) make a
+    whole-line grep impossible, so the template is split on its ``%s`` / ``%d`` / ``%r``
+    placeholders and **any** surviving fragment counts as coverage (A12 reads it that way).
+    """
+    body = template.split("; " + _ERR_TEMPLATE_MARK)[0]
+    segs = (s.strip(" ;,.:()") for s in re.split(r"%[sdr]", body))
+    return [s for s in segs if len(s) >= _ERR_TEMPLATE_MIN_LEN]
+
+
+def _error_string_coverage_check() -> Tuple[bool, str]:
+    """A12: every CLI error string appears verbatim in ``TROUBLESHOOTING.md``.
+
+    This judge has existed since 2026-10-01 as a script living **inside an archived task
+    directory** (``10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/``) -- where
+    the archive is read-only and nothing ever ran it.  Measured 2026-10-11: it was **red**
+    (``missing=4``) while the doc it guards still claimed ``coverage: PASS``, because a
+    judge nobody runs is a judge that goes stale silently.  Moved here to the shape of the
+    other text gates and wired into ``_cmd_preflight``: it has to live where it runs.
+
+    The definition is ported **verbatim** from that script (the three constants above);
+    only the root (``REPO_ROOT``) and the scan surface differ -- recursive
+    ``ctl/**/*.py``, which the original's flat ``ctl`` + ``ctl/verify`` scan measured
+    equal to, and which keeps seeing any error string added under ``ctl/verify/cases/``.
+
+    Known blind spot, kept from the original: matching is by **substring**, so merely
+    *mentioning* a candidate fragment anywhere in the doc -- even while describing the
+    gap -- counts as covered.  Do not read "green" as "every row has a fix".
+    """
+    doc_path = os.path.join(REPO_ROOT, "TROUBLESHOOTING.md")
+    if not os.path.isfile(doc_path):
+        return (False, "TROUBLESHOOTING.md not found")
+    with open(doc_path, encoding="utf-8", errors="replace") as fh:
+        doc = fh.read()
+
+    seen: set = set()
+    checked = exempt = missing = 0
+    problems: List[str] = []
+    for template, loc in _error_templates():
+        key = re.sub(r"%[sdr]", "\x00", template)
+        if key in seen:
+            continue
+        seen.add(key)
+        if any(template.startswith(e) for e in _ERR_TEMPLATE_EXEMPT):
+            exempt += 1
+            continue
+        checked += 1
+        cands = _error_template_candidates(template)
+        if not any(c in doc for c in cands):
+            missing += 1
+            problems.append("%s: %r" % (loc, max(cands, key=len) if cands else ""))
+    line = ("%d template(s) from ctl; %d checked; %d exempt; %d missing"
+            % (len(seen), checked, exempt, missing))
+    if problems:
+        return False, line + " -- " + "; ".join(problems)
+    return True, line
+
+
 def _stdlib_only_check() -> Tuple[bool, str]:
     """Every shipped Python module must import stdlib (or ``ctl``) only.
 
@@ -2198,6 +2303,11 @@ def _cmd_preflight(args) -> int:
 
     ok, detail = _machine_path_check()
     print("[%s] no machine-local paths: %s" % ("PASS" if ok else "FAIL", detail))
+    if not ok:
+        problems += 1
+
+    ok, detail = _error_string_coverage_check()
+    print("[%s] CLI error-string coverage: %s" % ("PASS" if ok else "FAIL", detail))
     if not ok:
         problems += 1
 

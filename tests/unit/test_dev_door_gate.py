@@ -51,7 +51,8 @@ _SCANNED_FILES = (("root README", "README.md"), ("skill index", "skill/SKILL.md"
 #: 以**测试自己的字面量**钉住，而不是复用实现里的任何集合。
 _PREFLIGHT_ITEMS = ("doctor", "verify", "doc/CLI command consistency",
                     "developer-door leak check", "skill/library-name consistency",
-                    "stdlib-only imports", "no machine-local paths", "CHANGELOG")
+                    "stdlib-only imports", "no machine-local paths",
+                    "CLI error-string coverage", "CHANGELOG")
 
 
 def _scanned_count(detail: str) -> int:

@@ -132,6 +132,24 @@
 
 ### Added
 
+- **`preflight` 第九项：CLI 错误串覆盖（A12）**（2026-10-11）：判据此前是一份躺在**归档任务目录**里的脚本
+  （`.trellis/tasks/archive/2026-10/10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`）
+  —— 归档是只读路径、`preflight` 也不跑它，于是**实测已红**
+  （`templates=62 checked=61 exempt=1 missing=4`）而它守的那份文档仍写着 `coverage: PASS`（2026-10-05 的旧读数）。
+  现搬进 `ctl/__main__.py`（`_error_string_coverage_check()`），判据**逐字沿用**归档脚本的定义，只换两处：
+  根换成 `REPO_ROOT`、扫描面换成递归 `ctl/**/*.py`（实测递归与原逐层 `ctl`+`ctl/verify` **等量**，
+  且将来 `ctl/verify/cases/` 里出现错误串也看得见）。
+  · **补表前**它逐条点名四条，与归档脚本**逐字相同**：`cannot emit java_target`(`ctl/__main__.py:558`)、
+  `WARN: auto_gc failed`(`:803`)、`< 1 is refused, nothing deleted`(`ctl/lifecycle.py:1049`)、
+  `aborted with no deletion`(`:1100`)；四条处置行已补进 `TROUBLESHOOTING.md` §7，那段里的过期读数也改成闸门的当前读数。
+  · 一处**刻意**的差异：闸门不把**自己的标记常量**数成一条错误串（加它计数 62→63 而没多出任何待办）；
+  归档脚本会数 ⇒ 两边 `templates=` 差 1，**不是回归**（写进了那份文档）。
+  · 脚本的 `--falsify` 自测能力换成单测（删掉一条正被引用的覆盖字面量 ⇒ 点名该模板；恢复 ⇒ 绿），
+  另加一条子目录探针（`ctl/verify/`）钉住"递归"这个声明本身。
+  **判据（复跑）**：`python -c "from ctl.__main__ import _error_string_coverage_check as f; print(f())"`
+  ⇒ `(True, '62 template(s) from ctl; 61 checked; 1 exempt; 0 missing')`；
+  `python -m unittest tests.unit.test_error_coverage_gate`（4 条）与全量 343 条全绿。
+
 - **`ctl install --keep-workspace`：保留已有 run 工作区**（2026-10-06）：
   `install` 此前每次都在 `prepare_run(paths, fresh_workspace=True)` 处清空工作区
   （改动前 `ctl/lifecycle.py:736`；`git show HEAD:ctl/lifecycle.py | grep -n fresh_workspace=True`），

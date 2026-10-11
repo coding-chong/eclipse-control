@@ -146,6 +146,8 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `bridge source missing` | `ERR internal` / **2** | 桥源码树缺失。确认 `bridge/src` 在仓里。<br>`ctl/lifecycle.py:395` |
 | `dangerous console command refused` | `ERR disabled` / **1** | 同上行（控制台路径）。<br>`ctl/console.py:65` |
 | `endpoint.json for run '` | `ERR notfound` / **1** | `endpoint.json` 里没有 `port` 字段（文件损坏）。重装该 run。<br>`ctl/client.py:88` |
+| `< 1 is refused, nothing deleted` | **警告**（rc 不变） | 配置里 `keep_runs` < 1 ⇒ 自动回收**一个 run 都不删**（fail-closed：只留至少 1 个才是回收）。要自动回收就把它设 ≥ 1。<br>`ctl/lifecycle.py:1049` |
+| `aborted with no deletion` | **警告**（rc 不变） | 回收途中抛了异常 ⇒ **一个 run 都不删**（fail-closed：宁可不收，也不收一半）。后缀里带异常类型与正文，按它自带的 `retry:` 提示手动跑一次。<br>`ctl/lifecycle.py:1100` |
 | `endpoint.json unreadable for run '` | `ERR notfound` / **1** | `endpoint.json` 读不了。删掉该 run 重装。<br>`ctl/client.py:84` |
 | `ERR notfound no shadow record with seq=` | `ERR notfound` / **1** | 该 run 的影子里没有这个 `seq`。先 `ctl shadow --run-id <id>` 看清单。<br>`ctl/__main__.py:1377` |
 | `ERR notfound no such subcommand` | `ERR notfound` / **1** | 子命令拼写错。`design-obs-ux.md` §14.3 是命令面的准绳。<br>`ctl/__main__.py:1927` |
@@ -177,9 +179,11 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 | `unknown recipes action` | `ERR badrequest` / **1** | `recipes` 的子动作拼错。<br>`ctl/__main__.py:1096` |
 | `unknown targets action` | `ERR badrequest` / **1** | `targets` 的子动作拼错。<br>`ctl/__main__.py:831` |
 | `verify needs --case, --group or --all` | `ERR badrequest` / **1** | `verify` 必须给 `--case` / `--group` / `--all` 之一。<br>`ctl/__main__.py:1449` |
+| `cannot emit java_target` | doctor 报告行 / **2** | 目标树自带的 ECJ 编不出该 target 的 `java_target` 级别：探测**退出码为正** = 编译器拒绝，**为负** = JVM 崩了（报的是原本的负码）。按该行自带的 `retry:` 提示降 `java_target`，或换更新的 ECJ；doctor 判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:558` |
 | `cannot write under` | doctor 报告行 | `run_root` 不可写：换 `--config` 指到可写目录。doctor 会因此判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:605` |
 | `in use by foreign pid(s` | doctor 报告行 | 端口被**外来进程**占用：`doctor --ensure-clean` 清场，或换端口。doctor 判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:557` |
 | `protocol` | doctor 报告行 | 桥协议版本与客户端不符：按 §2「`sys.env` 缺 `protocol=`」处置。doctor 判 FAIL ⇒ **退出码 2**。<br>`ctl/__main__.py:619` |
+| `WARN: auto_gc failed` | **警告**（rc 不变） | 关实例 / 卸载**收尾**时的自动回收炸了 ⇒ 只打一行警告，**不影响本次命令自己的结论**。按它自带的 `retry:` 提示手动收一次。<br>`ctl/__main__.py:803` |
 | `warning: bridge reported total=` | **警告**（rc 不变） | 命令表被截断（`total > returned`）。见 §2「命令表导出条数异常」行；不要拿半份导出当权威。<br>`ctl/__main__.py:944` |
 | *(无字面量，见右列)* | `badrequest` / `notfound` / **1** | **兜底模板**：argparse 用法错误统一走这里（`invalid choice` ⇒ `notfound`，其余 ⇒ `badrequest`）。<br>`ctl/__main__.py:116` |
 | `invalid run-id` | `ERR badrequest` / **1** | run-id 形状不合法（含路径分隔符 / 前导点 / 空格 / 空串）。用**字母数字开头**、只含 `[A-Za-z0-9._-]` 的**单个路径分量**；或省掉 `--run-id` 交给 `make_run_id` 生成。<br>`ctl/lifecycle.py:107` |
@@ -192,11 +196,16 @@ pwsh -NoProfile -File tools/shot-window-pw.ps1 -TitleLike "GS32_Studio" -Out "<R
 > **兜底说明**：`ctl/__main__.py` 里的 argparse `error()` 覆写是所有用法错误的统一出口，
 > 它按 `invalid choice` 分派码（子命令拼错 ⇒ `notfound`，其余 ⇒ `badrequest`）。
 >
-> **本表的覆盖度由脚本判定，不由这句话判定**（判据会漂，故不写死数字）。复跑：
-> `python <工作区>/.trellis/tasks/archive/2026-10/10-01-eclipse-ctl-dialog-rc-and-troubleshooting/research/check-error-coverage.py`
-> （`--repo D:/gitclone/eclipse-ctl`；判据 = 把模板按 `%s/%d/%r` 切段，取 **≥6 字符**的片段，
-> 只要有**一段**能在本表原样 grep 命中即算覆盖；**脚本随该任务已归档**，路径见上）。
-> **实测（2026-10-05）**：`templates=58 checked=57 exempt=1 missing=0` ⇒ **`coverage: PASS`**。
+> **本表的覆盖度由闸门判定，不由这句话判定**（判据会漂，故不写死数字）。复跑：
+> `python -c "from ctl.__main__ import _error_string_coverage_check as f; print(f())"`
+> （判据 = 把模板按 `%s/%d/%r` 切段，取 **≥6 字符**的片段，
+> 只要有**一段**能在本表原样 grep 命中即算覆盖）。
+> **判据自 2026-10-11 起在产品仓内**（`ctl/__main__.py`），并随 `python -m ctl preflight` **自动跑** ——
+> 此前它是一份躺在归档任务目录里的脚本，没人跑也不好改，于是**实测漂到 `missing=4` 而本节仍写着 PASS**
+> （这正是"判据够不着它守的东西"的形状；`deliverable-shape.md` C8 / C19）。
+> **实测（2026-10-11）**：`62 template(s) from ctl; 61 checked; 1 exempt; 0 missing` ⇒ **`coverage: PASS`**。
+> （同一时刻归档脚本报 `templates=63`：差 1 是因为它把闸门自己的标记常量也数成了一条模板；
+> 产品仓侧按等值把它过滤掉了 —— 数字不同不是回归。）
 > ⚠️ **判据自身的盲区（实测踩到）**：它按**子串**命中 —— 正文里（哪怕是在描述缺口时）
 > **提到**某个候选串，就会把对应模板算成"已覆盖"。所以**别在本段里罗列那些串**，
 > 也别把"提到了"当成"写好了处置行"。
