@@ -25,8 +25,13 @@ python -m ctl verify --case  read.ping --target gs32 --run-id dev
 ```
 
 - 退出码：`0` **没有任何结论是 FAIL**（**含 `[SKIP]`** —— 跳过也是 `0`，别读成"全过"）/ `1` 有 FAIL 结论 / `2` 前置未就绪（无实例、target 不认识、缺 `pwsh`）。**读判据行，不要只读 `rc`**。
-- **回归基线**（2026-10-09，**28 用例**，**GS32**）：`--all` = **26 PASS + 2 SKIP / 0 FAIL**，`rc=0`
-  （两条 SKIP = `read.console`（该实例的 Console 视图没有 console 页）＋ `board.led_chase`
+- **回归基线**（**28 用例**，**GS32**）：`--all` = **26 PASS + 2 SKIP / 0 FAIL**，`rc=0`
+  （2026-10-09；**工作点：GS32 板在位** —— 由该轮两条 SKIP 的名字反推：`board.led.chase.gs32` 当轮是 PASS）。
+  ⚠️ **这条基线是工作点的函数，引用时必须带上"板在不在位"**（`measurement-hygiene` §13.8 反例 B）：
+  同一台机、同一份代码、**板不在位**时实测 = **25 PASS + 3 SKIP / 0 FAIL**（`rc=0`，2026-10-11），
+  多出的那条 SKIP 正是 `board.led.chase.gs32`（openocd 与 `Get-PnpDevice` **两条通道一致**报 absent
+  ⇒ 按 C14，判词点名了是哪条通道说了什么）。
+  （两条常驻 SKIP 的成因：`read.console`（该实例的 Console 视图没有 console 页）＋ `board.led_chase`
   （`targets=("ccs12",)`；`--all` **不按 target 过滤**，会给不适用 target 的用例各记一条 SKIP
   ⇒ 用例集一变，**两侧的合计都要重跑**）。
   ⚠️ 同日的**第一次**整列跑（**同期有并发负载** —— `measurement-hygiene` §1）出过 **1 条 FAIL**
