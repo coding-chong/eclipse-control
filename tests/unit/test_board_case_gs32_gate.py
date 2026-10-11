@@ -15,8 +15,10 @@ Two shapes this file exists for (`deliverable-shape.md`):
 * **C12** -- one mutation per predicate.  `ExpectLedgerTest` reddens exactly the
   predicate it weakens (never a neighbour's), `OverlayGateTest` does the same for the
   payload gates, `RanCriterionTest` pins the three shapes of a driven command's frame,
-  and `ChannelStateTest` gives each of C14's four channel states its own wording so they
-  cannot be confused for one another.
+  `ChannelStateTest` gives each of C14's four channel states its own wording so they
+  cannot be confused for one another, and `RamConfigAndLaunchSeedTest` gives the seed's
+  own read-backs -- the artifact, the build-configuration id, the model -- one mutation
+  each.
 
 Nothing here touches a board, `GS32.exe` or the bridge.  `_expect` is driven with
 synthetic results, `_overlay` with a synthetic two-file template, `_ran` with synthetic
@@ -1148,6 +1150,48 @@ class RamConfigAndLaunchSeedTest(unittest.TestCase):
         self.assertFalse(out["ok"], out)
         self.assertIn("PROGRAM_NAME=%r" % _FLASH_PROGRAM_NAME, out["error"])
         self.assertIn("%r" % _PROGRAM_NAME, out["error"])
+
+    def test_a_launch_whose_model_has_no_p_suffix_is_a_named_failure(self):
+        """The counter-example for the model (AC6's ④, C12): the value handed in **is** the
+        factory's non-`P` model, so a seeded launch that carries it must redden by name --
+        and no other predicate may redden with it.
+
+        ⚠️ The mutation is that value, **not** the text on disk on purpose.  Mutating the
+        disk text would redden the needle loop above instead ("does not carry the part
+        number"), and that needle cannot stand in for this guard: its expectation is
+        spelled from `plan["chip"]` -- the same expression that writes the value -- so it
+        agrees with whatever `chip` holds (C17).  Measured 2026-10-11: with the guard
+        written as a raw-quote pattern over the whole file (which the XML-escaped text
+        never matches), `chip="GS32F035"` came back `ok=True`."""
+        project = self._copy()
+        plan = {"project": project, "workspace": os.path.dirname(project),
+                "config": case._CONFIG, "serial": case._SERIAL, "chip": "GS32F035"}
+        out = case._seed_launch(_Ctx(), plan, "gs32f035", _BUILD_CONFIG_ID)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("without the P suffix", out["error"])
+        self.assertIn("'GS32F035'", out["error"])
+        self.assertNotIn("PROGRAM_NAME=", out["error"])
+        self.assertNotIn("PROJECT_BUILD_CONFIG_ID_ATTR", out["error"])
+        self.assertNotIn("does not carry the part number", out["error"])
+
+    def test_the_model_is_read_out_of_the_escaped_gdbserverother_value(self):
+        """`_launch_model`'s own contract (C17): the **value**, out of the key that carries
+        it, unescaped on the way out.  The file stores those quotes as `&quot;`, so a
+        pattern spelled for the raw form matches nothing -- that is exactly why the guard
+        above stayed green for every model until 2026-10-11, and this pin is what stops
+        it being "simplified" back into that shape.  Both sides are this file's own
+        literals; the escaped line is the shape measured on disk."""
+        escaped = ('<stringAttribute '
+                   'key="ilg.gnumcueclipse.debug.gdbjtag.openocd.gdbServerOther" '
+                   'value="-c &quot;set gs32_adapter_serial GJBDRPSSA&quot; '
+                   '-c &quot;set gs32_model GS32F035P&quot; '
+                   '-c &quot;set gs32_cfg_mode 2&quot;"/>')
+        self.assertEqual(case._launch_model(escaped), "GS32F035P")
+        self.assertEqual(case._launch_model(""), "")
+        self.assertEqual(
+            case._launch_model(escaped.replace("set gs32_model GS32F035P",
+                                               "set gs32_model GS32F035")),
+            "GS32F035")
 
 
 if __name__ == "__main__":  # pragma: no cover

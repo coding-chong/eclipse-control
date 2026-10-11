@@ -1686,6 +1686,29 @@ def _launch_build_config_id(text: str) -> str:
     return found.group(1) if found else ""
 
 
+def _launch_model(text: str) -> str:
+    """The `gs32_model` value a `.launch` hands OpenOCD, `""` when it names none.
+
+    Read out of the `gdbServerOther` **value**, then out of the `-c "set gs32_model X"`
+    argument inside it -- the **value**, never "is this string somewhere in the file"
+    (same rule as `_launch_program_name`).
+
+    ⚠️ The value is XML-escaped on disk (`&quot;`), because that is how `_seed_launch`
+    writes it.  A pattern spelled for the raw form therefore matches **nothing** --
+    measured 2026-10-11: the P-suffix guard below used to be written that way, and it
+    accepted every model including `GS32F035` (`_seed_launch` returned `ok=True` for it,
+    in-process, with the escaped line visible on disk).  Do not "simplify" this back to a
+    whole-file `re.search`: the escape is the reason the guard was unreachable.
+    """
+    found = re.search(
+        r'key="ilg\.gnumcueclipse\.debug\.gdbjtag\.openocd\.gdbServerOther" value="([^"]*)"',
+        text)
+    if not found:
+        return ""
+    model = re.search(r'set gs32_model ([A-Za-z0-9_]+)', found.group(1))
+    return model.group(1) if model else ""
+
+
 def _seed_launch(ctx, plan: Dict[str, Any], name: str,
                  build_config_id: str) -> Dict[str, Any]:
     """Seed this case's own launch configuration, in the project **and** over the SDK's.
@@ -1823,9 +1846,17 @@ def _seed_launch(ctx, plan: Dict[str, Any], name: str,
                    if not written else ""))
             return out
 
-    if re.search(r'set gs32_model GS32F03[0-9]+"', back):
+    # The model, by **value**, out of the key that carries it (`_launch_model`).  What the
+    # needle loop above asserts is that the write landed; this asserts the value is not
+    # the one the factory ships -- the non-`P` model, whose **absence** is the whole
+    # reason `R3` insists on seeding our own launch (`allow_gs32_model` and its `P`).
+    # ⚠️ Independent of the writer on purpose: the needle is spelled from `plan["chip"]`
+    # (the same expression that wrote it), so it can only report "the write happened",
+    # never "the value is wrong"; the family below is the independent half.
+    model = _launch_model(back)
+    if re.fullmatch(r"GS32F03[0-9]+", model):
         out["error"] = ("the seeded launch still carries a model without the P suffix "
-                        "(%r)" % re.search(r'set gs32_model ([A-Z0-9]+)', back).group(1))
+                        "(%r)" % model)
         return out
     out["ok"] = True
     ctx.note("launch: seeded %d file(s): %s; PROGRAM_NAME=%s; build config id=%s"
