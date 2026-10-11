@@ -10,6 +10,13 @@
 
 ### Fixed
 
+- **README 的目录表补全**（2026-10-11）：`CONTRIBUTING.md` / `CHANGELOG.md` / `SECURITY-REVIEW.md` 三份根文档
+  此前**一个都没登记**（`CONTRIBUTING.md` 是本轮新加的），现补上；并写明 `commands.json` / `COMMANDS.md`
+  与配方库**为何不列**（`DEVELOPING.md` 的 R11′.3：它们是开发者工具，按 C5 留在仓里但不进用户面）。
+  **补表时被门禁抓了一次**：那段说明里写了字面 token `recipes` ⇒ `_dev_door_leak_check` 当场点名
+  `README.md:246: recipes`。这是"门禁有效"的又一处实证（措辞改掉后即绿）——也提醒一件事：
+  **提交要串在门的退出码之后**，不能把 `git commit` 无脑接在检查输出后面（本轮第一次就是那样，红了还提交了，随即 amend 修回）。
+
 - **README 把《故障排查》标成维护者页；用户面的边界写进 C5**（2026-10-11，**用户裁定**）：
   该页的恢复行成排写着维修仪器（`install` / `uninstall` / `upgrade` / `verify` / `recipes`），
   而开发者门的扫描面只有 `README.md` + `skill/**` —— 这是"有意排除"还是"漏了"以前没人说得清。
